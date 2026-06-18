@@ -1,0 +1,22 @@
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# PyInstaller and packaged app outputs
+build/
+dist/
+*.app/
+*.pkg
+
+# Arduino / editor temporary files
+*.tmp
+*.bak
+
+# Logs
+*.log
