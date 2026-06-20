@@ -30,6 +30,15 @@ arduino-cli upload -p /dev/cu.usbmodem1101 --fqbn adafruit:samd:adafruit_feather
 
 Port names vary by computer and OS.
 
+## PCB Schematics
+
+Hardware schematic PDFs are kept in this repo for quick reference:
+
+| PCB | Schematic |
+| --- | --- |
+| Transmitter V2 | `Transmitter-V2-Schematic.pdf` |
+| Receiver V4 | `Receiver-V4-Schematic.pdf` |
+
 ## Transmitter
 
 ### Transmitter Pinout
