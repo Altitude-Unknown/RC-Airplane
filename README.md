@@ -57,6 +57,19 @@ pyinstaller --windowed --name "Walach Aviation Transmitter Configurator" fram_gu
 # Result: dist/Walach\ Aviation\ Transmitter\ Configurator.app
 ```
 
+Raspberry Pi OS (64-bit) — released executable
+
+Download `Walach-Aviation-Transmitter-Configurator-Raspberry-Pi-ARM64.zip`
+from the GitHub release, unzip it, and run:
+
+```bash
+chmod +x "Walach Aviation Transmitter Configurator"
+./"Walach Aviation Transmitter Configurator"
+```
+
+This build is for 64-bit Raspberry Pi OS on ARM64 hardware (such as Pi 3, 4,
+or 5). It is not compatible with 32-bit Raspberry Pi OS.
+
 Notes & troubleshooting
 - Serial ports differ by OS: Windows uses `COMx`; macOS uses `/dev/tty.*` or `/dev/cu.*`.
 - If `tkinter` is missing on Windows, install the official Python installer from python.org and enable tcl/tk.

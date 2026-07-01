@@ -7,8 +7,12 @@ L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
 
 let markers = new Map();
 let route = L.polyline([], { color: '#0f7f8f', weight: 3 }).addTo(map);
+let currentLocationMarker = null;
+let currentLocationAccuracy = null;
 let latestSignature = '';
+let latestMission = null;
 let hasFitMission = false;
+let locateStatus = 'Use Locate to center the map on your current location.';
 
 function waypointIcon(number, selected) {
   return L.divIcon({
@@ -25,6 +29,101 @@ async function postJSON(url, payload) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload)
   });
+}
+
+const LocateControl = L.Control.extend({
+  options: {
+    position: 'topleft'
+  },
+
+  onAdd() {
+    const container = L.DomUtil.create('div', 'leaflet-bar locate-control');
+    const button = L.DomUtil.create('button', 'locate-button', container);
+    button.type = 'button';
+    button.title = 'Center map on current location';
+    button.setAttribute('aria-label', 'Center map on current location');
+    button.textContent = 'Locate';
+
+    L.DomEvent.disableClickPropagation(container);
+    L.DomEvent.on(button, 'click', event => {
+      L.DomEvent.stop(event);
+      locateMe(button);
+    });
+
+    return container;
+  }
+});
+
+map.addControl(new LocateControl());
+
+function setLocateStatus(message) {
+  locateStatus = message;
+  if (latestMission) updateHud(latestMission);
+}
+
+function locateMe(button) {
+  if (!navigator.geolocation) {
+    setLocateStatus('Location is not available in this browser.');
+    return;
+  }
+
+  button.disabled = true;
+  button.classList.add('busy');
+  setLocateStatus('Requesting location permission...');
+
+  navigator.geolocation.getCurrentPosition(
+    position => {
+      const latLng = [position.coords.latitude, position.coords.longitude];
+      const accuracy = position.coords.accuracy || 0;
+
+      if (!currentLocationMarker) {
+        currentLocationMarker = L.marker(latLng, {
+          title: 'Current location',
+          zIndexOffset: 1000
+        }).addTo(map);
+      }
+      currentLocationMarker
+        .setLatLng(latLng)
+        .bindPopup(
+          '<strong>Current location</strong><br>' +
+          `Lat: ${latLng[0].toFixed(7)}<br>` +
+          `Lon: ${latLng[1].toFixed(7)}<br>` +
+          `Accuracy: ${Math.round(accuracy)} m`
+        );
+
+      if (!currentLocationAccuracy) {
+        currentLocationAccuracy = L.circle(latLng, {
+          radius: accuracy,
+          color: '#2563eb',
+          weight: 1,
+          fillColor: '#3b82f6',
+          fillOpacity: 0.12
+        }).addTo(map);
+      }
+      currentLocationAccuracy.setLatLng(latLng);
+      currentLocationAccuracy.setRadius(accuracy);
+
+      map.setView(latLng, Math.max(map.getZoom(), 15));
+      setLocateStatus(`Location centered, accuracy about ${Math.round(accuracy)} m.`);
+      button.disabled = false;
+      button.classList.remove('busy');
+    },
+    error => {
+      const messages = {
+        1: 'Location permission was denied.',
+        2: 'Location position is unavailable.',
+        3: 'Location request timed out.'
+      };
+      setLocateStatus(messages[error.code] || 'Location request failed.');
+      button.disabled = false;
+      button.classList.remove('busy');
+    },
+    {
+      enableHighAccuracy: true,
+      timeout: 10000,
+      maximumAge: 30000
+    }
+  );
 }
 
 map.on('click', async event => {
@@ -46,6 +145,7 @@ async function refreshMission() {
     });
     if (signature === latestSignature) return;
     latestSignature = signature;
+    latestMission = mission;
     renderMission(mission);
   } catch (err) {
     document.getElementById('hud').innerHTML =
@@ -54,6 +154,7 @@ async function refreshMission() {
 }
 
 function renderMission(mission) {
+  latestMission = mission;
   const waypoints = mission.waypoints || [];
   const selectedId = mission.selected_waypoint_id;
   const seen = new Set();
@@ -114,7 +215,8 @@ function updateHud(mission) {
     `<strong>${mission.name || 'Mission Planner'}</strong>` +
     `<span>Waypoints: ${waypoints.length}</span><br>` +
     `<span>${selectedText}</span><br>` +
-    '<span>Click map to add waypoint.</span>';
+    '<span>Click map to add waypoint.</span><br>' +
+    `<span>${locateStatus}</span>`;
 }
 
 refreshMission();
