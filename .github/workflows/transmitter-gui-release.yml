@@ -27,6 +27,7 @@ jobs:
             asset_name: Walach-Aviation-Transmitter-Configurator-macOS-ARM64.zip
             build_cmd: python -m PyInstaller --clean --noconfirm "Walach Aviation Transmitter Configurator.spec"
             package_cmd: ditto -c -k --sequesterRsrc --keepParent "dist/Walach Aviation Transmitter Configurator.app" "Walach-Aviation-Transmitter-Configurator-macOS-ARM64.zip"
+            app_path: dist/Walach Aviation Transmitter Configurator.app
           - name: Windows
             os: windows-latest
             asset_name: Walach-Aviation-Transmitter-Configurator-Windows-x64.zip
@@ -60,8 +61,67 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt pyinstaller
 
+      - name: Require Apple signing secrets
+        if: runner.os == 'macOS'
+        env:
+          MACOS_CERTIFICATE_BASE64: ${{ secrets.MACOS_CERTIFICATE_BASE64 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          MACOS_KEYCHAIN_PASSWORD: ${{ secrets.MACOS_KEYCHAIN_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+        run: |
+          missing=0
+          for name in MACOS_CERTIFICATE_BASE64 MACOS_CERTIFICATE_PASSWORD MACOS_KEYCHAIN_PASSWORD APPLE_ID APPLE_TEAM_ID APPLE_APP_SPECIFIC_PASSWORD; do
+            if [ -z "${!name}" ]; then
+              echo "::error::$name is required for a macOS release that users can open normally."
+              missing=1
+            fi
+          done
+          exit "$missing"
+
+      - name: Import Apple Developer ID certificate
+        if: runner.os == 'macOS'
+        env:
+          MACOS_CERTIFICATE_BASE64: ${{ secrets.MACOS_CERTIFICATE_BASE64 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          MACOS_KEYCHAIN_PASSWORD: ${{ secrets.MACOS_KEYCHAIN_PASSWORD }}
+        run: |
+          KEYCHAIN_PATH="$RUNNER_TEMP/app-signing.keychain-db"
+          CERTIFICATE_PATH="$RUNNER_TEMP/developer-id.p12"
+
+          echo "$MACOS_CERTIFICATE_BASE64" | base64 --decode > "$CERTIFICATE_PATH"
+          security create-keychain -p "$MACOS_KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$MACOS_KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERTIFICATE_PATH" -P "$MACOS_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security list-keychain -d user -s "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$MACOS_KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          DETECTED_IDENTITY="$(security find-identity -v -p codesigning "$KEYCHAIN_PATH" | sed -n 's/.*"\(Developer ID Application:.*\)"/\1/p' | head -n 1)"
+          if [ -z "$DETECTED_IDENTITY" ]; then
+            echo "::error::No Developer ID Application identity found in imported certificate."
+            exit 1
+          fi
+          echo "APPLE_DETECTED_SIGNING_IDENTITY=$DETECTED_IDENTITY" >> "$GITHUB_ENV"
+
       - name: Build app
         run: ${{ matrix.build_cmd }}
+
+      - name: Sign and notarize macOS app
+        if: runner.os == 'macOS'
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+        run: |
+          codesign --force --deep --options runtime --timestamp --sign "$APPLE_DETECTED_SIGNING_IDENTITY" "${{ matrix.app_path }}"
+          codesign --verify --deep --strict --verbose=2 "${{ matrix.app_path }}"
+
+          ditto -c -k --sequesterRsrc --keepParent "${{ matrix.app_path }}" "notary-submit-${{ matrix.asset_name }}"
+          xcrun notarytool submit "notary-submit-${{ matrix.asset_name }}" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --wait
+          xcrun stapler staple "${{ matrix.app_path }}"
+          xcrun stapler validate "${{ matrix.app_path }}"
 
       - name: Package app
         run: ${{ matrix.package_cmd }}
