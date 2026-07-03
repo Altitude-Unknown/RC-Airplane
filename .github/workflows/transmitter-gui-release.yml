@@ -160,7 +160,18 @@ jobs:
           RELEASE_TAG: ${{ steps.release_tag.outputs.tag }}
         shell: bash
         run: |
-          gh release create "$RELEASE_TAG" release-assets/*.zip \
+          release_notes="Transmitter GUI builds for macOS ARM64, Windows x64, and Raspberry Pi OS ARM64. The macOS build is Developer ID signed, notarized, and stapled."
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release edit "$RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "Transmitter GUI ${RELEASE_TAG#transmitter-gui-v}" \
+              --notes "$release_notes"
+          else
+            gh release create "$RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "Transmitter GUI ${RELEASE_TAG#transmitter-gui-v}" \
+              --notes "$release_notes"
+          fi
+          gh release upload "$RELEASE_TAG" release-assets/*.zip \
             --repo "$GITHUB_REPOSITORY" \
-            --title "Transmitter GUI ${RELEASE_TAG#transmitter-gui-v}" \
-            --notes "Transmitter GUI builds for macOS ARM64, Windows x64, and Raspberry Pi OS ARM64."
+            --clobber
