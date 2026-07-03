@@ -101,5 +101,6 @@ jobs:
         shell: bash
         run: |
           gh release create "$RELEASE_TAG" release-assets/*.zip \
+            --repo "$GITHUB_REPOSITORY" \
             --title "Transmitter GUI ${RELEASE_TAG#transmitter-gui-v}" \
             --notes "Transmitter GUI builds for macOS ARM64, Windows x64, and Raspberry Pi OS ARM64."
