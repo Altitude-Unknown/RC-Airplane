@@ -25,13 +25,31 @@ The experimental receiver for this work is:
 
 - Same LoRa receive, bind, arming, and staged failsafe structure as the proven receiver
 - LSM6DS IMU bring-up over I2C
-- Complementary-filter roll/pitch estimate scaffold
-- Stick-release detection using centered aileron and elevator
+- Guarded gyro/accel roll/pitch estimator for autolevel
+- Preflight level capture after arming, throttle low, sticks centered, and IMU steady
+- Stick-release detection using captured transmitter aileron/elevator neutral
 - Autolevel correction mixed into aileron and elevator outputs
 - Pressure-sensor placeholder for `MS5607-02BA03`:
   - probes `0x76` and `0x77`
   - reports whether a baro device is seen
   - does not yet implement altitude calculation because we still need to confirm the live interface and reading path on hardware
+
+## Current State As Of 2026-07-05 Night
+
+The latest flashed Rx V4 experimental build is on:
+
+- branch: `feature/autolevel-altitude-hold`
+- commit: `b7358f4 Tune Rx V4 experimental autolevel`
+- sketch: `rx_V4__firmware/rx_V4__firmware.ino`
+
+Important: this work intentionally stays in `rx_V4__firmware`. The proven/older receiver sketch remains in `rx_firmware/rx_firmware.ino`.
+
+Bench status:
+
+- Aileron autolevel correction looked good after switching away from the bad roll complementary-filter/rate path.
+- Elevator autolevel correction looked good after applying guarded pitch fusion and direct pitch-angle correction.
+- Wrong-way aileron twitch and hard opposite correction at center disappeared during bench testing.
+- This is still experimental flight-test firmware, not a proven flight-ready autopilot.
 
 ## Current Autolevel Logic
 
@@ -42,33 +60,61 @@ Autolevel becomes eligible only when all of these are true:
 - not in bind mode
 - not in ESC mode
 - IMU is detected and sampling
-- aileron and elevator sticks stay near center for `300 ms`
+- transmitter neutral has been captured after arming
+- no launch lockout is active (`launchAutolevelLockoutMs = 0` for the current test build)
+- aileron and elevator sticks stay near captured neutral for `1500 ms`
+
+Preflight neutral/level capture happens after arming when all of these are true:
+
+- throttle is low
+- link is fresh
+- aileron/elevator sticks are near center
+- IMU attitude is initialized
+- gyro roll/pitch rates are below `8 deg/s`
+- current attitude is within `45 deg` of the saved Rx V4 calibration
+- the airplane remains steady through the `1000 ms` capture window
+
+The capture stores:
+
+- transmitter aileron neutral
+- transmitter elevator neutral
+- current roll attitude as the level roll target
+- current pitch attitude as the level pitch target
+
+Power-on attitude does not define level. If the battery is plugged in while the airplane is held at an odd angle, that angle is ignored. The airplane must be placed or held in the intended level-flight attitude during the post-arm capture.
 
 When active:
 
 - rudder stays manual
-- aileron gets a roll-level correction
-- elevator gets a pitch-level correction
+- aileron gets direct roll-angle correction
+- elevator gets direct pitch-angle correction
 - throttle stays manual unless altitude hold is later enabled with a working baro driver
+- moving aileron or elevator outside the `35 us` neutral deadband immediately drops back to manual control
 
 ## Important Tuning Values
 
-These are intentionally conservative starting points:
+Latest bench-tuned values:
 
 - stick deadband: `35 us`
-- engage delay: `300 ms`
-- level proportional gain: `7 us/deg`
-- level damping gain: `1.4 us/(deg/s)`
-- max aileron/elevator correction: `180 us`
+- stick-release engage delay: `1500 ms`
+- neutral/level capture hold: `1000 ms`
+- launch autolevel lockout: `0 ms`
+- roll angle gain: `9 us/deg`
+- roll rate damping: `0 us/(deg/s)` currently disabled
+- max aileron correction: `220 us`
+- pitch angle gain: `7 us/deg`
+- max elevator correction: `180 us`
+- guarded roll/pitch fusion accel gain: `0.30`
+- guarded fusion agreement threshold: `0.15 deg`
 
-These will almost certainly need tuning on the real airframe.
+These looked good on the bench, but they still need cautious flight validation on the real airframe.
 
 ## Known Unknowns For Tomorrow
 
-1. IMU axis orientation/signs still need to be confirmed on the real Rx V4 board.
+1. Flight-test behavior is still unknown under real acceleration, turbulence, and turns.
 2. Need to confirm how the `MS5607-02BA03` is wired on the live board and whether it responds on the expected bus/address.
 3. Baro driver and altitude hold are not active yet.
-4. This code compiles, but it has not yet been tested on hardware.
+4. Surface correction directions looked good on the bench, but must be rechecked before every flight test.
 
 ## Tomorrow's Bench Test Order
 
@@ -78,14 +124,19 @@ These will almost certainly need tuning on the real airframe.
    - `RX V4 autolevel experiment ready`
    - IMU detected address
    - whether a baro device is seen on `0x76` or `0x77`
-4. Move the receiver board by hand and verify:
+4. Put the airplane in intended level-flight attitude before post-arm capture
+5. Arm with throttle low and transmitter sticks centered
+6. Wait for neutral/level capture debug:
+   - `AP neutral captured`
+   - captured `calTargetRoll` / `calTargetPitch`
+7. Move the receiver board/airplane by hand and verify:
    - `roll` and `pitch` change sensibly
    - signs match real board motion
-5. Power the transmitter and verify packet reception
-6. Let go of aileron/elevator sticks and watch:
+8. Let go of aileron/elevator sticks and watch:
    - mode change from `MANUAL` to `LEVEL`
    - correction values become non-zero when the board is tilted
-7. Confirm servo directions are sensible before any flight test
+9. Touch aileron/elevator sticks and confirm immediate manual override
+10. Confirm servo directions are sensible before any flight test
 
 ## Before Any Flight
 
