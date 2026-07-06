@@ -166,6 +166,13 @@ const float IMU_ROLL_RATE_SIGN        = -1.0f;
 const float IMU_PITCH_RATE_SIGN       = 1.0f;
 const float AP_AILERON_CORRECTION_SIGN  = 1.0f;
 const float AP_ELEVATOR_CORRECTION_SIGN = -1.0f;
+const bool AP_BENCH_ACCEL_ONLY_ROLL = false;
+const bool AP_GUARDED_ROLL_FUSION = true;
+const bool AP_GUARDED_PITCH_FUSION = true;
+const float AP_ROLL_FUSION_ACCEL_GAIN = 0.30f;
+const float AP_PITCH_FUSION_ACCEL_GAIN = 0.30f;
+const float AP_ROLL_FUSION_MIN_DELTA_DEG = 0.15f;
+const float AP_PITCH_FUSION_MIN_DELTA_DEG = 0.15f;
 const uint32_t AP_DEBUG_PERIOD_MS = 50;
 
 struct ImuState {
@@ -203,8 +210,9 @@ struct AutopilotConfig {
   uint32_t stickReleaseHoldMs = 1500;
   uint32_t levelCaptureHoldMs = 1000;
   float levelCaptureMaxGyroDps = 8.0f;
+  float levelCaptureMaxOffsetDeg = 45.0f;
   uint16_t launchDetectThrottleUs = 1120;
-  uint32_t launchAutolevelLockoutMs = 8000;
+  uint32_t launchAutolevelLockoutMs = 0;
   float levelTargetRollDeg = IMU_CAL_LEVEL_ROLL_DEG;
   float levelTargetPitchDeg = IMU_CAL_LEVEL_PITCH_DEG;
   float rollTimeConstantS = 0.80f;
@@ -212,14 +220,15 @@ struct AutopilotConfig {
   float rollMaxRateDps = 45.0f;
   float pitchMaxRateDps = 35.0f;
   float rollAngleKpUsPerDeg = 9.0f;
-  float rollRateKdUsPerDps = 2.8f;
+  float rollRateKdUsPerDps = 0.0f;
+  float pitchAngleKpUsPerDeg = 7.0f;
   float pitchRateKpUsPerDps = 3.0f;
   uint16_t rollMaxCorrectionUs = 220;
-  uint16_t pitchMaxCorrectionUs = 140;
+  uint16_t pitchMaxCorrectionUs = 180;
   float rollCorrectionAlpha = 1.0f;
-  float pitchCorrectionAlpha = 0.80f;
+  float pitchCorrectionAlpha = 1.0f;
   int16_t rollMaxCorrectionStepUs = 90;
-  int16_t pitchMaxCorrectionStepUs = 22;
+  int16_t pitchMaxCorrectionStepUs = 90;
   float altitudeKpUsPerMeter = 45.0f;
   uint16_t altitudeMaxCorrectionUs = 120;
 };
@@ -340,6 +349,31 @@ static inline float normalizeAngleDeg(float deg) {
   return deg;
 }
 
+static inline float guardedFusionAngle(float previousEstimateDeg,
+                                       float accelAngleDeg,
+                                       float previousAccelAngleDeg,
+                                       bool havePreviousAccel,
+                                       float gyroRateDps,
+                                       float dt,
+                                       float accelGain,
+                                       float minDeltaDeg) {
+  float gyroDeltaDeg = gyroRateDps * dt;
+  float accelDeltaDeg = havePreviousAccel
+      ? normalizeAngleDeg(accelAngleDeg - previousAccelAngleDeg)
+      : 0.0f;
+  bool smallMotion =
+      fabsf(gyroDeltaDeg) < minDeltaDeg ||
+      fabsf(accelDeltaDeg) < minDeltaDeg;
+  bool gyroAgreesWithAccel =
+      smallMotion || ((gyroDeltaDeg * accelDeltaDeg) >= 0.0f);
+  float predictedAngle = normalizeAngleDeg(previousEstimateDeg + gyroDeltaDeg);
+  return gyroAgreesWithAccel
+      ? normalizeAngleDeg(predictedAngle +
+                          accelGain *
+                          normalizeAngleDeg(accelAngleDeg - predictedAngle))
+      : accelAngleDeg;
+}
+
 static inline int16_t smoothCorrection(int16_t previous, int16_t target, float alpha) {
   return (int16_t)lroundf((1.0f - alpha) * previous + alpha * target);
 }
@@ -413,8 +447,8 @@ void captureAutopilotNeutral() {
   apState.neutralCaptured = true;
   apState.sticksCenteredSince = 0;
   apState.sticksReleased = false;
-  apConfig.levelTargetRollDeg = IMU_CAL_LEVEL_ROLL_DEG;
-  apConfig.levelTargetPitchDeg = IMU_CAL_LEVEL_PITCH_DEG;
+  apConfig.levelTargetRollDeg = normalizeAngleDeg(imu.rollDeg);
+  apConfig.levelTargetPitchDeg = imu.pitchDeg;
 
   if (ENABLE_RX_DEBUG) {
     Serial.print("AP neutral captured ail=");
@@ -446,6 +480,14 @@ bool readyToCaptureAutopilotNeutral(uint32_t now, uint32_t age) {
   }
   if (fabsf(imu.gyroRollDps) > apConfig.levelCaptureMaxGyroDps ||
       fabsf(imu.gyroPitchDps) > apConfig.levelCaptureMaxGyroDps) {
+    apState.levelCaptureCandidateSince = 0;
+    return false;
+  }
+  float rollOffsetDeg = normalizeAngleDeg(normalizeAngleDeg(imu.rollDeg) -
+                                          IMU_CAL_LEVEL_ROLL_DEG);
+  float pitchOffsetDeg = imu.pitchDeg - IMU_CAL_LEVEL_PITCH_DEG;
+  if (fabsf(rollOffsetDeg) > apConfig.levelCaptureMaxOffsetDeg ||
+      fabsf(pitchOffsetDeg) > apConfig.levelCaptureMaxOffsetDeg) {
     apState.levelCaptureCandidateSince = 0;
     return false;
   }
@@ -588,6 +630,10 @@ static inline int16_t s16(uint8_t lo, uint8_t hi) {
 
 void updateImuEstimate(uint32_t now) {
   if (!imu.ready) return;
+  static bool havePreviousRollAcc = false;
+  static bool havePreviousPitchAcc = false;
+  static float previousRollAcc = 0.0f;
+  static float previousPitchAcc = 0.0f;
 
   uint8_t b[12];
   if (!readBytes(imu.addr, REG_OUTX_L_G, b, sizeof(b))) {
@@ -620,6 +666,10 @@ void updateImuEstimate(uint32_t now) {
     imu.rollDeg = rollAcc;
     imu.pitchDeg = pitchAcc;
     imu.attitudeInitialized = true;
+    havePreviousRollAcc = true;
+    havePreviousPitchAcc = true;
+    previousRollAcc = rollAcc;
+    previousPitchAcc = pitchAcc;
     imu.lastSampleMs = now;
     return;
   }
@@ -630,8 +680,26 @@ void updateImuEstimate(uint32_t now) {
   imu.lastSampleMs = now;
 
   const float alpha = 0.94f;
-  imu.rollDeg = alpha * (imu.rollDeg + imu.gyroRollDps * dt) + (1.0f - alpha) * rollAcc;
-  imu.pitchDeg = alpha * (imu.pitchDeg + imu.gyroPitchDps * dt) + (1.0f - alpha) * pitchAcc;
+  if (AP_BENCH_ACCEL_ONLY_ROLL) {
+    imu.rollDeg = rollAcc;
+  } else if (AP_GUARDED_ROLL_FUSION) {
+    imu.rollDeg = guardedFusionAngle(imu.rollDeg, rollAcc, previousRollAcc,
+                                     havePreviousRollAcc, imu.gyroRollDps, dt,
+                                     AP_ROLL_FUSION_ACCEL_GAIN,
+                                     AP_ROLL_FUSION_MIN_DELTA_DEG);
+  } else {
+    imu.rollDeg = alpha * (imu.rollDeg + imu.gyroRollDps * dt) + (1.0f - alpha) * rollAcc;
+  }
+  imu.pitchDeg = AP_GUARDED_PITCH_FUSION
+      ? guardedFusionAngle(imu.pitchDeg, pitchAcc, previousPitchAcc,
+                           havePreviousPitchAcc, imu.gyroPitchDps, dt,
+                           AP_PITCH_FUSION_ACCEL_GAIN,
+                           AP_PITCH_FUSION_MIN_DELTA_DEG)
+      : alpha * (imu.pitchDeg + imu.gyroPitchDps * dt) + (1.0f - alpha) * pitchAcc;
+  havePreviousRollAcc = true;
+  havePreviousPitchAcc = true;
+  previousRollAcc = rollAcc;
+  previousPitchAcc = pitchAcc;
 }
 
 void updateAutopilotState(uint32_t now, uint32_t age) {
@@ -648,8 +716,6 @@ void updateAutopilotState(uint32_t now, uint32_t age) {
   apState.targetPitchRateDps = 0.0f;
   apState.targetAileronCorrectionUs = 0;
   apState.targetElevatorCorrectionUs = 0;
-  int16_t prevAileronCorrectionUs = apState.aileronCorrectionUs;
-  int16_t prevElevatorCorrectionUs = apState.elevatorCorrectionUs;
   apState.aileronCorrectionUs = 0;
   apState.elevatorCorrectionUs = 0;
   apState.throttleCorrectionUs = 0;
@@ -715,17 +781,22 @@ void updateAutopilotState(uint32_t now, uint32_t age) {
   apState.targetRollRateDps = targetRollRate;
   apState.targetPitchRateDps = targetPitchRate;
 
-  float pitchRateErr = targetPitchRate - effectivePitchRateDps;
   int16_t rollAngleUs =
       (int16_t)lroundf(rollErr * apConfig.rollAngleKpUsPerDeg);
-  int16_t rollDampingUs =
-      (int16_t)lroundf(-effectiveRollRateDps * apConfig.rollRateKdUsPerDps);
+  int16_t pitchAngleUs =
+      (int16_t)lroundf(pitchErr * apConfig.pitchAngleKpUsPerDeg);
+  bool rollMovingAwayFromLevel =
+      fabsf(effectiveRollDeg) > 1.0f &&
+      (effectiveRollDeg * effectiveRollRateDps) > 0.0f;
+  int16_t rollDampingUs = rollMovingAwayFromLevel
+      ? (int16_t)lroundf(-effectiveRollRateDps * apConfig.rollRateKdUsPerDps)
+      : 0;
   apState.rollAngleCorrectionUs = rollAngleUs;
   apState.rollDampingCorrectionUs = rollDampingUs;
   int32_t ailUs = (int32_t)lroundf(AP_AILERON_CORRECTION_SIGN *
                                    (rollAngleUs + rollDampingUs));
   int32_t eleUs = (int32_t)lroundf(AP_ELEVATOR_CORRECTION_SIGN *
-                                   pitchRateErr * apConfig.pitchRateKpUsPerDps);
+                                   pitchAngleUs);
 
   int16_t targetAil =
       clampSigned(ailUs, (int16_t)apConfig.rollMaxCorrectionUs);
@@ -733,14 +804,10 @@ void updateAutopilotState(uint32_t now, uint32_t age) {
       clampSigned(eleUs, (int16_t)apConfig.pitchMaxCorrectionUs);
   apState.targetAileronCorrectionUs = targetAil;
   apState.targetElevatorCorrectionUs = targetEle;
-  int16_t smoothAil =
-      smoothCorrection(prevAileronCorrectionUs, targetAil, apConfig.rollCorrectionAlpha);
-  int16_t smoothEle =
-      smoothCorrection(prevElevatorCorrectionUs, targetEle, apConfig.pitchCorrectionAlpha);
-  apState.aileronCorrectionUs =
-      responsiveCorrection(prevAileronCorrectionUs, smoothAil, apConfig.rollMaxCorrectionStepUs);
-  apState.elevatorCorrectionUs =
-      slewLimitCorrection(prevElevatorCorrectionUs, smoothEle, apConfig.pitchMaxCorrectionStepUs);
+  // Roll bench testing showed stale opposite correction could be felt as a
+  // brief wrong-way aileron twitch. Keep roll output memoryless for now.
+  apState.aileronCorrectionUs = targetAil;
+  apState.elevatorCorrectionUs = targetEle;
   apState.mode = AP_MODE_LEVEL_HOLD;
 
   if (apConfig.enableAltitudeHold && baro.altitudeReady) {
@@ -981,7 +1048,6 @@ void loop() {
           captureAutopilotNeutral();
         }
         if (age <= FS_THR_CUTOFF_MS) {
-          applyManualOrAutopilotDesired();
           updateAutopilotState(now, age);
           applyManualOrAutopilotDesired();
           ledState = LED_ARMED;
