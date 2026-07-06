@@ -33,7 +33,7 @@ typedef struct __attribute__((packed)) {
   char     name[16];        // UTF-8, zero-terminated if shorter
   uint16_t bind_code;       // 0..0x7FFF
   int8_t   rates_pct[4];    // 0..100
-  int8_t   expo_pct[4];     // 0..100
+  int8_t   expo_pct[4];     // -100..100
   uint8_t  dr_switch;       // which switch toggles DR (you map it)
   uint8_t  active_rates;    // 0=low, 1=high
   int16_t  subtrim_us[4];   // -500..+500
@@ -62,7 +62,7 @@ bool     setActiveSlot(uint16_t slot);
 
 // Expo helper: y = x*(1-e) + x^3*e
 inline float applyExpo(float x, int8_t expoPct) {
-  float e = (float)constrain((int)expoPct, 0, 100) / 100.0f;
+  float e = (float)expoPct / 100.0f;
   return x * (1.0f - e) + x * x * x * e;
 }
 

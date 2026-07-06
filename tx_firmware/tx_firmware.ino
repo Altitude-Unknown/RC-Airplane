@@ -93,7 +93,8 @@ const uint8_t PIN_TRIM_ELE_U = 0;
 const int16_t TRIM_STEP_US = 5;
 const int16_t TRIM_MIN_US = -500;
 const int16_t TRIM_MAX_US = 500;
-const uint16_t TRIM_DEBOUNCE_MS = 45;
+const uint16_t TRIM_FIRST_REPEAT_MS = 450;
+const uint16_t TRIM_REPEAT_MS = 140;
 
 // ---------------- Flight Timer / Buzzer -----------------
 // The buzzer is used as a simple "land soon" reminder. We count only actual
@@ -363,6 +364,7 @@ const bool FORCE_THROTTLE_SAFE_LOW = false;
 const float TX_SMOOTH_ALPHA = 0.65f;   // Higher = faster stick response, lower = smoother output.
 const uint8_t TX_LOOP_DELAY_MS = 2;    // Small pacing delay after each LoRa packet.
 const uint16_t UNLOCK_THRESH_US = RC_MIN + 60;
+const uint16_t MENU_REPEAT_MS = 180;
 uint32_t lastDebugMs = 0;
 
 // Accumulated throttle-on time. This pauses when throttle is at idle and is not
@@ -386,25 +388,23 @@ uint32_t nextBeepTransitionMs = 0;
 txcf_model_v1_t gModel;
 bool gModelLoaded = false;
 
-// Small record for each trim button. Flight trims are edge-triggered so a held
-// or stuck button cannot keep changing the model.
+// Small record for each trim button. nextMs lets a held button repeat without
+// changing the trim every single loop pass.
 struct TrimButton {
   uint8_t pin;
   uint8_t ch;
   int8_t dir;
-  bool rawPressed;
-  uint32_t rawChangedMs;
   bool wasPressed;
   uint32_t nextMs;
 };
 
 TrimButton trimButtons[] = {
-  {PIN_TRIM_RUD_L, 0, -1, false, 0, false, 0},
-  {PIN_TRIM_RUD_R, 0,  1, false, 0, false, 0},
-  {PIN_TRIM_AIL_L, 1, -1, false, 0, false, 0},
-  {PIN_TRIM_AIL_R, 1,  1, false, 0, false, 0},
-  {PIN_TRIM_ELE_D, 2, -1, false, 0, false, 0},
-  {PIN_TRIM_ELE_U, 2,  1, false, 0, false, 0},
+  {PIN_TRIM_RUD_L, 0, -1, false, 0},
+  {PIN_TRIM_RUD_R, 0,  1, false, 0},
+  {PIN_TRIM_AIL_L, 1, -1, false, 0},
+  {PIN_TRIM_AIL_R, 1,  1, false, 0},
+  {PIN_TRIM_ELE_D, 2, -1, false, 0},
+  {PIN_TRIM_ELE_U, 2,  1, false, 0},
 };
 const uint8_t TRIM_BUTTON_COUNT = sizeof(trimButtons) / sizeof(trimButtons[0]);
 int16_t runtimeTrimUs[4] = {0, 0, 0, 0};
@@ -428,7 +428,7 @@ const uint8_t menuButtonPins[MB_COUNT] = {
   PIN_TRIM_RUD_L, PIN_TRIM_RUD_R, PIN_TRIM_AIL_L, PIN_TRIM_AIL_R, PIN_TRIM_ELE_D, PIN_TRIM_ELE_U
 };
 bool menuButtonWasPressed[MB_COUNT] = {false, false, false, false, false, false};
-bool menuButtonReleaseArmed[MB_COUNT] = {false, false, false, false, false, false};
+uint32_t menuButtonNextMs[MB_COUNT] = {0, 0, 0, 0, 0, 0};
 
 static inline uint16_t addTrimUs(uint16_t us, int16_t trim) {
   // Add a trim amount in microseconds, then keep the result in servo range.
@@ -475,22 +475,12 @@ void stepTrim(uint8_t ch, int8_t dir) {
 
 void updatePhysicalTrims() {
   // Called from the fast transmit loop. It checks each trim button and performs
-  // one debounced trim step per press. A stuck trim switch must not be able to
-  // walk an airplane to full subtrim while in flight.
+  // one trim step on the first press, then repeated steps if the button is held.
   uint32_t now = millis();
   for (uint8_t i = 0; i < TRIM_BUTTON_COUNT; ++i) {
     TrimButton &b = trimButtons[i];
-    bool rawPressed = (digitalRead(b.pin) == LOW);
-
-    if (rawPressed != b.rawPressed) {
-      b.rawPressed = rawPressed;
-      b.rawChangedMs = now;
-    }
-    if ((uint32_t)(now - b.rawChangedMs) < TRIM_DEBOUNCE_MS) {
-      continue;
-    }
-
-    if (!rawPressed) {
+    bool pressed = (digitalRead(b.pin) == LOW);
+    if (!pressed) {
       b.wasPressed = false;
       b.nextMs = 0;
       continue;
@@ -499,6 +489,10 @@ void updatePhysicalTrims() {
     if (!b.wasPressed) {
       stepTrim(b.ch, b.dir);
       b.wasPressed = true;
+      b.nextMs = now + TRIM_FIRST_REPEAT_MS;
+    } else if ((int32_t)(now - b.nextMs) >= 0) {
+      stepTrim(b.ch, b.dir);
+      b.nextMs = now + TRIM_REPEAT_MS;
     }
   }
 }
@@ -577,34 +571,31 @@ void updateThrottleTimer(uint16_t throttleUs, uint32_t now) {
 }
 
 bool menuButtonEvent(uint8_t button, uint32_t now) {
-  // Shared helper for OLED setup mode. It reports "true" only after a complete
-  // press-and-release click, so a held or stuck button cannot run a setting to
-  // its limit.
-  (void)now;
+  // Shared helper for OLED setup mode. It reports "true" once when a button is
+  // first pressed and then repeats at MENU_REPEAT_MS while held.
   bool pressed = (digitalRead(menuButtonPins[button]) == LOW);
-  if (pressed) {
-    if (!menuButtonWasPressed[button]) {
-      menuButtonWasPressed[button] = true;
-      menuButtonReleaseArmed[button] = true;
-    }
+  if (!pressed) {
+    menuButtonWasPressed[button] = false;
+    menuButtonNextMs[button] = 0;
     return false;
   }
-
-  if (menuButtonWasPressed[button]) {
-    menuButtonWasPressed[button] = false;
-    if (menuButtonReleaseArmed[button]) {
-      menuButtonReleaseArmed[button] = false;
-      return true;
-    }
+  if (!menuButtonWasPressed[button]) {
+    menuButtonWasPressed[button] = true;
+    menuButtonNextMs[button] = now + TRIM_FIRST_REPEAT_MS;
+    return true;
   }
-
+  if ((int32_t)(now - menuButtonNextMs[button]) >= 0) {
+    menuButtonNextMs[button] = now + MENU_REPEAT_MS;
+    return true;
+  }
   return false;
 }
 
 void resetMenuButtons() {
+  uint32_t now = millis() + TRIM_FIRST_REPEAT_MS;
   for (uint8_t i = 0; i < MB_COUNT; ++i) {
     menuButtonWasPressed[i] = (digitalRead(menuButtonPins[i]) == LOW);
-    menuButtonReleaseArmed[i] = false;
+    menuButtonNextMs[i] = now;
   }
 }
 
@@ -625,7 +616,7 @@ int currentMenuValue() {
   switch (menuItem) {
     case MENU_REVERSE: return channelReversed(menuChannel) ? 1 : 0;
     case MENU_RATE: return gModel.rates_pct[menuChannel];
-    case MENU_EXPO: return constrain((int)gModel.expo_pct[menuChannel], 0, 100);
+    case MENU_EXPO: return gModel.expo_pct[menuChannel];
     default: return 0;
   }
 }
@@ -641,7 +632,7 @@ void adjustMenuValue(int8_t dir) {
     int v = constrain((int)gModel.rates_pct[menuChannel] + dir * 5, 0, 100);
     gModel.rates_pct[menuChannel] = (int8_t)v;
   } else if (menuItem == MENU_EXPO) {
-    int v = constrain((int)gModel.expo_pct[menuChannel] + dir * 5, 0, 100);
+    int v = constrain((int)gModel.expo_pct[menuChannel] + dir * 5, -100, 100);
     gModel.expo_pct[menuChannel] = (int8_t)v;
   }
 
