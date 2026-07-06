@@ -93,3 +93,74 @@ These will almost certainly need tuning on the real airframe.
 - confirm no oscillation on the bench
 - reduce gains or disable autolevel if signs are wrong
 - leave altitude hold disabled until the pressure sensor driver is verified
+
+## 2026-07-02 Field Test Follow-Up
+
+The first launch test showed that stick-release autolevel can engage during the
+hand-launch phase before the pilot has both hands back on the transmitter. That
+is not acceptable for early testing.
+
+Changes made after the crash:
+
+- Autolevel now has a launch lockout after throttle-up.
+- Sticks must remain centered longer before level mode can engage.
+- The level controller now commands a limited target roll/pitch rate from angle
+  error, then uses gyro-rate error for servo correction. This is closer to the
+  attitude-to-rate structure used by mature fixed-wing autopilots.
+- Initial correction limits were reduced for safer bench and glide testing.
+
+Next test should be manual launch/climb first, then hands-off level testing only
+after the launch lockout has expired and the airplane has enough altitude for a
+manual recovery.
+
+## 2026-07-05 Rx V4 IMU Calibration Captures
+
+Test sketch:
+
+- `PCB/RxV4/IMU_Calibration_Readout/IMU_Calibration_Readout.ino`
+
+Hardware:
+
+- Rx V4 receiver on `/dev/cu.usbmodem1101`
+- Target board: `AltitudeUnknown:samd:altitude_rc_rx_m0`
+- LSM6DS read directly over I2C at 115200 baud
+
+Captured averaged poses:
+
+```text
+CAL LEVEL_FLIGHT samples=400 raw_gxyz=74.83,-177.03,-60.27 raw_axyz=-1046.66,902.01,-5018.19 gyro_dps=0.6548,-1.5490,-0.5274 accel_g=-0.0638,0.0550,-0.3061 angles_deg roll=169.81 pitch=11.60 accel_mag_g=0.3175
+CAL PITCH_PLUS_30 samples=400 raw_gxyz=70.83,-177.64,-47.53 raw_axyz=-4103.31,788.64,-3986.72 gyro_dps=0.6198,-1.5543,-0.4159 accel_g=-0.2503,0.0481,-0.2432 angles_deg roll=168.81 pitch=45.28 accel_mag_g=0.3523
+CAL PITCH_MINUS_30 samples=400 raw_gxyz=68.93,-190.98,-35.28 raw_axyz=4216.00,1254.03,-3890.54 gyro_dps=0.6032,-1.6710,-0.3087 accel_g=0.2572,0.0765,-0.2373 angles_deg roll=162.13 pitch=-45.89 accel_mag_g=0.3582
+CAL ROLL_PLUS_30_RIGHT samples=400 raw_gxyz=9.69,-200.37,-66.10 raw_axyz=836.56,5389.88,-3157.15 gyro_dps=0.0848,-1.7532,-0.5783 accel_g=0.0510,0.3288,-0.1926 angles_deg roll=120.36 pitch=-7.63 accel_mag_g=0.3844
+CAL ROLL_MINUS_30_LEFT samples=400 raw_gxyz=77.42,-157.21,-45.68 raw_axyz=-127.16,-3918.76,-4098.82 gyro_dps=0.6774,-1.3756,-0.3997 accel_g=-0.0078,-0.2390,-0.2500 angles_deg roll=-136.29 pitch=1.28 accel_mag_g=0.3460
+```
+
+Interpretation relative to the level-flight reference:
+
+- Pitch up is positive: `45.28 - 11.60 = +33.68 deg`.
+- Pitch down is negative: `-45.89 - 11.60 = -57.49 deg`; this capture was likely steeper than the intended 30 deg.
+- Right roll is negative: `120.36 - 169.81 = -49.45 deg`; this capture was likely steeper than the intended 30 deg.
+- Left roll is positive after wrap normalization: `-136.29 - 169.81 = +53.90 deg`; this capture was likely steeper than the intended 30 deg.
+- Static gyro bias near level was approximately `gx=+0.655 dps`, `gy=-1.549 dps`, `gz=-0.527 dps`.
+
+Follow-up:
+
+- The raw axis ratios are useful for orientation/sign calibration, but the printed `accel_mag_g` is only around `0.32-0.38 g` with the current `0.000061 g/LSB` scale. Recheck the exact LSM6DS variant, full-scale setting, and sensitivity before trusting absolute acceleration magnitude.
+- Use level-flight offsets of approximately `roll=169.81 deg`, `pitch=11.60 deg` for this board orientation if keeping the current angle formula.
+- For autopilot signs with the current formula: right roll is negative, left roll is positive, pitch up is positive, pitch down is negative.
+
+Implementation update:
+
+- `rx_V4__firmware/rx_V4__firmware.ino` now uses the calibrated level target `roll=169.81 deg`, `pitch=11.60 deg`.
+- Stick-neutral capture now records transmitter aileron/elevator centers only; it no longer replaces the level attitude target with whatever attitude the airplane is in during capture.
+- Controller-relative attitude convention is now right roll positive and pitch up positive.
+- After flashing, serial debug near level showed `target=169.8,11.6` and relative attitude near zero: `rel=-0.1,-0.6`.
+- Bench surface-direction test is still required with prop removed before any flight attempt.
+- First bench surface-direction check showed aileron correction was reversed. `AP_AILERON_CORRECTION_SIGN` was changed from `-1.0` to `+1.0` and reflashed.
+- Aileron correction then showed a step/center/step waggle instead of a smooth proportional response. Roll loop was softened for bench testing: slower time constant, lower max roll rate, lower rate gain, lower max correction, and smaller slew/smoothing steps.
+- Softer roll tuning was worse and still showed the transient problem. Likely cause: gyro-rate damping can briefly command opposite correction during hand movement. Roll/aileron path was changed to direct angle-proportional correction only for bench testing: `rollAngleKpUsPerDeg=5.0`, `rollMaxCorrectionUs=140`, `rollCorrectionAlpha=0.65`, `rollMaxCorrectionStepUs=25`, and `rollRateKpUsPerDps=0.0`.
+- Direct angle-proportional roll improved the response, but occasional initial wrong-way swing remained. Likely cause moved to the complementary filter itself: roll gyro integration sign was fighting the accel-derived roll angle during motion. `IMU_ROLL_RATE_SIGN` was changed from `+1.0` to `-1.0` and reflashed.
+- Next step toward Pixhawk-like behavior: restore roll damping as an explicit angle-plus-rate controller instead of pure angle-P. Roll command is now `rollAngleKpUsPerDeg * rollErr - rollRateKdUsPerDps * effectiveRollRateDps`, with terms reported separately in serial debug as `rollTerms=angle,damping`. Debug period was reduced to `50 ms` so bench motion can be diagnosed from `rel`, `relRate`, `err`, `targetCorr`, and `rollTerms`.
+- Bench response with angle-plus-rate damping was directionally good but slow to start. Roll output response was increased: `rollAngleKpUsPerDeg=7.0`, `rollRateKdUsPerDps=2.2`, `rollMaxCorrectionUs=180`, `rollCorrectionAlpha=0.90`, and `rollMaxCorrectionStepUs=45`.
+- Follow-up bench response was faster but still delayed, and correction removal at level lagged. Roll response/release was increased again: `rollAngleKpUsPerDeg=9.0`, `rollRateKdUsPerDps=2.8`, `rollMaxCorrectionUs=220`, `rollCorrectionAlpha=1.0`, and `rollMaxCorrectionStepUs=90`.
+- Remaining bench issue: ailerons can still briefly move the wrong way before applying the correct correction. One likely cause is stale opposite-sign output surviving through the slew limiter as the desired correction changes sign. Aileron output now uses `responsiveCorrection()`: if previous and target aileron corrections have opposite signs, it jumps directly to the new target; otherwise it still uses normal slew limiting. Elevator remains slew-limited.
