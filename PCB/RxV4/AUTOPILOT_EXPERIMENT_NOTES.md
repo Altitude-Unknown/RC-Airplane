@@ -225,3 +225,34 @@ Implementation update:
 - Bench result from direct pitch-angle elevator build: elevator response now looks good. Roll and pitch both use guarded gyro/accel fusion, and both aileron and elevator corrections are direct angle-proportional outputs with no output slew memory for the current bench-tuned build.
 - Flight-test prep: launch autolevel lockout was changed from `8000 ms` to `0 ms` so autolevel can be active for takeoff when sticks are centered. Manual override is still immediate: moving aileron or elevator outside the neutral deadband drops the controller back to manual.
 - Preflight level capture update: the fixed Rx V4 calibration is no longer used as the active level target every time. After arming, with throttle low, sticks centered, and the IMU steady for the capture window, the firmware now captures the current roll/pitch attitude as the level target along with transmitter neutral. This means the airplane must be sitting or held in the intended level-flight attitude during arming/capture. Power-on while plugging in the battery at an odd angle still does not define level.
+
+## 2026-07-06 Flight Test Feedback
+
+Observed in flight:
+
+- Ground checks showed correct and smooth aileron/elevator correction direction.
+- In flight the airplane tended to list left. A poor level capture or IMU calibration/estimator drift is possible.
+- Main safety issue: autolevel occasionally drove or allowed a full 360 degree roll/corkscrew. Manual override was required each time.
+- Takeoff was difficult with autolevel allowed to engage immediately.
+
+Next test-build changes:
+
+- Autolevel pilot master starts `OFF` after boot/disarm.
+- Rudder trims control the autolevel pilot master:
+  - left rudder trim turns autolevel `ON`
+  - right rudder trim turns autolevel `OFF`
+  - the transmitter sends explicit `AUTOLEVEL_ON` / `AUTOLEVEL_OFF` aux packet flags
+  - the receiver no longer infers commands from rudder pulse movement
+  - accepted aux commands have a short `250 ms` cooldown
+  - in this test build, transmitter rudder trim buttons do not also adjust rudder subtrim
+- When the pilot master is `ON`, releasing aileron/elevator sticks now engages level mode after `75 ms` instead of `1500 ms`.
+- Moving aileron or elevator outside the neutral deadband still returns immediately to manual control.
+- Stick-release deadband is widened to `65 us` so level mode engages more reliably when the sticks are released.
+- Roll/pitch authority is increased from the very soft test build:
+  - roll gain `7.5 us/deg`, max aileron correction `210 us`
+  - pitch gain `6.0 us/deg`, max elevator correction `160 us`
+- After throttle has been raised above launch-detect threshold, autolevel disables itself if relative attitude exceeds the test bailout limits:
+  - roll greater than `55 deg`
+  - pitch greater than `35 deg`
+- Throttle-low bench tilts do not trigger the attitude bailout.
+- Serial debug now reports `apMaster=ON/OFF`.

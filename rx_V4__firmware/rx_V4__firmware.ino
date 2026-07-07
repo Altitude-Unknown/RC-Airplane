@@ -121,8 +121,11 @@ struct __attribute__((packed)) ControlPacket {
   uint16_t ch_ele;
   uint16_t ch_thr;
   uint16_t flags;
+  uint8_t aux_flags;
   uint16_t seq;
 };
+const uint8_t AUX_AUTOLEVEL_ON  = 0x01;
+const uint8_t AUX_AUTOLEVEL_OFF = 0x02;
 
 struct __attribute__((packed)) BindPacket {
   uint32_t magic;
@@ -205,26 +208,31 @@ enum AutopilotMode {
 struct AutopilotConfig {
   bool enableAutolevel = true;
   bool enableAltitudeHold = true;
-  uint16_t stickDeadbandUs = 35;
+  bool pilotAutolevelStartsEnabled = false;
+  bool enableRudderTrimAutolevelToggle = true;
+  uint16_t stickDeadbandUs = 65;
   uint16_t neutralCaptureWindowUs = 250;
-  uint32_t stickReleaseHoldMs = 1500;
+  uint32_t stickReleaseHoldMs = 75;
   uint32_t levelCaptureHoldMs = 1000;
   float levelCaptureMaxGyroDps = 8.0f;
   float levelCaptureMaxOffsetDeg = 45.0f;
   uint16_t launchDetectThrottleUs = 1120;
   uint32_t launchAutolevelLockoutMs = 0;
+  uint32_t auxAutolevelCommandCooldownMs = 250;
+  float attitudeBailoutRollDeg = 55.0f;
+  float attitudeBailoutPitchDeg = 35.0f;
   float levelTargetRollDeg = IMU_CAL_LEVEL_ROLL_DEG;
   float levelTargetPitchDeg = IMU_CAL_LEVEL_PITCH_DEG;
   float rollTimeConstantS = 0.80f;
   float pitchTimeConstantS = 0.85f;
   float rollMaxRateDps = 45.0f;
   float pitchMaxRateDps = 35.0f;
-  float rollAngleKpUsPerDeg = 9.0f;
+  float rollAngleKpUsPerDeg = 7.5f;
   float rollRateKdUsPerDps = 0.0f;
-  float pitchAngleKpUsPerDeg = 7.0f;
+  float pitchAngleKpUsPerDeg = 6.0f;
   float pitchRateKpUsPerDps = 3.0f;
-  uint16_t rollMaxCorrectionUs = 220;
-  uint16_t pitchMaxCorrectionUs = 180;
+  uint16_t rollMaxCorrectionUs = 210;
+  uint16_t pitchMaxCorrectionUs = 160;
   float rollCorrectionAlpha = 1.0f;
   float pitchCorrectionAlpha = 1.0f;
   int16_t rollMaxCorrectionStepUs = 90;
@@ -237,11 +245,13 @@ struct AutopilotState {
   AutopilotMode mode = AP_MODE_MANUAL;
   uint32_t sticksCenteredSince = 0;
   uint32_t levelCaptureCandidateSince = 0;
+  bool pilotAutolevelEnabled = false;
   bool sticksReleased = false;
   bool neutralCaptured = false;
   bool launchThrottleSeen = false;
   uint32_t launchThrottleSeenMs = 0;
   bool launchLockoutActive = false;
+  uint32_t auxAutolevelCommandCooldownUntilMs = 0;
   uint16_t neutralAileronUs = RC_MID;
   uint16_t neutralElevatorUs = RC_MID;
   float effectiveRollDeg = 0.0f;
@@ -432,6 +442,7 @@ void disarmAndLock() {
   thrLowSince = 0;
   des_t = RC_MIN;
   apState.mode = AP_MODE_MANUAL;
+  apState.pilotAutolevelEnabled = apConfig.pilotAutolevelStartsEnabled;
   apState.sticksReleased = false;
   apState.neutralCaptured = false;
   apState.launchThrottleSeen = false;
@@ -439,6 +450,42 @@ void disarmAndLock() {
   apState.launchLockoutActive = false;
   apState.levelCaptureCandidateSince = 0;
   apState.altitudeTargetCaptured = false;
+  apState.auxAutolevelCommandCooldownUntilMs = 0;
+}
+
+void setPilotAutolevelEnabled(bool enabled, const char *reason) {
+  if (apState.pilotAutolevelEnabled == enabled) return;
+  apState.pilotAutolevelEnabled = enabled;
+  apState.mode = AP_MODE_MANUAL;
+  apState.sticksReleased = false;
+  apState.sticksCenteredSince = 0;
+  apState.altitudeTargetCaptured = false;
+  apState.aileronCorrectionUs = 0;
+  apState.elevatorCorrectionUs = 0;
+  apState.throttleCorrectionUs = 0;
+
+  if (ENABLE_RX_DEBUG) {
+    Serial.print("AP pilot toggle: ");
+    Serial.print(enabled ? "ON" : "OFF");
+    if (reason) {
+      Serial.print(" reason=");
+      Serial.print(reason);
+    }
+    Serial.println();
+  }
+}
+
+void handleAutolevelAuxCommand(uint8_t auxFlags, uint32_t now) {
+  if ((int32_t)(now - apState.auxAutolevelCommandCooldownUntilMs) < 0) return;
+
+  bool commandOn = (auxFlags & AUX_AUTOLEVEL_ON) != 0;
+  bool commandOff = (auxFlags & AUX_AUTOLEVEL_OFF) != 0;
+  if (commandOn == commandOff) return;
+
+  setPilotAutolevelEnabled(commandOn,
+      commandOn ? "tx-rudder-trim-left" : "tx-rudder-trim-right");
+  apState.auxAutolevelCommandCooldownUntilMs =
+      now + apConfig.auxAutolevelCommandCooldownMs;
 }
 
 void captureAutopilotNeutral() {
@@ -734,7 +781,8 @@ void updateAutopilotState(uint32_t now, uint32_t age) {
       (now - apState.launchThrottleSeenMs < apConfig.launchAutolevelLockoutMs);
 
   if (!freshLink || !armed || bindMode || escMode || !apConfig.enableAutolevel ||
-      !apState.neutralCaptured || apState.launchLockoutActive) {
+      !apState.pilotAutolevelEnabled || !apState.neutralCaptured ||
+      apState.launchLockoutActive) {
     apState.sticksReleased = false;
     apState.sticksCenteredSince = 0;
     apState.altitudeTargetCaptured = false;
@@ -773,6 +821,13 @@ void updateAutopilotState(uint32_t now, uint32_t age) {
   apState.effectivePitchRateDps = effectivePitchRateDps;
   apState.rollErrDeg = rollErr;
   apState.pitchErrDeg = pitchErr;
+
+  if (apState.launchThrottleSeen &&
+      (fabsf(effectiveRollDeg) > apConfig.attitudeBailoutRollDeg ||
+       fabsf(effectivePitchDeg) > apConfig.attitudeBailoutPitchDeg)) {
+    setPilotAutolevelEnabled(false, "attitude-bailout");
+    return;
+  }
 
   float targetRollRate =
       clampFloat(rollErr / apConfig.rollTimeConstantS, apConfig.rollMaxRateDps);
@@ -986,6 +1041,7 @@ void loop() {
             manual_e = pkt.ch_ele;
             manual_t = pkt.ch_thr;
             lastRxMs = now;
+            handleAutolevelAuxCommand(pkt.aux_flags, now);
           } else {
             rejectedPackets++;
           }
@@ -1139,6 +1195,8 @@ void loop() {
     Serial.print(baro.detected ? "seen" : "none");
     Serial.print(" altReady=");
     Serial.print(baro.altitudeReady ? "yes" : "no");
+    Serial.print(" apMaster=");
+    Serial.print(apState.pilotAutolevelEnabled ? "ON" : "OFF");
     Serial.print(" centered=");
     Serial.print(apState.sticksReleased ? "yes" : "no");
     Serial.print(" launchLock=");
