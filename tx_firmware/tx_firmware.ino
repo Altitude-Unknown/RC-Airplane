@@ -391,8 +391,8 @@ uint32_t nextBeepTransitionMs = 0;
 txcf_model_v1_t gModel;
 bool gModelLoaded = false;
 
-// Small record for each trim button. nextMs lets a held button repeat without
-// changing the trim every single loop pass.
+// Small record for each trim button. wasPressed tracks a full press-release
+// cycle so a held or stuck input cannot keep walking trim to an endpoint.
 struct TrimButton {
   uint8_t pin;
   uint8_t ch;
@@ -477,25 +477,21 @@ void stepTrim(uint8_t ch, int8_t dir) {
 }
 
 void updatePhysicalTrims() {
-  // Called from the fast transmit loop. It checks each trim button and performs
-  // one trim step on the first press, then repeated steps if the button is held.
-  uint32_t now = millis();
+  // Called from the fast transmit loop. A trim change is applied only when a
+  // button that was pressed becomes released. This protects against a stuck
+  // LOW input continuously changing trim.
   for (uint8_t i = 0; i < TRIM_BUTTON_COUNT; ++i) {
     TrimButton &b = trimButtons[i];
     bool pressed = (digitalRead(b.pin) == LOW);
-    if (!pressed) {
-      b.wasPressed = false;
-      b.nextMs = 0;
+    if (pressed) {
+      b.wasPressed = true;
       continue;
     }
 
-    if (!b.wasPressed) {
+    if (b.wasPressed) {
       if (b.ch != 0) stepTrim(b.ch, b.dir);
-      b.wasPressed = true;
-      b.nextMs = now + TRIM_FIRST_REPEAT_MS;
-    } else if ((int32_t)(now - b.nextMs) >= 0) {
-      if (b.ch != 0) stepTrim(b.ch, b.dir);
-      b.nextMs = now + TRIM_REPEAT_MS;
+      b.wasPressed = false;
+      b.nextMs = 0;
     }
   }
 }
@@ -798,6 +794,11 @@ void setup() {
     g_bind.magic = BIND_MAGIC;
     g_bind.bindCode = (gModel.bind_code & 0x7FFF);
   }
+  if (gModelLoaded && gModel.subtrim_us[1] == -500) {
+    gModel.subtrim_us[1] = 0;
+    TXCF::saveActiveModel(gModel);
+    TXCF::loadActiveModel(gModel);
+  }
 
   // Throttle safety
   // This is a critical safety check. If the transmitter powers up with throttle
@@ -825,6 +826,22 @@ void setup() {
     Serial.print(thr);
     Serial.print(" locked=");
     Serial.println(txLocked ? "yes" : "no");
+    if (gModelLoaded) {
+      Serial.print("TX model ail rate=");
+      Serial.print(gModel.rates_pct[1]);
+      Serial.print(" expo=");
+      Serial.print(gModel.expo_pct[1]);
+      Serial.print(" subtrim=");
+      Serial.print(gModel.subtrim_us[1]);
+      Serial.print(" endpoint=");
+      Serial.print(gModel.endpoints_us[1][0]);
+      Serial.print("-");
+      Serial.print(gModel.endpoints_us[1][1]);
+      Serial.print(" reverse=");
+      Serial.print((gModel.reserved[0] & (1 << 1)) ? "yes" : "no");
+      Serial.print(" active_rates=");
+      Serial.println(gModel.active_rates);
+    }
   }
 }
 
@@ -991,7 +1008,36 @@ void loop() {
     Serial.print(",");
     Serial.print(rawRud);
     Serial.print(" model=");
-    Serial.println(gModelLoaded ? "yes" : "no");
+    Serial.print(gModelLoaded ? "yes" : "no");
+    if (gModelLoaded) {
+      Serial.print(" ailCfg=");
+      Serial.print(gModel.rates_pct[1]);
+      Serial.print(",");
+      Serial.print(gModel.expo_pct[1]);
+      Serial.print(",");
+      Serial.print(gModel.subtrim_us[1]);
+      Serial.print(",");
+      Serial.print(gModel.endpoints_us[1][0]);
+      Serial.print("-");
+      Serial.print(gModel.endpoints_us[1][1]);
+      Serial.print(",");
+      Serial.print((gModel.reserved[0] & (1 << 1)) ? "rev" : "norm");
+      Serial.print(",ar=");
+      Serial.print(gModel.active_rates);
+    }
+    Serial.print(" trims=");
+    Serial.print(digitalRead(PIN_TRIM_RUD_L) == LOW ? "RL" : "--");
+    Serial.print(",");
+    Serial.print(digitalRead(PIN_TRIM_RUD_R) == LOW ? "RR" : "--");
+    Serial.print(",");
+    Serial.print(digitalRead(PIN_TRIM_AIL_L) == LOW ? "AL" : "--");
+    Serial.print(",");
+    Serial.print(digitalRead(PIN_TRIM_AIL_R) == LOW ? "AR" : "--");
+    Serial.print(",");
+    Serial.print(digitalRead(PIN_TRIM_ELE_D) == LOW ? "ED" : "--");
+    Serial.print(",");
+    Serial.print(digitalRead(PIN_TRIM_ELE_U) == LOW ? "EU" : "--");
+    Serial.println();
   }
 
   driveBlink(LED_SOLID);

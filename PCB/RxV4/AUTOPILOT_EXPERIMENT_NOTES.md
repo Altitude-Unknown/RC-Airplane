@@ -256,3 +256,241 @@ Next test-build changes:
   - pitch greater than `35 deg`
 - Throttle-low bench tilts do not trigger the attitude bailout.
 - Serial debug now reports `apMaster=ON/OFF`.
+
+## 2026-07-07 Bench Follow-Up: Autolevel Appears To Shut Off
+
+Bench setup:
+
+- Rx V4 was connected on `/dev/cu.usbmodem1101` while installed in the airplane.
+- The airplane was slightly nose-high to keep the USB cable connected.
+- The receiver was armed, link was healthy, and neutral/level capture completed.
+
+Live serial observation before the debug patch:
+
+- `apMaster=OFF`, `armed=yes`, `cap=done`, and accepted packet counts were healthy.
+- The displayed `rel=0.0,0.0` was misleading because the firmware zeroed relative
+  attitude whenever the pilot autolevel master was OFF.
+- The captured target was roughly `target=-178.1,15.1`; current pitch was roughly
+  `26.8 deg`, so the static nose-high bench attitude was only about `12 deg`
+  above the captured target and should not by itself trip the `35 deg` pitch
+  bailout.
+
+Debug-build update flashed after this observation:
+
+- Serial debug now keeps live relative roll/pitch/rates populated even when
+  autolevel is OFF or in MANUAL.
+- Serial debug now reports `apReason=<reason>`, `launchSeen=yes/no`, and the
+  raw manual channel values.
+- Repeated ON/OFF commands that do not change state now print an explicit
+  `AP pilot command ignored: already ...` line, so button/packet behavior is
+  visible.
+- Attitude bailout now prints a one-shot detail line:
+  `AP attitude bailout roll=<deg> pitch=<deg> limit=<roll>,<pitch> throttle=<us>`.
+
+Live serial observation after the debug patch:
+
+- After upload/reset, the receiver recaptured neutral/level and stayed
+  `apMaster=OFF apReason=boot launchSeen=no`.
+- Relative attitude in the nose-high USB bench position was roughly
+  `rel=15 deg roll, 3 deg pitch` after the new capture.
+- No left-rudder-trim autolevel ON command was observed during the monitor
+  window, so the live post-patch bench state was simply "booted OFF," not an
+  attitude bailout.
+
+Interpretation:
+
+- The known behavior remains: once throttle has crossed
+  `launchDetectThrottleUs = 1120`, an active autolevel session will disable the
+  pilot master if relative roll exceeds `55 deg` or relative pitch exceeds
+  `35 deg`.
+- On the bench, this can look like autolevel "keeps shutting off" if throttle
+  has been raised above the launch threshold and the airplane is then tilted
+  beyond the bailout limits while sticks are released.
+- If the next bench reproduction shows `apReason=attitude-bailout`, use the new
+  `AP attitude bailout ...` line to decide whether the bailout threshold or the
+  level capture attitude is the real problem.
+
+Confirmed live reproduction:
+
+- With autolevel ON at low throttle, the Rx stayed in `mode=LEVEL` while the
+  airplane was tilted well beyond the nominal bailout attitude, including roll
+  errors above `55 deg`. This is expected because `launchSeen=no`.
+- After throttle was raised high enough to set `launchSeen=yes`, the same tilt
+  behavior shut the pilot master OFF with `apReason=attitude-bailout`.
+- Post-bailout serial showed `mode=MANUAL apMaster=OFF
+  apReason=attitude-bailout launchSeen=yes`.
+- During the reproduction, throttle reached roughly `1999 us`; observed
+  post-bailout relative attitudes included roll errors beyond `55 deg` and pitch
+  errors beyond `35 deg`.
+- Conclusion: the field symptom is the designed post-launch attitude bailout,
+  not a missing rudder-trim ON command or LoRa packet issue.
+
+Next test-build decision:
+
+- Automatic attitude bailout is now disabled with
+  `enableAttitudeBailout=false`.
+- The bailout thresholds remain in the config so the behavior can be restored
+  later, but they no longer latch autolevel OFF during the next flight test.
+- Pilot safety exits for this test are manual aileron/elevator override and the
+  explicit right-rudder-trim autolevel OFF command.
+- Serial debug now reports `bailout=off/on` next to `launchSeen`.
+
+## 2026-07-08 Flight Follow-Up: Abrupt Roll In Autolevel
+
+Observed in flight:
+
+- Multiple high-altitude calm-wind tests were made with the Rx V4 autolevel
+  build.
+- Sometimes autolevel held roughly level for about 5 seconds before abruptly
+  rolling hard, often into a barrel roll.
+- Other times the hard roll began almost immediately after engagement, with a
+  dive before recovery.
+- After the event, the airplane usually recovered toward something close to
+  level, but pitch recovery was slow because this airframe has limited elevator
+  authority.
+
+Interpretation:
+
+- Since `enableAttitudeBailout=false` in this test build, the abrupt roll was
+  probably not the intentional bailout latch.
+- The leading hypothesis is the roll/pitch attitude estimator under real flight
+  acceleration. The previous guarded fusion path used accelerometer angle
+  directly whenever gyro and accel disagreed. That was helpful on the bench, but
+  in flight the accelerometer sees gravity plus aircraft acceleration, so it can
+  briefly report a false roll angle during turns, pull-ups, bumps, or vibration.
+- A sudden false roll estimate would produce a sudden large aileron correction,
+  matching the random-looking "fine for a few seconds, then hard roll" behavior.
+- The gyro bias captured during earlier calibration was large enough to justify
+  explicit startup bias measurement before trusting gyro integration.
+
+Next test-build changes:
+
+- Added startup gyro bias calibration from the first 120 IMU samples. Autolevel
+  neutral/level capture now waits until this bias is ready.
+- Added an accelerometer magnitude reference from the same startup window. The
+  estimator only uses accelerometer correction when live accel magnitude is
+  within `0.65x` to `1.35x` of the startup reference.
+- Replaced the flight fusion fallback: when gyro and accelerometer disagree, or
+  when the accelerometer angle jumps too fast, the estimator now keeps the gyro
+  prediction instead of snapping to accelerometer angle.
+- Reduced accelerometer correction gain to make attitude updates more
+  continuous in flight: roll accel gain `0.06`, pitch accel gain `0.08`.
+- Added a `1500 ms` autolevel correction ramp so servo authority fades in
+  instead of stepping immediately to full correction.
+- Reduced roll authority for the next test: roll gain `6.0 us/deg`, max aileron
+  correction `140 us`.
+- Increased pitch authority for the weak-elevator airframe: pitch gain
+  `7.5 us/deg`, max elevator correction `190 us`.
+- Stick-release engage delay is now `150 ms`, still quick but less hair-trigger
+  than the previous `75 ms`.
+- Serial debug now reports gyro-bias readiness, live/reference accel magnitude,
+  and the autolevel ramp scale.
+
+Next bench/flight checklist:
+
+- Keep the airplane still for several seconds after receiver boot so gyro bias
+  and accel reference are captured cleanly.
+- Confirm serial shows `gyroBias=yes` before arming/capture.
+- Recheck surface correction direction with prop removed.
+- In flight, engage autolevel briefly at high altitude and be ready to override
+  with aileron/elevator stick movement or right rudder trim OFF.
+- If hard roll persists, next step is to log or transmit raw `roll`, `pitch`,
+  `accel`, `gyro`, and `corr` around the event, and consider a stronger
+  production-grade AHRS approach rather than this lightweight experimental
+  estimator.
+
+## 2026-07-08 Bench Follow-Up: Startup Bias Timing
+
+Live bench observation after the first gyro-bias build:
+
+- The Rx received the left-rudder-trim command correctly:
+  `apMaster=ON apReason=tx-rudder-trim-left`.
+- Autolevel still stayed in `mode=MANUAL` because neutral/level capture remained
+  `cap=wait`.
+- Serial showed corrected gyro values around `12 deg/s` on roll and pitch while
+  the airplane was physically still, so the level-capture gyro gate rejected
+  capture.
+
+Root cause:
+
+- The Rx was capturing gyro bias immediately at receiver boot.
+- The real startup workflow is battery plug-in first, then the airplane is
+  placed on a level surface. Therefore the first IMU samples can be taken while
+  the airplane is being handled, producing a bad gyro bias.
+
+Firmware update:
+
+- Gyro-bias/accel-reference capture is now deferred until after the Rx has a
+  fresh transmitter link.
+- Bias capture only accumulates while throttle is low, aileron/elevator sticks
+  are centered, raw gyro rates are below `8 deg/s`, and the accelerometer
+  attitude is within the configured level-capture attitude window.
+- If those conditions are not met before bias is complete, partial bias samples
+  are discarded and the capture restarts later.
+- Serial debug now reports `gyroBias=yes/no(samples/120)` and `biasCap=yes/no`.
+
+Updated bench startup:
+
+- Power the transmitter.
+- Plug in the Rx battery.
+- Place the airplane in intended level-flight attitude.
+- Keep aileron/elevator centered and throttle low.
+- Wait for `biasCap=yes`, then `gyroBias=yes`, then `cap=done`.
+- Use left rudder trim to turn autolevel master ON, and release aileron/elevator
+  sticks to enter `mode=LEVEL`.
+
+## 2026-07-08 Bench Follow-Up: Tx Channel State Blocks Capture
+
+Live bench observation after the deferred-bias build:
+
+- The Rx was receiving valid current-format Tx packets again:
+  `rx` and accepted-packet counts climbed together, with `badLen=0(0)`.
+- Autolevel stayed OFF: `apMaster=OFF apReason=boot`.
+- The Rx channel stream was not centered even though the airplane was armed.
+  Typical line: `manual=1586,1000,1515,1003`. In the old unlabeled debug
+  output this order was `rudder,aileron,elevator,throttle`.
+- This means aileron was at minimum, rudder was offset from center, and elevator
+  was near center. The
+  Rx correctly reported `centered=no`, `gyroBias=no(0/120)`, and `biasCap=no`.
+
+Interpretation:
+
+- This is not an IMU/autolevel correction event yet. The controller has not
+  captured gyro bias or neutral/level targets, and it has not entered LEVEL.
+- The immediate items to inspect are the transmitter channel state, stored
+  model trim/subtrim/calibration, and the physical aileron trim buttons. A
+  stuck or held aileron trim button would explain a slow aileron walk toward an
+  endpoint.
+- Left rudder trim should send only the `AUTOLEVEL_ON` aux flag in the current
+  Tx code; normal rudder trim changes are skipped in flight mode.
+- Rx debug labels were updated to print `des(r/a/e/t)=`,
+  `manual(r/a/e/t)=`, and `aux=0x..`.
+
+## 2026-07-08 Tx Follow-Up: Stuck Aileron-Left Trim
+
+Live Tx serial debug with sticks centered showed:
+
+- Raw aileron ADC was centered: `raw=1020,505,519,518`, where the order is
+  `throttle,aileron,elevator,rudder`.
+- Outgoing aileron command was still full-left: `ail=1000`.
+- Active model aileron configuration was
+  `ailCfg=50,40,-500,1000-2000,norm,ar=0`, meaning aileron subtrim had been
+  driven to the maximum negative value.
+- Added trim-state debug confirmed the cause:
+  `trims=--,--,AL,--,--,--`. The aileron-left trim input reads pressed
+  continuously.
+
+Fix applied for the bench/autolevel test build:
+
+- Active model aileron subtrim was reset from `-500 us` to `0 us`.
+- Verification before turning debug back off:
+  `ail=1498 ... ailCfg=50,40,0,1000-2000,norm,ar=0`, while the stuck trim input
+  still read `AL`.
+- Software root cause: the normal-mode physical trim handler had hold-repeat
+  behavior (`TRIM_FIRST_REPEAT_MS` / `TRIM_REPEAT_MS`), so a stuck LOW trim
+  input repeatedly called `stepTrim()` until the saved subtrim hit the clamp.
+- Tx firmware was changed back to press-release trim behavior: a physical trim
+  changes only when a pressed button is released. A stuck/held button can no
+  longer walk trim to an endpoint.
+- Final Tx build was reflashed with debug disabled. The physical aileron-left
+  trim switch/button still needs hardware inspection or repair.
