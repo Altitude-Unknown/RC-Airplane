@@ -691,3 +691,54 @@ Flight-readiness status:
   test, a final untethered intended-level capture, manual override/RF-loss
   regression, and a conservative first-flight safety plan before authorizing a
   flight test.
+
+## First Flight-Test Protocol (After Bench Validation)
+
+This is a cautious validation flight, not proof that the feature is
+production-ready.
+
+### Preflight
+
+- Install the receiver in its normal rigid airframe location and disconnect
+  USB. The tethered nose-high position must not define the flight-level target.
+- Before arming, place the airframe in its intended straight-and-level flight
+  attitude with throttle low and aileron/elevator sticks centered. Keep it
+  still until gyro bias and neutral/level capture complete.
+- Confirm normal manual throws, current auto-level surface directions, explicit
+  right-rudder-trim OFF command, immediate stick override, and staged RF-loss
+  behavior.
+- Pilot master starts OFF. Autonomous launch behavior is neither expected nor
+  authorized.
+
+### Flight Sequence
+
+1. Launch, climb, and establish straight manual flight. Do not enable
+   auto-level below a safe recovery altitude or during a turn.
+2. Wait at least 5 s after throttle rises above launch threshold; the firmware
+   deliberately holds auto-level out during this period.
+3. At altitude in calm air, command pilot master ON with left rudder trim.
+4. Release aileron/elevator for only 1–2 s on the first activation. Keep hands
+   positioned to override immediately.
+5. Override with either aileron or elevator stick at the first unexpected
+   response. Use right rudder trim to disable the pilot master completely.
+6. Return to manual control and land. Do not expand duration or test maneuver
+   recovery on the first flight.
+
+### Pass / Abort Criteria
+
+- Pass: smooth, limited return toward captured attitude; no wrong-way response;
+  immediate stick override; no uncommanded oscillation or roll acceleration.
+- Abort the feature for the remainder of the flight: any wrong-way response,
+  repeated oscillation, unexpected large correction, delayed override, or
+  behavior inconsistent with the bench test. Disable with right rudder trim
+  and land manually.
+
+### Current Flight-Test Limits
+
+- No rate damping or rate feed-forward is enabled.
+- Direct angle gains are roll/pitch `12 us/deg`; correction limits are
+  `220 us` each. These are test values, not final tuning.
+- No altitude hold is active.
+- Use calm air only. Turbulence, high-g maneuvering, steep turns, and low
+  altitude are out of scope until this controlled validation flight is
+  successful and reviewed.
