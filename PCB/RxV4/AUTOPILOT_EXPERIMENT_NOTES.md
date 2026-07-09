@@ -742,3 +742,43 @@ production-ready.
 - Use calm air only. Turbulence, high-g maneuvering, steep turns, and low
   altitude are out of scope until this controlled validation flight is
   successful and reviewed.
+
+## 2026-07-09 Pitch Gyro Sign Repair and Safety Decision
+
+Flight-feedback diagnosis:
+
+- Ground pitch correction direction appeared correct, but in flight the
+  airplane repeatedly pitched toward inversion and then oscillated about the
+  pitch axis. Changing the captured setup attitude changed whether the initial
+  motion was a climb or dive but did not prevent inversion.
+- This indicates a dynamic pitch-estimator sign fault, not a static surface
+  direction or level-capture problem. The simple accel pitch angle also becomes
+  ambiguous near vertical/inverted attitude, so auto-level must never continue
+  commanding through that region.
+
+Pitch-axis diagnostic result:
+
+- `IMU_Rate_Axis_Test` showed raw `gy` becomes negative when accel-derived
+  pitch increases and positive when it decreases.
+- The firmware formerly used `IMU_PITCH_RATE_SIGN=+1`; this integrated pitch in
+  the opposite direction during rapid pitch motion.
+- Changed `IMU_PITCH_RATE_SIGN` to `-1` and reflashed the receiver. Roll and
+  pitch gyro signs are now both backed by captured single-axis diagnostic data.
+
+Attitude bailout:
+
+- Re-enabled `enableAttitudeBailout=true` for validation flights. Once throttle
+  has crossed launch threshold, it disables the autolevel pilot master if
+  relative roll exceeds `55 deg` or relative pitch exceeds `35 deg`.
+- This does not fight the safety pilot: it removes auto-level correction and
+  returns to manual surface commands. It is intentionally retained for the
+  first post-repair flight because the earlier failure drove toward inversion.
+- Do not remove or relax this bailout until pitch has passed rapid-motion bench
+  validation and a short, high-altitude flight activation has been reviewed.
+
+Required next bench test:
+
+- Verify slow and rapid pitch-up/pitch-down corrections, including reversal
+  through level, without a wrong-way transient.
+- Verify manual override and confirm the post-launch attitude bailout turns
+  autolevel OFF at the configured pitch/roll limits.

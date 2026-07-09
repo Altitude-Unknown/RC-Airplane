@@ -168,7 +168,9 @@ const float IMU_PITCH_FROM_ACCEL_SIGN = 1.0f;
 // Verified by IMU_Rate_Axis_Test on 2026-07-09: raw gx increases when the
 // accel-derived raw roll angle increases.  Do not negate gx before roll fusion.
 const float IMU_ROLL_RATE_SIGN        = 1.0f;
-const float IMU_PITCH_RATE_SIGN       = 1.0f;
+// Verified by IMU_Rate_Axis_Test on 2026-07-09: raw gy decreases when the
+// accel-derived pitch angle increases.  Negate gy before pitch fusion.
+const float IMU_PITCH_RATE_SIGN       = -1.0f;
 const float AP_AILERON_CORRECTION_SIGN  = 1.0f;
 const float AP_ELEVATOR_CORRECTION_SIGN = -1.0f;
 const bool AP_BENCH_ACCEL_ONLY_ROLL = false;
@@ -242,7 +244,9 @@ struct AutopilotConfig {
   uint16_t launchDetectThrottleUs = 1120;
   uint32_t launchAutolevelLockoutMs = 5000;
   uint32_t auxAutolevelCommandCooldownMs = 250;
-  bool enableAttitudeBailout = false;
+  // After launch, leave level mode rather than allowing a faulty estimate or
+  // controller to keep commanding surfaces toward a steep attitude.
+  bool enableAttitudeBailout = true;
   float attitudeBailoutRollDeg = 55.0f;
   float attitudeBailoutPitchDeg = 35.0f;
   float levelTargetRollDeg = IMU_CAL_LEVEL_ROLL_DEG;
