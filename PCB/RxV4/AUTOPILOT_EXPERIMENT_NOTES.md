@@ -494,3 +494,154 @@ Fix applied for the bench/autolevel test build:
   longer walk trim to an endpoint.
 - Final Tx build was reflashed with debug disabled. The physical aileron-left
   trim switch/button still needs hardware inspection or repair.
+
+## 2026-07-08 Bench Follow-Up: Autolevel Too Slow
+
+Bench observation:
+
+- After the estimator-protection build, autolevel response on the bench was far
+  too slow for a reasonable flight test.
+- The likely cause is that several conservative changes stacked together:
+  `1500 ms` correction ramp, reduced roll authority, and very low accelerometer
+  fusion gain.
+
+Firmware retune for the next bench build:
+
+- Removed the autolevel correction fade-in by setting `autolevelRampMs=0`.
+- Restored quick stick-release engagement with `stickReleaseHoldMs=75`.
+- Increased attitude fusion correction while keeping the bad-accel safeguards:
+  roll accel gain `0.18`, pitch accel gain `0.20`.
+- Restored roll authority to `7.5 us/deg` and `210 us` max correction.
+- Increased pitch authority to `8.5 us/deg` and `220 us` max correction for the
+  weak-elevator airframe.
+- Kept startup gyro-bias capture, accel magnitude trust gating, accel angle jump
+  rejection, and the no-snap-to-accel behavior when gyro and accel disagree.
+
+Interpretation:
+
+- The hard-roll mitigation should focus on estimator validity, not on making the
+  controller so slow that it cannot level the airplane.
+- This build should be judged first on bench response direction and speed before
+  considering another flight test.
+
+Follow-up retune after bench response was still too slow:
+
+- Increased accel fusion gain to `0.30` on both roll and pitch.
+- Increased accel angle jump allowance to `35 deg` so normal bench tilts do not
+  leave the estimator mostly gyro-only.
+- Increased roll authority to `11.0 us/deg` and `300 us` max correction.
+- Increased pitch authority to `12.0 us/deg` and `300 us` max correction.
+- This is an assertive bench-response build. Do not flight test it until surface
+  direction, response speed, and manual override behavior are rechecked.
+
+Second follow-up retune after response was still too slow:
+
+- Increased roll authority to `16.0 us/deg` and `450 us` max correction.
+- Increased pitch authority to `18.0 us/deg` and `450 us` max correction.
+- This version is intended to test whether the remaining lag is mainly servo
+  authority/gain rather than estimator latency.
+
+## 2026-07-08 Controller Shape Change: Rate-Based Cascade
+
+Reason for change:
+
+- Bench testing showed the surfaces moved in the correct direction, but the
+  response was still slower than the earlier morning build.
+- Simply increasing angle-to-servo gain risks returning to hard overshoot or
+  random roll behavior.
+- ArduPlane/PX4-style fixed-wing controllers separate attitude demand from rate
+  control: angle error asks for a target body rate, then gyro-measured rate is
+  used to decide the servo output.
+
+Clean-room firmware update:
+
+- Replaced direct angle-error-to-servo output with a compact cascade:
+  `angle error -> target deg/s -> rate error -> servo correction`.
+- Roll target-rate time constant is now `0.35 s`, limited to `120 deg/s`.
+- Pitch target-rate time constant is now `0.40 s`, limited to `90 deg/s`.
+- Roll servo output uses target-rate feed-forward `3.0 us/(deg/s)` plus
+  rate-error P `2.5 us/(deg/s)`.
+- Pitch servo output uses target-rate feed-forward `3.5 us/(deg/s)` plus
+  rate-error P `3.0 us/(deg/s)`.
+- Servo correction limits remain `450 us`.
+- No integral term was added yet; this is intentionally a small test step.
+- Serial debug now reports `rollTerms(ff,p)` and `pitchTerms(ff,p)`.
+
+Expected effect:
+
+- Static bench tilts should still command large, immediate surface movement.
+- Once the airplane is already rotating back toward level, gyro feedback should
+  reduce command sooner than the previous pure angle-gain approach.
+- If this still feels too slow, inspect serial `tgtRate`, `relRate`, and
+  `rollTerms/pitchTerms` to tell whether the bottleneck is estimator lag,
+  commanded rate limits, rate gain, or servo authority.
+
+## 2026-07-08 Controller Follow-Up: Rate Loop Too Jittery
+
+Bench observation:
+
+- The rate-cascade build behaved differently, but was still not flight worthy.
+- Surfaces were jittery and occasionally made a momentary wrong-direction
+  correction.
+
+Interpretation:
+
+- The raw rate-error P term is too sensitive for the current estimator/gyro
+  signal and can briefly overpower the correct feed-forward direction.
+- Until gyro-rate filtering and sign validation are stronger, the rate loop
+  should not be allowed to reverse the commanded correction.
+
+Firmware update:
+
+- Removed full bidirectional rate-error P from the servo output.
+- Increased target-rate feed-forward so static bench response remains strong:
+  roll `5.0 us/(deg/s)`, pitch `5.5 us/(deg/s)`.
+- Kept gyro contribution only as one-way damping:
+  - roll damping `1.2 us/(deg/s)` only when roll rate is moving farther from
+    level
+  - pitch damping `1.4 us/(deg/s)` only when pitch rate is moving farther from
+    level
+- The intent is to preserve fast correction direction while preventing gyro
+  noise or sign ambiguity from causing wrong-way twitches.
+
+## 2026-07-09 Bench Record: Conservative Controller and Roll-Gyro Isolation
+
+Changes and outcomes, in order:
+
+- Replaced the high-authority attitude-to-rate feed-forward controller with a
+  direct angle-P controller. This removed a major source of abrupt and
+  unpredictable correction.
+- Added explicit gyro-bias capture, acceleration-magnitude gating, a
+  100 ms stick-release delay, 100 ms engagement ramp, stick hysteresis,
+  captured-neutral output mixing, and a 5 s post-throttle launch lockout.
+- Validated on the bench: RF-loss behavior is correct; manual aileron/elevator
+  movement immediately returns control to the pilot; initial surface directions
+  are correct.
+- Current direct angle controller: roll `12 us/deg`, pitch `9 us/deg`, angle
+  deadband `0.75 deg`, roll/pitch correction limits `220/180 us`, correction
+  filter alpha `0.65`, and correction slew limits `60 us` per 20 ms tick.
+- A bounded gyro damping experiment was attempted. Rapid roll produced an
+  initial wrong-way correction before the correct correction appeared. Damping
+  is therefore disabled (`enableRateDamping=false`).
+- Roll gyro/fusion isolation was then enabled with
+  `AP_BENCH_ACCEL_ONLY_ROLL=true`. With accel-only roll, both slow and rapid
+  bench rolls produced fast, smooth, correct-direction correction and the
+  wrong-way transient disappeared.
+
+### Current Firmware Status: Bench Only — Do Not Fly
+
+The current Rx V4 image is a successful diagnostic build, not a flight build.
+`AP_BENCH_ACCEL_ONLY_ROLL=true` means roll uses accelerometer tilt only. In
+real flight, acceleration, turns, turbulence, vibration, and thrust changes
+can make an accelerometer report a false gravity direction. That can command a
+dangerous false bank correction.
+
+Conclusion:
+
+- The roll gyro axis/sign/fusion path is the remaining root-cause area.
+- Do not restore gyro damping or rate feed-forward until a controlled gyro
+  roll-axis/sign test establishes that the integrated gyro roll changes in the
+  same direction as the accel-derived roll during rapid motion.
+- Do not conduct a flight test until gyro-assisted roll fusion has been repaired
+  and then revalidated on the bench. The current fast response is evidence for
+  the direct angle controller and surface mapping; it is not flight clearance.
