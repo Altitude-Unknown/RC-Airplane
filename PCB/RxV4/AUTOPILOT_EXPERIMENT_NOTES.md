@@ -645,3 +645,49 @@ Conclusion:
 - Do not conduct a flight test until gyro-assisted roll fusion has been repaired
   and then revalidated on the bench. The current fast response is evidence for
   the direct angle controller and surface mapping; it is not flight clearance.
+
+## 2026-07-09 Roll Gyro Sign Repair and Current Bench Configuration
+
+Dedicated diagnostic:
+
+- Added `PCB/RxV4/IMU_Rate_Axis_Test/IMU_Rate_Axis_Test.ino`, which drives no
+  radio or servos and reports raw gyro axes with accel-derived roll/pitch.
+- During a controlled single-axis roll movement, raw `gx` increased whenever
+  the accel-derived raw roll angle increased, and reversed when the roll was
+  reversed. The former receiver code used `IMU_ROLL_RATE_SIGN=-1`, so it
+  integrated roll in the opposite direction during rapid motion.
+- Changed `IMU_ROLL_RATE_SIGN` to `+1` and restored guarded gyro/accel roll
+  fusion (`AP_BENCH_ACCEL_ONLY_ROLL=false`). Rate damping remains disabled.
+
+Bench result after the repair:
+
+- Untethered aileron tests were fast, smooth, and correct for both slow and
+  rapid rolls, with no initial wrong-way correction.
+- The 30-degree nose-high USB position is acceptable for relative tethered
+  tests but must never be used to establish the intended flight-level attitude.
+
+Current controller settings:
+
+- roll and pitch direct angle gain: `12 us/deg`
+- roll and pitch correction limit: `220 us`
+- angle correction deadband: `0.75 deg`
+- stick-release delay and engagement ramp: `100 ms` each
+- roll/pitch accel fusion gain: `0.06/0.07`
+- correction filter alpha: `0.65`; slew limit: `60 us` per 20 ms update
+- rate damping: disabled
+
+Elevator follow-up:
+
+- Pitch authority was increased from `9 us/deg, 180 us max` to
+  `12 us/deg, 220 us max` to match the now-validated aileron authority.
+- This change was flashed and requires the same prop-removed pitch-direction,
+  rapid-motion, and manual-override bench validation as roll.
+
+Flight-readiness status:
+
+- The accel-only roll diagnostic restriction is removed; gyro-assisted roll
+  fusion is now active with the measured correct gyro sign.
+- The system is still not flight-cleared. Complete the updated elevator bench
+  test, a final untethered intended-level capture, manual override/RF-loss
+  regression, and a conservative first-flight safety plan before authorizing a
+  flight test.

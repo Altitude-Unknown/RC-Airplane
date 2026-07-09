@@ -165,13 +165,13 @@ const float IMU_CAL_PITCH_OUTPUT_SIGN = 1.0f;
 
 const float IMU_ROLL_FROM_ACCEL_SIGN  = 1.0f;
 const float IMU_PITCH_FROM_ACCEL_SIGN = 1.0f;
-const float IMU_ROLL_RATE_SIGN        = -1.0f;
+// Verified by IMU_Rate_Axis_Test on 2026-07-09: raw gx increases when the
+// accel-derived raw roll angle increases.  Do not negate gx before roll fusion.
+const float IMU_ROLL_RATE_SIGN        = 1.0f;
 const float IMU_PITCH_RATE_SIGN       = 1.0f;
 const float AP_AILERON_CORRECTION_SIGN  = 1.0f;
 const float AP_ELEVATOR_CORRECTION_SIGN = -1.0f;
-// Diagnostic only: isolate the roll gyro/fusion path after a wrong-way rapid
-// motion transient.  Never use accel-only roll for flight.
-const bool AP_BENCH_ACCEL_ONLY_ROLL = true;
+const bool AP_BENCH_ACCEL_ONLY_ROLL = false;
 const bool AP_GUARDED_ROLL_FUSION = true;
 const bool AP_GUARDED_PITCH_FUSION = true;
 // Per-sample complementary correction at the 50 Hz control tick.  These are
@@ -251,7 +251,7 @@ struct AutopilotConfig {
   // feed-forward/damping until the attitude signs and estimator are validated
   // in logged flight data.
   float rollAngleKpUsPerDeg = 12.0f;
-  float pitchAngleKpUsPerDeg = 9.0f;
+  float pitchAngleKpUsPerDeg = 12.0f;
   // Gyro damping is deliberately bounded and only used while motion is making
   // the attitude error worse.  It is not rate feed-forward.
   float rollRateDampingUsPerDps = 0.50f;
@@ -262,7 +262,7 @@ struct AutopilotConfig {
   float attitudeCorrectionDeadbandDeg = 0.75f;
   uint32_t autolevelRampMs = 100;
   uint16_t rollMaxCorrectionUs = 220;
-  uint16_t pitchMaxCorrectionUs = 180;
+  uint16_t pitchMaxCorrectionUs = 220;
   // A short output filter removes estimator/servo chatter without materially
   // delaying the aircraft response at the 50 Hz update rate.
   float rollCorrectionAlpha = 0.65f;
