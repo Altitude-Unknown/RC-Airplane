@@ -179,7 +179,9 @@ const bool AP_GUARDED_PITCH_FUSION = true;
 // Per-sample complementary correction at the 50 Hz control tick.  These are
 // deliberately small so transient aircraft acceleration cannot create a large
 // attitude step.
-const float AP_ROLL_FUSION_ACCEL_GAIN = 0.06f;
+// Flight roll must not rapidly follow apparent gravity during turns/skids.
+// Gyro prediction is sign-validated; use accel only as a slow drift correction.
+const float AP_ROLL_FUSION_ACCEL_GAIN = 0.012f;
 const float AP_PITCH_FUSION_ACCEL_GAIN = 0.07f;
 const float AP_ROLL_FUSION_MIN_DELTA_DEG = 0.15f;
 const float AP_PITCH_FUSION_MIN_DELTA_DEG = 0.15f;
@@ -254,7 +256,7 @@ struct AutopilotConfig {
   // First-flight controller: direct, limited angle-P.  Do not add rate
   // feed-forward/damping until the attitude signs and estimator are validated
   // in logged flight data.
-  float rollAngleKpUsPerDeg = 12.0f;
+  float rollAngleKpUsPerDeg = 8.5f;
   float pitchAngleKpUsPerDeg = 12.0f;
   // Gyro damping is deliberately bounded and only used while motion is making
   // the attitude error worse.  It is not rate feed-forward.
@@ -265,7 +267,7 @@ struct AutopilotConfig {
   bool enableRateDamping = false;
   float attitudeCorrectionDeadbandDeg = 0.75f;
   uint32_t autolevelRampMs = 100;
-  uint16_t rollMaxCorrectionUs = 220;
+  uint16_t rollMaxCorrectionUs = 160;
   uint16_t pitchMaxCorrectionUs = 220;
   // A short output filter removes estimator/servo chatter without materially
   // delaying the aircraft response at the 50 Hz update rate.

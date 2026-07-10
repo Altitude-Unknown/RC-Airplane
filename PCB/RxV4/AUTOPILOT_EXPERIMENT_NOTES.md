@@ -782,3 +782,46 @@ Required next bench test:
   through level, without a wrong-way transient.
 - Verify manual override and confirm the post-launch attitude bailout turns
   autolevel OFF at the configured pitch/roll limits.
+
+## 2026-07-09 Roll Flight-Bias Reduction and Bench Pass
+
+Flight feedback after the pitch-gyro repair showed no further pitch-to-invert
+behavior, but roll consistently settled about 20--30 degrees left of level and
+oscillated around that apparent setpoint. A fresh power-up and level capture
+did not change it. Ground surface-direction checks were correct, and a
+restrained motor run did not show a left-roll progression.
+
+Working diagnosis:
+
+- The aileron TX subtrim is `-10`, but receiver manual neutral is captured
+  after arming. That subtrim is therefore not the primary explanation for a
+  persistent 20--30 degree auto-level attitude error.
+- The previous roll accelerometer fusion value (`0.06` per 50 Hz update) could
+  follow apparent gravity too quickly in a turn or slip, producing a false
+  roll target. The high roll proportional gain and correction limit could then
+  sustain the observed oscillation.
+
+Roll-only revision uploaded and flash-verified:
+
+- Reduced roll accelerometer complementary correction from `0.06` to `0.012`.
+  The sign-validated gyro is now the short-term roll reference; accelerometer
+  data corrects only slow drift.
+- Reduced roll angle gain from `12.0` to `8.5 us/deg`.
+- Reduced roll correction limit from `220` to `160 us`.
+- Pitch fusion/gain/limit, gyro signs, stick override, RF-loss behavior, and
+  post-launch attitude bailout are unchanged.
+
+Bench result:
+
+- Prop-removed bench test passed: corrections were fast, smooth, and in the
+  expected directions; manual control and immediate override behaved normally.
+
+Next flight validation:
+
+- This build remains a controlled flight-test configuration, not a general
+  flight release. At safe altitude in calm air, make only brief straight-flight
+  activations after the five-second launch lockout.
+- Determine whether the persistent left roll and roll oscillation are reduced
+  before changing any trim or adding an in-flight level offset. Abort to manual
+  immediately for any wrong-way response, sustained oscillation, or large
+  correction.
