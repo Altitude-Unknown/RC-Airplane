@@ -825,3 +825,64 @@ Next flight validation:
   before changing any trim or adding an in-flight level offset. Abort to manual
   immediately for any wrong-way response, sustained oscillation, or large
   correction.
+
+## 2026-07-10 Rx V4 AHRS and Controller Redesign
+
+The first-principles audit concluded that the direct Euler complementary-filter
+and angle-to-servo controller should be replaced rather than tuned further.
+The previous flight behavior could look correct on the bench while being fooled
+by aerodynamic acceleration and changing control effectiveness with airspeed.
+
+Implemented in `rx_V4__firmware/rx_V4__firmware.ino`:
+
+- Replaced independent roll/pitch gyro integration with a full three-axis unit
+  quaternion AHRS.
+- Added the right-handed PCB sensor transform: gyro/accel X unchanged, Y and Z
+  negated.  This follows from the already verified roll/pitch rate signs and
+  avoids an invalid reflected coordinate frame.
+- Added yaw gyro bias capture and quaternion propagation using all gyro axes.
+- Accelerometer correction is magnitude-gated and rejected when its gravity
+  innovation exceeds 25 degrees.  It is deliberately slow and is reported as
+  `accelFuse=yes/no` in debug output.
+- IMU control-register writes are read back and verified.  Startup debug now
+  reports the actual `WHO_AM_I` value.  The unresolved stationary magnitude of
+  approximately 0.32-0.38 g still requires exact IMU-part identification before
+  flight clearance.
+- A single failed I2C read no longer immediately kills the IMU; five consecutive
+  failures are required.
+- Startup neutral capture now captures transmitter/servo neutral only.  It no
+  longer redefines level from the airplane's pose at every power-up.
+- Added explicit calibrated airframe attitude references.  Pitch flight trim is
+  a separate parameter and currently zero relative to the calibration fixture.
+- Replaced direct angle-to-servo control with a cascade:
+  `angle error -> target body rate -> gyro rate FF + P + limited I -> surface`.
+- Rate-loop integrators reset on manual override, autolevel disable, RF loss,
+  invalid estimator state, and disarm.
+- Autopilot authority is calculated as normalized surface deflection before it
+  is converted to microseconds.  Initial limits remain equivalent to about
+  +/-160 us aileron and +/-220 us elevator around captured trim.
+- Replaced sequential interrupt-blocking software servo pulses with the SAMD
+  Servo library.  Control/AHRS runs at 100 Hz and hardware servo commands update
+  at 50 Hz.
+- Preserved radio packet handling, arming, ESC mode, immediate manual override,
+  launch lockout, and the previously tested RF-loss state machine.
+
+Verification:
+
+- Compiles successfully for `adafruit:samd:adafruit_feather_m0`.
+- This revision is **prop-removed bench-test only**.  It is not flight-cleared.
+- This revision includes the new-wing aileron correction sign and the
+  testing-only disabled bailout as intentional experimental settings.
+
+Required bench gates:
+
+1. Record startup `WHO_AM_I`, `accel`, gyro bias, and fixed target output.
+2. Confirm level attitude is close to `roll=-10.2`, `pitch=11.6` before level
+   correction is enabled.
+3. Confirm right/left roll and nose-up/down values and surface corrections.
+4. Confirm yaw rotation changes yaw gyro without creating a persistent roll or
+   pitch error.
+5. Translate the airplane sharply without rotating it; attitude must not make a
+   large sustained step.
+6. Confirm any aileron/elevator stick movement gives immediate manual control.
+7. Confirm transmitter-off RF-loss behavior with the prop removed.
