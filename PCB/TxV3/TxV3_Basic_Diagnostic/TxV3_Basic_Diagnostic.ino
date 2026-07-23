@@ -18,10 +18,11 @@
 #include <Wire.h>
 #include <RH_RF95.h>
 
-static constexpr uint8_t PIN_THR = A0;
+// Measured assembled V3 harness follows the V2 gimbal order.
+static constexpr uint8_t PIN_THR = A3;
 static constexpr uint8_t PIN_AIL = A1;
 static constexpr uint8_t PIN_ELE = A2;
-static constexpr uint8_t PIN_RUD = A3;
+static constexpr uint8_t PIN_RUD = A0;
 
 static constexpr uint8_t PIN_TRIM_RUD_L = A4;
 static constexpr uint8_t PIN_TRIM_RUD_R = 12;

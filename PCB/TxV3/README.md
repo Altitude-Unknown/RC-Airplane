@@ -29,10 +29,10 @@ Ports are assigned dynamically and must not be treated as permanent board IDs.
 
 | Function | Arduino pin | SAMD21 pin/net | Notes |
 | --- | --- | --- | --- |
-| Throttle | A0 | PA02 | Changed from the V2 firmware mapping |
+| Throttle | A3 | PA04 | Measured assembled harness; low is about 1019-1020 ADC |
 | Aileron | A1 | PB08 | |
 | Elevator | A2 | PB09 | |
-| Rudder | A3 | PA04 | Changed from the V2 firmware mapping |
+| Rudder | A0 | PA02 | Measured assembled harness; matches the V2 order |
 | Rudder trim left | A4 | PA05 | Active low |
 | Rudder trim right | D12 | PA19 | Active low |
 | Aileron trim left | D1 | PA10 | Active low |
@@ -55,6 +55,12 @@ Ports are assigned dynamically and must not be treated as permanent board IDs.
 | I2C SCL | SCL | PA23 | FRAM and LCD connector |
 | ESP UART TX | not exposed | PB22 / TXD | Connects to ESP32-C3 RXD |
 | ESP UART RX | not exposed | PB23 / RXD | Connects to ESP32-C3 TXD |
+
+The corrected V3 schematic labels throttle on A0 and rudder on A3, but both
+assembled prototype harnesses tested on 2026-07-22 behave in the V2 order shown
+above. Firmware and the basic diagnostic therefore use throttle A3 and rudder
+A0. Revalidate this on the next PCB/harness revision rather than carrying the
+prototype exception forward blindly.
 
 ## Other confirmed hardware
 
