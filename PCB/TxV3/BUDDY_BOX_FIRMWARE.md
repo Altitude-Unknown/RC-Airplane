@@ -122,7 +122,7 @@ Completed tests:
   1500 us, and commanded throttle to 1000 us. Lowering throttle and resetting
   restored a fresh link and normal arming.
 
-Issue found and fixed, pending physical retest:
+Issue found, fixed, and physically retested:
 
 - Student stick movement initially caused immediate false instructor takeover.
   The outgoing student values had overwritten the `ControlPacket` fields also
@@ -130,13 +130,14 @@ Issue found and fixed, pending physical retest:
   interpreted student deflection as master movement.
 - The V3 build now keeps independent instructor smoothing variables and copies
   them into the outgoing packet before optional student substitution. This fix
-  compiled and was flashed to the master, but the requested physical retest was
-  paused to commit and update notes.
+  compiled and was flashed to the master.
+- The follow-up bench test passed: student stick movement continued to command
+  the receiver without an immediate false instructor takeover. AUX handoff,
+  intentional master-stick takeover, and student link-loss takeover all behaved
+  correctly with the separated smoothing state.
 
 Still required before flight:
 
-- Retest sustained student authority with full student stick travel.
-- Retest real master-stick takeover after the smoothing-state fix.
 - Install servos in the airframe and verify physical control-surface directions,
   neutral positions, endpoints, and absence of binding.
 - Calibrate the ESC endpoints and confirm motor stop and full-range response.
