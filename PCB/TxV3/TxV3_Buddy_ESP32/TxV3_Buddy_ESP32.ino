@@ -19,12 +19,13 @@
 
 static constexpr int SAMD_RX_PIN = 20;  // ESP RX <- SAMD PB22 TX
 static constexpr int SAMD_TX_PIN = 21;  // ESP TX -> SAMD PB23 RX
-static constexpr uint32_t LINK_BAUD = 19200;
+static constexpr uint32_t LINK_BAUD = 115200;
 static constexpr uint8_t ESPNOW_CHANNEL = 1;
 static constexpr uint32_t FRAME_MAGIC = 0x33585654UL; // "TVX3"
 static constexpr uint8_t FRAME_VERSION = 1;
-static constexpr uint32_t TX_INTERVAL_MS = 20;
-static constexpr uint32_t FORWARD_INTERVAL_MS = 50;
+// 100 Hz matches a typical RC control-frame rate. The master forwards each
+// newly received frame immediately rather than adding a second timing gate.
+static constexpr uint32_t TX_INTERVAL_MS = 10;
 
 enum Role : uint8_t { ROLE_UNCONFIGURED = 0, ROLE_MASTER = 1, ROLE_STUDENT = 2 };
 
@@ -70,7 +71,6 @@ char samdLine[96];
 size_t samdLength = 0;
 String usbLine;
 uint32_t lastTransmitMs = 0;
-uint32_t lastForwardMs = 0;
 uint32_t sentFrames = 0;
 uint32_t receivedFrames = 0;
 uint32_t samdLinesReceived = 0;
@@ -223,8 +223,7 @@ void loop() {
     if (esp_now_send(broadcast, reinterpret_cast<const uint8_t *>(&localFrame), sizeof(localFrame)) == ESP_OK) ++sentFrames;
   }
 
-  if (role == ROLE_MASTER && samdReady && receivedStudentPending && now-lastForwardMs>=FORWARD_INTERVAL_MS) {
-    lastForwardMs=now;
+  if (role == ROLE_MASTER && samdReady && receivedStudentPending) {
     BuddyFrame frame;
     portENTER_CRITICAL(&receiveMux);
     memcpy(&frame, &receivedStudent, sizeof(frame));

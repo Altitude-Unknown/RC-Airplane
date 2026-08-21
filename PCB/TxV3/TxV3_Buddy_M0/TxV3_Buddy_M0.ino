@@ -25,8 +25,8 @@ static constexpr float RF95_FREQ=915.0f;
 static constexpr uint16_t RC_MIN=1000, RC_MID=1500, RC_MAX=2000;
 static constexpr uint16_t MASTER_MOVE_US=35;
 static constexpr uint32_t STUDENT_TIMEOUT_MS=250;
-static constexpr uint32_t UART_REPORT_MS=50;
-static constexpr uint32_t BUDDY_UART_BAUD=19200;
+static constexpr uint32_t UART_REPORT_MS=10;
+static constexpr uint32_t BUDDY_UART_BAUD=115200;
 static constexpr uint8_t AUX_AUTOLEVEL_ON=0x01, AUX_AUTOLEVEL_OFF=0x02;
 
 struct __attribute__((packed)) ControlPacket {

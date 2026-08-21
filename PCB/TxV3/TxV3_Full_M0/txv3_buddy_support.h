@@ -2,7 +2,10 @@
 #include <Arduino.h>
 
 static constexpr uint8_t TXV3_TRAINER_PIN=10;
-static constexpr uint32_t TXV3_UART_BAUD=19200;
+// The buddy path is flight-critical. At 115200 baud, a LOCAL update occupies
+// roughly 3 ms on the wire instead of 15-20 ms at the original bench rate.
+static constexpr uint32_t TXV3_UART_BAUD=115200;
+static constexpr uint32_t TXV3_LOCAL_INTERVAL_MS=10;
 static constexpr uint32_t TXV3_STUDENT_TIMEOUT_MS=250;
 static constexpr uint16_t TXV3_MASTER_MOVE_US=35;
 static constexpr uint16_t TXV3_PACKET_MAGIC=0xB358;
@@ -95,7 +98,7 @@ void txv3BuddyService(){
 }
 bool txv3BuddyIsStudent(){return txv3Role==TXV3_STUDENT;}
 void txv3BuddyPublishLocal(uint16_t rud,uint16_t ail,uint16_t ele,uint16_t thr,uint8_t aux){
-  uint32_t now=millis();if(now-txv3LastLocalMs<50)return;txv3LastLocalMs=now;char out[96];snprintf(out,sizeof(out),"LOCAL %u %u %u %u %u %u\n",++txv3LocalSequence,rud,ail,ele,thr,aux);txv3Write(out);
+  uint32_t now=millis();if(now-txv3LastLocalMs<TXV3_LOCAL_INTERVAL_MS)return;txv3LastLocalMs=now;char out[96];snprintf(out,sizeof(out),"LOCAL %u %u %u %u %u %u\n",++txv3LocalSequence,rud,ail,ele,thr,aux);txv3Write(out);
 }
 bool txv3BuddySelectChannels(uint16_t &rud,uint16_t &ail,uint16_t &ele,uint16_t &thr,uint8_t &aux){
   txv3Master={rud,ail,ele,thr,aux};txv3BuddyService();if(!txv3StudentGranted)return false;rud=txv3Student.rud;ail=txv3Student.ail;ele=txv3Student.ele;thr=txv3Student.thr;aux=txv3Student.aux;return true;

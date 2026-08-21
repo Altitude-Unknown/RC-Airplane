@@ -14,9 +14,10 @@ ESP32-C3 modules.
 - Student data older than 250 ms revokes authority.
 - After movement or link-loss revocation, the master must cycle AUX again.
 - ESP-NOW packets use protocol magic, version, role, and CRC checks.
-- The current bench build uses a conservative 19200-baud internal UART and a
-  20 Hz student update rate with interrupt-driven M0 receive buffering. This
-  provides timing margin during concurrent LoRa and USB activity.
+- The low-latency build uses a 115200-baud internal UART and a 100 Hz student
+  update rate with interrupt-driven M0 receive buffering. The master ESP
+  forwards each newly received student frame immediately instead of waiting on
+  a separate 50 ms forwarding interval.
 - ESP-to-master control data uses fixed-length binary packets with sync magic,
   protocol version/type, channel bounds, sequence, and CRC-16. The M0 parser
   resynchronizes by scanning for the next valid magic after a damaged packet.
@@ -135,6 +136,44 @@ Issue found, fixed, and physically retested:
   the receiver without an immediate false instructor takeover. AUX handoff,
   intentional master-stick takeover, and student link-loss takeover all behaved
   correctly with the separated smoothing state.
+
+## 2026-08-21 low-latency update
+
+The original conservative timing could add approximately 70-120 ms before the
+normal master-to-aircraft LoRa hop: 50 ms M0 reporting, 20 ms ESP-NOW pacing,
+50 ms master forwarding, and slow UART serialization could all align poorly.
+
+The flight path now uses:
+
+- 10 ms (100 Hz) student M0 reports.
+- 10 ms (100 Hz) ESP-NOW transmit pacing.
+- Immediate master ESP-to-M0 forwarding of each newest frame.
+- 115200-baud UART on both M0 and ESP32-C3.
+
+The expected buddy-only latency is roughly 10-25 ms, but this must be measured
+on both assembled boards. Reflash both ESP32-C3 modules and both SAMD21 modules;
+the UART baud change requires matching firmware on each processor.
+
+Flash and link verification completed on 2026-08-21:
+
+- Production `TxV3_Full_M0` compiled for `Altitude Unknown RC TX M0`.
+- `TxV3_Buddy_ESP32` compiled for ESP32-C3 with USB CDC enabled at boot.
+- Master ESP32-C3 (`80:F1:B2:F0:1A:E8`) and master SAMD21 flashed and verified.
+- Master retained `MASTER`, initialized ESP-NOW, reported instructor authority,
+  and resumed M0-to-ESP messages at 115200 baud.
+- Student ESP32-C3 (`80:F1:B2:F0:1A:D0`) and student SAMD21 flashed and verified.
+- Student retained `STUDENT`, initialized ESP-NOW, received M0 messages at the
+  new baud, and advanced its ESP-NOW transmit counter at approximately 100 Hz.
+
+Pending physical validation (propeller removed):
+
+1. Confirm normal instructor control.
+2. Cycle AUX and confirm student authority and improved response latency.
+3. Move an instructor stick and confirm immediate instructor takeover.
+4. Grant student authority again, power off the student, and confirm automatic
+   link-loss takeover.
+5. Inspect control direction, endpoints, and jitter under both authorities
+   before reinstalling the propeller or attempting flight.
 
 Still required before flight:
 
