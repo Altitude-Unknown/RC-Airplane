@@ -9,8 +9,8 @@ protocol:
     READ <address> <length>
     WRITE <address> <hex bytes>
 
-The GUI uses that protocol to read and write model settings stored in FRAM.
-FRAM is non-volatile memory, so it keeps the model data even when power is off.
+    The GUI uses that protocol to read and write model settings stored in the
+    transmitter's FRAM or built-in M0 flash fallback.
 
 Important beginner note:
 The Python GUI and the Arduino transmitter firmware must agree exactly about
@@ -95,7 +95,7 @@ MODEL_FMT_NOCRC = "<16s H 4b 4b B B 4h 8H 6s"  # 58 bytes
 MODEL_FMT       = MODEL_FMT_NOCRC + " H"       # +2 = 60
 
 def crc16_ccitt(data: bytes, poly=0x1021, init=0xFFFF) -> int:
-    """Return the CRC used to detect corrupted model bytes in FRAM."""
+    """Return the CRC used to detect corrupted model bytes in radio storage."""
     crc = init
     for b in data:
         # Move this byte into the top half of the CRC register.
@@ -131,6 +131,7 @@ class SerialWorker:
     def __init__(self):
         # self.ser is None when disconnected; otherwise it is a serial.Serial.
         self.ser = None
+        self.device_info = {}
 
     def open(self, port):
         # Open the chosen USB serial port at the same baud rate as the firmware.
@@ -148,6 +149,11 @@ class SerialWorker:
                 self.send_line("PING")
                 if self.read_line() == "PONG":
                     self.ser.timeout = 1
+                    self.send_line("INFO")
+                    try:
+                        self.device_info = json.loads(self.read_line())
+                    except Exception:
+                        self.device_info = {}
                     return
             raise RuntimeError(
                 "No configurator response. Select the 'Altitude RC TX M0' "
@@ -179,7 +185,7 @@ class SerialWorker:
 
     # --- Protocol: READ/WRITE ---
     def cmd_read(self, addr: int, length: int) -> bytes:
-        # Ask the transmitter for raw FRAM bytes.
+        # Ask the transmitter for raw persistent-storage bytes.
         self.send_line(f"READ {addr} {length}")
         resp = self.read_line()
 
@@ -187,9 +193,9 @@ class SerialWorker:
         #   DATA 00112233AABB...
         if resp == "ERR":
             raise RuntimeError(
-                "The transmitter is connected, but its FRAM did not answer. "
-                "Check that the MB85RC256V is installed, powered, and visible "
-                "on the I2C bus at address 0x50."
+                "The transmitter is connected, but its persistent storage did "
+                "not answer. Reflash current firmware, then check the FRAM or "
+                "M0 internal-flash fallback."
             )
         if not resp.startswith("DATA "):
             raise RuntimeError(f"Unexpected READ response: {resp}")
@@ -520,7 +526,7 @@ class App(tk.Tk):
         title_area = ttk.Frame(header, style="Header.TFrame")
         title_area.pack(side='left', fill='x', expand=True)
         ttk.Label(title_area, text=APP_TITLE, style="Header.TLabel").pack(anchor='w')
-        ttk.Label(title_area, text="Model setup, channel tuning, and FRAM sync", style="HeaderSub.TLabel").pack(anchor='w', pady=(2, 0))
+        ttk.Label(title_area, text="Model setup, channel tuning, and transmitter-memory sync", style="HeaderSub.TLabel").pack(anchor='w', pady=(2, 0))
 
         # Serial connection controls. The user chooses a USB port, then connects
         # to the transmitter while it is in Config Mode.
@@ -612,8 +618,8 @@ class App(tk.Tk):
         self._install_cell_editor(self.tree)
 
         bottom = ttk.Frame(right, style="Panel.TFrame"); bottom.pack(fill='x', pady=12)
-        ttk.Button(bottom, text="Load From FRAM", command=self.on_load_slot).pack(side='left')
-        ttk.Button(bottom, text="Save To FRAM", command=self.on_save_slot, style="Accent.TButton").pack(side='left', padx=6)
+        ttk.Button(bottom, text="Load From Radio", command=self.on_load_slot).pack(side='left')
+        ttk.Button(bottom, text="Save To Radio", command=self.on_save_slot, style="Accent.TButton").pack(side='left', padx=6)
         ttk.Button(bottom, text="Export Model (.json)", command=self.on_export_model).pack(side='left', padx=6)
         ttk.Button(bottom, text="Import Model (.json)", command=self.on_import_model).pack(side='left', padx=6)
 
@@ -746,7 +752,8 @@ class App(tk.Tk):
         try:
             self.w.open(port)
             self.connect_btn.config(text="Disconnect")
-            self.status_lbl.config(text=f"Connected to {port}")
+            backend = self.w.device_info.get("storage", "transmitter memory").replace("_", " ")
+            self.status_lbl.config(text=f"Connected • {backend}")
             self.refresh_model_list()
         except Exception as e:
             messagebox.showerror("Connect failed", str(e))
@@ -1026,7 +1033,7 @@ class App(tk.Tk):
             hdr["used_bitmap"] |= (1<<slot)
             self.store.write_header(hdr)
             self.refresh_model_list()
-            messagebox.showinfo("Imported", "Model written to FRAM")
+            messagebox.showinfo("Imported", "Model written to transmitter memory")
         except Exception as e:
             messagebox.showerror("Import failed", str(e))
 

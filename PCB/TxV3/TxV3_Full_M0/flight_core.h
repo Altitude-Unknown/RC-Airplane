@@ -48,12 +48,10 @@ void txv3BuddyPublishLocal(uint16_t rud, uint16_t ail, uint16_t ele, uint16_t th
 bool txv3BuddySelectChannels(uint16_t &rud, uint16_t &ail, uint16_t &ele, uint16_t &thr, uint8_t &aux);
 #endif
 
-#if __has_include(<FlashStorage_SAMD.h>)
-  #include <FlashStorage_SAMD.h>
-  #define HAVE_FLASH 1
-#else
-  #define HAVE_FLASH 0
-#endif
+// The implementation is compiled once in tx_config.cpp. This translation unit
+// needs only the declarations/macros for the legacy bind record.
+#include <FlashStorage_SAMD.hpp>
+#define HAVE_FLASH 1
 
 // ---------------- LED Modes ----------------
 // The transmitter has one built-in LED. Instead of scattering raw blink timings
@@ -321,7 +319,9 @@ static void processConfigLine(const String &line) {
   if (cmd == "INFO") {
     Serial.print("{\"mcu\":\"SAMD21G18\",\"fram_size\":");
     Serial.print(TXCF::framSize());
-    Serial.println(",\"proto\":\"1.0\",\"role\":\"TX\"}");
+    Serial.print(",\"storage\":\"");
+    Serial.print(TXCF::storageName());
+    Serial.println("\",\"proto\":\"1.1\",\"role\":\"TX\"}");
     return;
   }
   if (cmd == "RANGE") {

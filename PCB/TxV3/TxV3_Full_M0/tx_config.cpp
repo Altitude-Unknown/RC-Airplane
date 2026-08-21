@@ -1,6 +1,27 @@
 #include "tx_config.h"
 #include <string.h>
 
+// Compile the flash implementation exactly once, in this translation unit.
+// flight_core.h uses the declaration-only .hpp for its legacy bind record.
+#include <FlashStorage_SAMD.h>
+#define TXCF_HAVE_INTERNAL_FLASH 1
+
+#if TXCF_HAVE_INTERNAL_FLASH
+struct TxcfInternalImage {
+  uint8_t bytes[TXCF_INTERNAL_SIZE];
+};
+staticFlashStorage(txcfInternalStorage, TxcfInternalImage);
+static TxcfInternalImage txcfInternalCache;
+static bool txcfInternalLoaded = false;
+#endif
+
+static bool txcfUseFram = true;
+
+static bool framPresent() {
+  Wire.beginTransmission(TXCF_FRAM_ADDR);
+  return Wire.endTransmission() == 0;
+}
+
 // -------- Low-level FRAM I2C --------
 static bool framWrite(uint16_t addr, const uint8_t *data, size_t len) {
   if (addr + len > TXCF_FRAM_SIZE) return false;
@@ -32,6 +53,47 @@ static bool framRead(uint16_t addr, uint8_t *data, size_t len) {
   }
   return true;
 }
+
+static bool internalRead(uint16_t addr, uint8_t *data, size_t len) {
+#if TXCF_HAVE_INTERNAL_FLASH
+  if ((uint32_t)addr + len > TXCF_INTERNAL_SIZE) return false;
+  if (!txcfInternalLoaded) {
+    txcfInternalStorage.read(txcfInternalCache);
+    txcfInternalLoaded = true;
+  }
+  memcpy(data, txcfInternalCache.bytes + addr, len);
+  return true;
+#else
+  (void)addr; (void)data; (void)len;
+  return false;
+#endif
+}
+
+static bool internalWrite(uint16_t addr, const uint8_t *data, size_t len) {
+#if TXCF_HAVE_INTERNAL_FLASH
+  if ((uint32_t)addr + len > TXCF_INTERNAL_SIZE) return false;
+  if (!txcfInternalLoaded) {
+    txcfInternalStorage.read(txcfInternalCache);
+    txcfInternalLoaded = true;
+  }
+  memcpy(txcfInternalCache.bytes + addr, data, len);
+  // Config writes are infrequent. Commit the complete small image so a reset
+  // cannot leave RAM and flash with different model maps.
+  txcfInternalStorage.write(txcfInternalCache);
+  return true;
+#else
+  (void)addr; (void)data; (void)len;
+  return false;
+#endif
+}
+
+static bool storageRead(uint16_t addr, uint8_t *data, size_t len) {
+  return txcfUseFram ? framRead(addr, data, len) : internalRead(addr, data, len);
+}
+
+static bool storageWrite(uint16_t addr, const uint8_t *data, size_t len) {
+  return txcfUseFram ? framWrite(addr, data, len) : internalWrite(addr, data, len);
+}
 static uint16_t crc16_ccitt(const uint8_t *d, size_t n,
                             uint16_t init=0xFFFF, uint16_t poly=0x1021) {
   uint16_t crc = init;
@@ -43,16 +105,20 @@ static uint16_t crc16_ccitt(const uint8_t *d, size_t n,
   }
   return crc;
 }
-static bool readHeaderRaw(txcf_header_t &h){ return framRead(TXCF_HEADER_ADDR,(uint8_t*)&h,sizeof(h)); }
-static bool writeHeaderRaw(const txcf_header_t &h){ return framWrite(TXCF_HEADER_ADDR,(const uint8_t*)&h,sizeof(h)); }
+static bool readHeaderRaw(txcf_header_t &h){ return storageRead(TXCF_HEADER_ADDR,(uint8_t*)&h,sizeof(h)); }
+static bool writeHeaderRaw(const txcf_header_t &h){ return storageWrite(TXCF_HEADER_ADDR,(const uint8_t*)&h,sizeof(h)); }
 static uint16_t slotAddr(uint16_t s){ return TXCF_MODELS_BASE + s*TXCF_MODEL_SIZE; }
-static bool readModelRaw(uint16_t s, txcf_model_v1_t &m){ return framRead(slotAddr(s),(uint8_t*)&m,sizeof(m)); }
-static bool writeModelRaw(uint16_t s, const txcf_model_v1_t &m){ return framWrite(slotAddr(s),(const uint8_t*)&m,sizeof(m)); }
+static bool readModelRaw(uint16_t s, txcf_model_v1_t &m){ return storageRead(slotAddr(s),(uint8_t*)&m,sizeof(m)); }
+static bool writeModelRaw(uint16_t s, const txcf_model_v1_t &m){ return storageWrite(slotAddr(s),(const uint8_t*)&m,sizeof(m)); }
 
 namespace TXCF {
 
 bool begin(bool initWire) {
   if (initWire) { Wire.begin(); Wire.setClock(400000); }
+  txcfUseFram = framPresent();
+#if !TXCF_HAVE_INTERNAL_FLASH
+  if (!txcfUseFram) return false;
+#endif
   txcf_header_t h{};
   if (!readHeaderRaw(h) ||
       h.magic != TXCF_MAGIC || h.version != TXCF_VERSION ||
@@ -121,8 +187,11 @@ int16_t channelToUs(float x, int ch, const txcf_model_v1_t &m, bool highRates) {
   return (int16_t)tmp;
 }
 
-// ---------- Raw FRAM access used by USB Config Mode ----------
-bool rawRead(uint16_t addr, uint8_t* data, size_t len)  { return framRead(addr, data, len); }
-bool rawWrite(uint16_t addr, const uint8_t* data, size_t len) { return framWrite(addr, data, len); }
+// ---------- Raw active-storage access used by USB Config Mode ----------
+bool rawRead(uint16_t addr, uint8_t* data, size_t len)  { return storageRead(addr, data, len); }
+bool rawWrite(uint16_t addr, const uint8_t* data, size_t len) { return storageWrite(addr, data, len); }
+uint32_t storageSize() { return txcfUseFram ? TXCF_FRAM_SIZE : TXCF_INTERNAL_SIZE; }
+const char* storageName() { return txcfUseFram ? "fram" : "internal_flash"; }
+bool usingFram() { return txcfUseFram; }
 
 } // namespace TXCF

@@ -1,6 +1,6 @@
 # Walach Aviation Transmitter Configurator — Build & Run
 
-This repository contains a Tkinter-based desktop GUI to manage TX models via serial (FRAM). The main script is `fram_gui_models.py`.
+This repository contains a Tkinter-based desktop GUI to manage transmitter models over USB serial. The radio automatically uses external FRAM when installed or the SAMD21's internal-flash fallback when FRAM is absent. The main script is `fram_gui_models.py`.
 
 For the full RC transmitter, receiver, and GUI operating manual, see [MANUAL.md](MANUAL.md).
 
@@ -74,6 +74,8 @@ Notes & troubleshooting
 - Serial ports differ by OS: Windows uses `COMx`; macOS uses `/dev/tty.*` or `/dev/cu.*`.
 - If `tkinter` is missing on Windows, install the official Python installer from python.org and enable tcl/tk.
 - If PyInstaller misses imports, run the CLI build with `--hidden-import=serial.tools.list_ports` or adjust the generated spec.
+- The GUI connection status reports `fram` or `internal flash` after connecting.
+- Export important models before reflashing a radio that uses internal flash; a firmware upload may reset its model storage.
 
 Key files
 - [requirements.txt](requirements.txt)

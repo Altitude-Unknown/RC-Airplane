@@ -211,6 +211,16 @@ did not acknowledge or return data at I2C address `0x50`. Check whether the
 MB85RC256V is populated, then inspect its 3.3 V supply, ground, SDA/SCL soldering,
 and address pins before treating this as a configurator software failure.
 
+The current firmware now probes the FRAM during boot. When address `0x50` does
+not acknowledge, it transparently stores the same header and 16 model slots in
+1,280 bytes of SAMD21 internal flash. `INFO` reports either `fram` or
+`internal_flash`, and the desktop configurator displays the active backend.
+FRAM remains preferred whenever it is installed. Internal flash is intended as
+a practical fallback and should not be subjected to rapid repeated saves due to
+its lower write endurance. Export important models before reflashing the M0;
+unlike external FRAM, the internal storage image may be reset by a firmware
+upload.
+
 Still required before flight:
 
 - Install servos in the airframe and verify physical control-surface directions,

@@ -17,6 +17,7 @@
 #define TXCF_MODELS_BASE 0x0100
 #define TXCF_MODEL_SIZE  64
 #define TXCF_MAX_SLOTS   16
+#define TXCF_INTERNAL_SIZE (TXCF_MODELS_BASE + TXCF_MODEL_SIZE * TXCF_MAX_SLOTS)
 
 // 32-byte header
 typedef struct __attribute__((packed)) {
@@ -70,9 +71,13 @@ inline float applyExpo(float x, int8_t expoPct) {
 int16_t  channelToUs(float stickNorm, int ch,
                      const txcf_model_v1_t &m, bool highRates);
 
-// ---------- Raw FRAM access for USB Config Mode ----------
+// ---------- Raw active-storage access for USB Config Mode ----------
 bool     rawRead(uint16_t addr, uint8_t* data, size_t len);
 bool     rawWrite(uint16_t addr, const uint8_t* data, size_t len);
-inline uint32_t framSize() { return TXCF_FRAM_SIZE; }
+uint32_t storageSize();
+const char* storageName();
+bool     usingFram();
+// Retain the old API name for protocol/source compatibility.
+inline uint32_t framSize() { return storageSize(); }
 
 } // namespace TXCF
