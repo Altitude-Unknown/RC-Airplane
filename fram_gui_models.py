@@ -134,13 +134,29 @@ class SerialWorker:
 
     def open(self, port):
         # Open the chosen USB serial port at the same baud rate as the firmware.
-        self.ser = serial.Serial(port=port, baudrate=BAUD, timeout=1)
+        try:
+            self.ser = serial.Serial(port=port, baudrate=BAUD, timeout=0.5)
 
-        # Give the microcontroller/USB stack a moment to settle, then clear any
-        # stale text that may have been waiting in the buffers.
-        time.sleep(0.2)
-        self.ser.reset_input_buffer()
-        self.ser.reset_output_buffer()
+            # Give the microcontroller/USB stack a moment to settle, then prove
+            # that this is the SAMD21 config service. A V3 transmitter exposes
+            # a second USB port from its ESP32; that port accepts role/status
+            # commands but cannot access the model FRAM.
+            time.sleep(0.2)
+            self.ser.reset_input_buffer()
+            self.ser.reset_output_buffer()
+            for _ in range(3):
+                self.send_line("PING")
+                if self.read_line() == "PONG":
+                    self.ser.timeout = 1
+                    return
+            raise RuntimeError(
+                "No configurator response. Select the 'Altitude RC TX M0' "
+                "port and restart the transmitter while holding Bind (D9) "
+                "+ Aileron Trim Right (D5)."
+            )
+        except Exception:
+            self.close()
+            raise
 
     def close(self):
         if self.ser:
@@ -169,6 +185,12 @@ class SerialWorker:
 
         # A successful response looks like:
         #   DATA 00112233AABB...
+        if resp == "ERR":
+            raise RuntimeError(
+                "The transmitter is connected, but its FRAM did not answer. "
+                "Check that the MB85RC256V is installed, powered, and visible "
+                "on the I2C bus at address 0x50."
+            )
         if not resp.startswith("DATA "):
             raise RuntimeError(f"Unexpected READ response: {resp}")
         hexblob = resp.split(" ", 1)[1].strip()
@@ -692,11 +714,19 @@ class App(tk.Tk):
     # --- Serial ---
     def refresh_ports(self):
         # Ask pyserial for all currently visible serial ports and place their
-        # device names in the dropdown. On macOS these often look like
-        # /dev/cu.usbmodem101.
-        ports = [p.device for p in list_ports.comports()]
-        self.port_cmb["values"] = ports
-        if ports:
+        # device names in the dropdown. Prefer the SAMD21 by its assigned USB
+        # identity so the V3 ESP32 diagnostic port is not selected by mistake.
+        detected = list(list_ports.comports())
+        detected.sort(key=lambda p: 0 if (p.vid == 0x03EB and p.pid == 0x2402) else 1)
+        self.port_devices = {}
+        labels = []
+        for p in detected:
+            name = p.product or p.description or "Serial device"
+            label = f"{name} — {p.device}"
+            self.port_devices[label] = p.device
+            labels.append(label)
+        self.port_cmb["values"] = labels
+        if labels:
             self.port_cmb.current(0)
 
     def on_connect(self):
@@ -708,7 +738,8 @@ class App(tk.Tk):
             return
 
         # If we are not already connected, open the selected serial port.
-        port = self.port_var.get().strip()
+        selection = self.port_var.get().strip()
+        port = self.port_devices.get(selection, selection)
         if not port:
             messagebox.showerror("Error", "Select a serial port")
             return

@@ -175,6 +175,26 @@ Pending physical validation (propeller removed):
 5. Inspect control direction, endpoints, and jitter under both authorities
    before reinstalling the propeller or attempting flight.
 
+Bench validation completed later on 2026-08-21:
+
+- Instructor and student controls operated correctly.
+- Student response latency was greatly reduced and judged flight-ready.
+- Instructor stick-movement takeover operated as expected.
+- Student link-loss takeover had already passed the preceding bench sequence.
+
+The desktop configurator must connect to the SAMD21 USB device named
+`Altitude RC TX M0`, not the ESP32-C3 USB diagnostic port. Enter USB config mode
+by holding Bind (D9) and Aileron Trim Right (D5) during transmitter startup. A
+student transmitter was verified to return `PONG` to the configurator handshake
+in this mode after the low-latency update.
+
+During that verification, `PING`, `INFO`, and `RANGE` succeeded but every FRAM
+`READ` returned `ERR`, including a one-byte read at address zero. USB config mode
+and the command parser are therefore working; the student transmitter's FRAM
+did not acknowledge or return data at I2C address `0x50`. Check whether the
+MB85RC256V is populated, then inspect its 3.3 V supply, ground, SDA/SCL soldering,
+and address pins before treating this as a configurator software failure.
+
 Still required before flight:
 
 - Install servos in the airframe and verify physical control-surface directions,
