@@ -35,11 +35,24 @@ ROLE STUDENT
 `ROLE SLAVE` is accepted as an alias for `ROLE STUDENT`. Use `STATUS` to print
 the stored role and MAC address. Roles are stored in ESP32 NVS.
 
-The desktop/mobile configurator must later expose this as a guarded transmitter
-role setting. The GUI should read `STATUS`, display the ESP MAC and current
-role, require confirmation before changing roles, send `ROLE MASTER` or
-`ROLE STUDENT`, and read `STATUS` again to verify the persistent result. Role
-changes must not be offered while the master is actively transmitting LoRa.
+The desktop configurator now exposes these commands in its **Instructor /
+Student** tab. Connect the ESP32-C3 native USB port, read the displayed MAC and
+role, then select **Set as Instructor (Master)** or **Set as Student**. The GUI
+confirms the change and reads `STATUS` again to verify that it persisted.
+
+Keep the aircraft powered off and boot the transmitter in Config or Simulator
+mode before assigning a role. Current M0 firmware reports `MODE FLIGHT`,
+`CONFIG`, `SIMULATOR`, `SETUP`, or `BIND` to the ESP every 500 ms. The ESP
+includes that mode and its age in `STATUS` and rejects role commands unless a
+fresh safe mode (`CONFIG`, `SIMULATOR`, or `SETUP`) is present. Consequently,
+only the ESP USB cable is needed with current firmware. The GUI retains its M0
+USB `PING` fallback for older firmware. Restart the transmitter after changing
+its role and verify that exactly one radio is the master.
+
+The ESP also requires a fresh `MODE FLIGHT` heartbeat before transmitting
+student ESP-NOW frames or forwarding them to a master M0. This prevents a
+still-powered ESP from reusing cached control data after the M0 restarts into a
+safe mode.
 
 Current bench assignment:
 
@@ -52,10 +65,25 @@ Then flash `TxV3_Full_M0` to both SAMD21 processors. The same M0 image runs on
 both boards and learns its role from the local ESP32 during boot.
 
 `TxV3_Full_M0` contains the V2 flight core: FRAM models and bind code, rates,
-expo, reverse, subtrim, endpoints, persistent physical trims, USB config mode,
-OLED setup mode, throttle boot lock, ESC calibration override, and the
-throttle-time buzzer. The buddy layer is compiled only for V3; the standalone
-V2 target retains its original behavior.
+expo, reverse, subtrim, endpoints, aileron-to-rudder model mixing, persistent
+physical trims, USB config mode, OLED setup mode, throttle boot lock, ESC
+calibration override, and the throttle-time buzzer. The buddy layer is compiled
+only for V3; the standalone V2 target retains its original behavior.
+
+## Aileron-to-rudder mixing
+
+Each stored model can independently enable an aileron-to-rudder mix and select
+a signed amount from -100% to +100%. The GUI exposes both values under
+**Control Mixing**. The mix is added to the physical rudder-stick command and
+clamped to normal full travel before rudder rate, expo, reverse, subtrim, and
+endpoints are applied. Aileron reverse is honored by the mix source. Negative
+percentages reverse the mix direction.
+
+The setting uses previously unused bytes in the existing 60-byte model record:
+`reserved[1]` bit 0 is the enable flag and `reserved[2]` is the signed percent.
+Existing models remain compatible and load with mixing disabled. Start around
+20-30% and verify surface direction and maximum combined travel with the
+propeller removed.
 
 ## Trainer operation
 
@@ -79,7 +107,8 @@ Windows. To enter the safe simulator mode:
    Z/rudder, and Rz/throttle.
 
 Simulator mode is selected only when AUX is held by itself at boot. The SAMD21
-does not initialize LoRa or the ESP buddy UART in this mode, so it cannot send
+does not initialize LoRa or buddy control forwarding in this mode; it sends
+only the safe-mode heartbeat used by the ESP interlock, so it cannot send
 commands to an aircraft. Normal power-up retains flight operation. Bind +
 aileron-right at boot retains the existing USB configurator mode.
 
@@ -230,3 +259,21 @@ Still required before flight:
 - Perform a ground range test with the final antennas, power system, and airframe.
 - Replace ESP-NOW broadcast acceptance with stored master/student MAC pairing in
   a later hardening pass.
+
+## 2026-08-21 mode-interlock and mixing update
+
+- Both transmitter M0 processors were flashed with operating-mode heartbeats
+  and per-model aileron-to-rudder mixing.
+- Both ESP32-C3 processors were flashed with safe-mode role-write enforcement
+  and fresh-`FLIGHT` gating for ESP-NOW transmission and M0 forwarding.
+- The desktop GUI was rebuilt with single-cable role configuration and signed
+  aileron-to-rudder mix controls.
+- Model codec/CRC tests passed, both firmware targets compiled, and both uploads
+  passed flash verification.
+- The GUI role-change test temporarily swapped the two radios, after which the
+  user restored the intended assignment successfully using only each ESP USB
+  cable:
+  - `80:F1:B2:F0:1A:E8` — `MASTER`.
+  - `80:F1:B2:F0:1A:D0` — `STUDENT`.
+- The temporary swapped status captured during flashing was test state, not a
+  new permanent assignment.

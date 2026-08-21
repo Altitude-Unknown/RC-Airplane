@@ -78,6 +78,8 @@ uint32_t roleRepliesSent = 0;
 uint32_t studentFramesForwarded = 0;
 bool samdReady = false;
 const char *samdAuthority = "UNKNOWN";
+const char *samdMode = "UNKNOWN";
+uint32_t samdModeAtMs = 0;
 
 static uint16_t crc16(const uint8_t *data, size_t length) {
   uint16_t crc = 0xFFFF;
@@ -97,7 +99,9 @@ static const char *roleName(Role value) {
 }
 
 static void printStatus() {
-  Serial.printf("STATUS role=%s authority=%s mac=%s sent=%lu received=%lu forwarded=%lu samd_lines=%lu role_replies=%lu\n", roleName(role), samdAuthority,
+  const uint32_t modeAge = samdModeAtMs ? millis() - samdModeAtMs : 0xFFFFFFFFUL;
+  Serial.printf("STATUS role=%s authority=%s mode=%s mode_age_ms=%lu mac=%s sent=%lu received=%lu forwarded=%lu samd_lines=%lu role_replies=%lu\n", roleName(role), samdAuthority, samdMode,
+                static_cast<unsigned long>(modeAge),
                 WiFi.macAddress().c_str(), static_cast<unsigned long>(sentFrames),
                 static_cast<unsigned long>(receivedFrames),
                 static_cast<unsigned long>(studentFramesForwarded),
@@ -112,12 +116,21 @@ static void setRole(Role next) {
   samdLink.printf("ROLE %s\n", roleName(role));
 }
 
+static bool roleChangeAllowed() {
+  if (!samdModeAtMs || millis() - samdModeAtMs > 1500) return false;
+  return !strcmp(samdMode, "CONFIG") || !strcmp(samdMode, "SIMULATOR") || !strcmp(samdMode, "SETUP");
+}
+
+static bool samdFlightActive() {
+  return samdModeAtMs && millis() - samdModeAtMs <= 1500 && !strcmp(samdMode, "FLIGHT");
+}
+
 static void processUsbLine(String line) {
   line.trim();
   line.toUpperCase();
-  if (line == "ROLE MASTER") setRole(ROLE_MASTER);
-  else if (line == "ROLE STUDENT" || line == "ROLE SLAVE") setRole(ROLE_STUDENT);
-  else if (line == "ROLE CLEAR") setRole(ROLE_UNCONFIGURED);
+  if (line == "ROLE MASTER") { if (roleChangeAllowed()) setRole(ROLE_MASTER); else Serial.printf("ERR role_locked mode=%s\n", samdMode); }
+  else if (line == "ROLE STUDENT" || line == "ROLE SLAVE") { if (roleChangeAllowed()) setRole(ROLE_STUDENT); else Serial.printf("ERR role_locked mode=%s\n", samdMode); }
+  else if (line == "ROLE CLEAR") { if (roleChangeAllowed()) setRole(ROLE_UNCONFIGURED); else Serial.printf("ERR role_locked mode=%s\n", samdMode); }
   else if (line == "STATUS") printStatus();
   else if (line == "HELP") Serial.println("ROLE MASTER | ROLE STUDENT | ROLE CLEAR | STATUS");
   else if (line.length()) Serial.println("ERR unknown_command");
@@ -151,6 +164,15 @@ static void processSamdLine(const char *line) {
   } else if (!strcmp(line, "AUTHORITY INSTRUCTOR")) {
     samdReady = true;
     samdAuthority = "INSTRUCTOR";
+  } else if (!strncmp(line, "MODE ", 5)) {
+    const char *value = line + 5;
+    if (!strcmp(value, "FLIGHT")) samdMode = "FLIGHT";
+    else if (!strcmp(value, "CONFIG")) samdMode = "CONFIG";
+    else if (!strcmp(value, "SIMULATOR")) samdMode = "SIMULATOR";
+    else if (!strcmp(value, "SETUP")) samdMode = "SETUP";
+    else if (!strcmp(value, "BIND")) samdMode = "BIND";
+    else samdMode = "UNKNOWN";
+    samdModeAtMs = millis();
   }
 }
 
@@ -214,7 +236,7 @@ void loop() {
   }
 
   const uint32_t now = millis();
-  if (role == ROLE_STUDENT && localFrame.magic == FRAME_MAGIC && now - lastTransmitMs >= TX_INTERVAL_MS) {
+  if (role == ROLE_STUDENT && samdFlightActive() && localFrame.magic == FRAME_MAGIC && now - lastTransmitMs >= TX_INTERVAL_MS) {
     lastTransmitMs = now;
     localFrame.role = ROLE_STUDENT;
     localFrame.crc = 0;
@@ -223,7 +245,7 @@ void loop() {
     if (esp_now_send(broadcast, reinterpret_cast<const uint8_t *>(&localFrame), sizeof(localFrame)) == ESP_OK) ++sentFrames;
   }
 
-  if (role == ROLE_MASTER && samdReady && receivedStudentPending) {
+  if (role == ROLE_MASTER && samdFlightActive() && samdReady && receivedStudentPending) {
     BuddyFrame frame;
     portENTER_CRITICAL(&receiveMux);
     memcpy(&frame, &receivedStudent, sizeof(frame));

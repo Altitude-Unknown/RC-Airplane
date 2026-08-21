@@ -752,10 +752,9 @@ void setup() {
   pinMode(TXV3_TRAINER_PIN, INPUT_PULLUP);
   delay(2);
   bool simulatorHeld = (digitalRead(TXV3_TRAINER_PIN)==LOW);
-  // AUX alone at boot selects a USB-only simulator mode. Do not initialize the
-  // buddy UART or LoRa in this mode; a simulator session must not fly a model.
+  // AUX alone at boot selects a USB-only simulator mode. Only a safety-mode
+  // heartbeat uses the buddy UART; control forwarding and LoRa stay disabled.
   simulatorMode = simulatorHeld && !bindHeld && !escHeld && !setupHeld;
-  if (!simulatorMode) txv3BuddyBegin();
 #endif
 
   // Modes
@@ -766,7 +765,15 @@ void setup() {
   bindMode   = (!setupMode && bindHeld && !escHeld);  // Only bind   -> Bind Mode
   escOverride= (!setupMode && !bindHeld && escHeld);  // Only ESC    -> ESC override
 #ifdef TXV3_BUDDY_BUILD
+  if (simulatorMode) {
+    // Report the safe USB-only mode without waiting for an ESP role reply.
+    // Simulator mode must remain usable even if the ESP is absent.
+    txv3BuddyModeOnlyBegin("SIMULATOR");
+  } else {
+    txv3BuddyBegin();
+  }
   if (!simulatorMode && txv3BuddyIsStudent()) { bindMode=false; escOverride=false; }
+  if (!simulatorMode) txv3BuddySetMode(configMode ? "CONFIG" : (setupMode ? "SETUP" : (bindMode ? "BIND" : "FLIGHT")));
 #endif
 
   if (configMode || ENABLE_TX_DEBUG) {
@@ -886,6 +893,7 @@ void loop() {
   uint32_t loopNow = millis();
 
 #ifdef TXV3_BUDDY_BUILD
+  txv3BuddyModeService();
   if (!simulatorMode) txv3BuddyService();
 #endif
 
@@ -960,7 +968,16 @@ void loop() {
     // Normal path: tx_config.cpp applies model settings, including endpoints,
     // rates, expo, subtrim, and reverse.
     // Channel order: 0:RUD,1:AIL,2:ELE,3:THR (matches ControlPacket)
-    rud = TXCF::channelToUs(xRud, 0, gModel, highRates);
+    float mixedRud = xRud;
+    if (gModel.reserved[1] & 0x01) {
+      int8_t mixPercent = (int8_t)gModel.reserved[2];
+      mixPercent = constrain(mixPercent, -100, 100);
+      // Follow the configured aileron direction, then add the requested
+      // fraction of aileron travel to the physical rudder-stick command.
+      float mixSource = (gModel.reserved[0] & (1 << 1)) ? -xAil : xAil;
+      mixedRud = constrain(xRud + mixSource * ((float)mixPercent / 100.0f), -1.0f, 1.0f);
+    }
+    rud = TXCF::channelToUs(mixedRud, 0, gModel, highRates);
     ail = TXCF::channelToUs(xAil, 1, gModel, highRates);
     ele = TXCF::channelToUs(xEle, 2, gModel, highRates);
     thr = TXCF::channelToUs(xThr, 3, gModel, highRates);

@@ -238,6 +238,24 @@ Test firmware:
 The ESP test advertises as `TxV3 UART Test`. Neither test initializes or
 transmits with the LoRa radio, and neither accesses FRAM.
 
+### Current production role and mixing protocol
+
+The production targets are `TxV3_Full_M0` for the SAMD21 and
+`TxV3_Buddy_ESP32` for the ESP32-C3. The M0 sends an internal operating-mode
+heartbeat every 500 ms. The ESP reports that mode over native USB and accepts a
+persistent role change only in Config, Simulator, or Setup mode. Student
+ESP-NOW transmission and master forwarding require a fresh Flight heartbeat.
+
+The desktop configurator therefore needs only the ESP USB cable for guarded
+role changes when both processors have current firmware. The intended radio
+assignment is ESP `80:F1:B2:F0:1A:E8` as Master and
+`80:F1:B2:F0:1A:D0` as Student.
+
+Per-model aileron-to-rudder mixing uses the existing model record's reserved
+bytes, so its size and CRC layout remain compatible. Legacy models load with
+mixing disabled. The GUI provides an enable control and a signed -100% to +100%
+amount; negative values reverse the mix direction.
+
 ### Prototype 2 final button repair
 
 After applying the switch trace repairs to Prototype 2, elevator up/down,

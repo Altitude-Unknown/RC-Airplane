@@ -40,6 +40,8 @@ typedef struct __attribute__((packed)) {
   int16_t  subtrim_us[4];   // -500..+500
   uint16_t endpoints_us[4][2]; // [ch][0=min,1=max]
     // reserved[0] bits: bit0..bit3 => channel reverse flags (1 = reversed)
+    // reserved[1] bit0: aileron-to-rudder mix enabled
+    // reserved[2]: signed aileron-to-rudder mix percentage (-100..100)
     uint8_t  reserved[6];
   uint16_t crc16;           // CCITT over first 58 bytes
 } txcf_model_v1_t;

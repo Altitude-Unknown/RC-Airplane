@@ -160,7 +160,7 @@ jobs:
           RELEASE_TAG: ${{ steps.release_tag.outputs.tag }}
         shell: bash
         run: |
-          release_notes="Transmitter GUI builds for macOS ARM64, Windows x64, and Raspberry Pi OS ARM64. This release supports radios using either external FRAM or the SAMD21 internal-flash fallback and displays the detected storage backend. The macOS build is Developer ID signed, notarized, and stapled."
+          release_notes="Transmitter GUI builds for macOS ARM64, Windows x64, and Raspberry Pi OS ARM64. This release adds guarded Instructor/Student role assignment through the ESP32-C3 USB port and per-model adjustable aileron-to-rudder mixing. It supports external FRAM or the SAMD21 internal-flash fallback and displays the detected storage backend. Current TxV3 M0 and ESP firmware is required for single-cable role changes. The macOS build is Developer ID signed, notarized, and stapled."
           if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release edit "$RELEASE_TAG" \
               --repo "$GITHUB_REPOSITORY" \

@@ -2,17 +2,23 @@
 
 Living manual for the RC airplane transmitter, receiver, and transmitter configurator GUI.
 
-Last updated: 2026-06-18
+Last updated: 2026-08-21
 
 ## System Overview
 
 The RC airplane system has three main pieces:
 
-- **Transmitter firmware:** `tx_firmware/tx_firmware.ino`
+- **Transmitter V3 M0 firmware:** `PCB/TxV3/TxV3_Full_M0/TxV3_Full_M0.ino`
+- **Transmitter V3 buddy firmware:** `PCB/TxV3/TxV3_Buddy_ESP32/TxV3_Buddy_ESP32.ino`
 - **Receiver firmware:** `rx_firmware/rx_firmware.ino`
 - **Desktop configurator GUI:** `fram_gui_models.py`
 
-The transmitter sends one-way LoRa control packets to the receiver. The receiver drives throttle, aileron, elevator, and rudder outputs. Model setup data is stored in transmitter FRAM and edited with the desktop GUI or the transmitter OLED setup menu.
+The master transmitter sends LoRa control packets to the receiver. A student
+transmitter sends controls to the master over ESP-NOW; only the master M0 is
+allowed to initialize LoRa. The receiver drives throttle, aileron, elevator,
+and rudder outputs. Model setup data uses external FRAM when installed and the
+M0 internal-flash fallback otherwise. It can be edited with the desktop GUI or
+the transmitter OLED setup menu.
 
 ## Hardware Targets
 
@@ -73,6 +79,7 @@ Hardware schematic PDFs are kept in this repo for quick reference:
 | Bind mode | Hold D9 low at boot | Repeatedly sends bind packets |
 | USB config mode | Hold both D9 and D5 low at boot | No LoRa transmit; desktop GUI can read/write FRAM |
 | OLED setup mode | Hold both rudder trims at boot | No LoRa transmit; setup menu shown on OLED |
+| USB simulator mode | Hold AUX/trainer by itself at boot | No LoRa or trainer forwarding; USB HID joystick active |
 
 ### Normal Transmitter Operation
 
@@ -86,7 +93,9 @@ If the LED fast-blinks after boot, the transmitter is in throttle safety lock. L
 
 ### Physical Trims
 
-Physical trims update the active model subtrim in FRAM when a model is loaded. Rudder, aileron, and elevator have trims. Throttle has no trim.
+Physical trims update the active model subtrim in the selected radio storage
+(external FRAM or internal flash) when a model is loaded. Rudder, aileron, and
+elevator have trims. Throttle has no trim.
 
 Trim pins:
 
@@ -112,7 +121,45 @@ Controls:
 | Elevator trims | Select setting: REVERSE, RATE, EXPO |
 | Aileron trims | Change selected value |
 
-Changes are saved to FRAM immediately.
+Changes are saved to the active radio storage immediately.
+
+### Instructor / Student Operation
+
+The V3 radios use persistent roles stored by the local ESP32-C3. The intended
+assignment is:
+
+| ESP MAC | Role |
+| --- | --- |
+| `80:F1:B2:F0:1A:E8` | Instructor / Master |
+| `80:F1:B2:F0:1A:D0` | Student |
+
+Normal trainer operation:
+
+1. Power the student transmitter.
+2. Power the master with throttle low.
+3. Press and release AUX on the master to grant student control.
+4. Press and release AUX again to take control back.
+5. Moving any master stick immediately takes control back.
+6. Student link loss also returns authority to the master.
+
+The ESP requires a fresh M0 `FLIGHT` heartbeat before sending or forwarding
+trainer controls. Role changes are accepted only while the M0 reports Config,
+Simulator, or Setup mode.
+
+### Aileron-to-Rudder Mixing
+
+Mixing is stored separately for every model. In the desktop GUI, enable **Mix
+aileron into rudder** and set **Rudder amount** from -100% to +100%.
+
+- Start around 20-30%.
+- Positive values mix rudder in the normal aileron direction.
+- Negative values reverse the mix direction.
+- Physical rudder input remains available and is added to the mix.
+- The combined command is clamped before rudder rate, expo, reverse, subtrim,
+  and endpoints are applied.
+
+Save the model to the radio, remove the propeller, and verify direction and
+combined full-stick travel before flight.
 
 ### Throttle Timer / Buzzer Alarm
 
@@ -135,17 +182,22 @@ Tx_Buzzer_Test/Tx_Buzzer_Test.ino
 
 ### Transmitter Firmware Flashing
 
-Compile:
+Compile the V3 M0:
 
 ```bash
-arduino-cli compile --fqbn adafruit:samd:adafruit_feather_m0 "tx_firmware"
+arduino-cli compile --fqbn AltitudeUnknown:samd:altitude_rc_tx_m0 "PCB/TxV3/TxV3_Full_M0"
 ```
 
-Upload:
+Compile the V3 ESP32-C3 with USB CDC enabled:
 
 ```bash
-arduino-cli upload -p /dev/cu.usbmodem1101 --fqbn adafruit:samd:adafruit_feather_m0 "tx_firmware"
+arduino-cli compile --fqbn esp32:esp32:esp32c3 --board-options CDCOnBoot=cdc "PCB/TxV3/TxV3_Buddy_ESP32"
 ```
+
+Both processors on both transmitters must run matching current firmware for
+single-cable role assignment and the mode interlock. ESP uploads retain the
+role in NVS. Export important models before M0 flashing when internal-flash
+storage is in use.
 
 ## Receiver
 
@@ -226,8 +278,10 @@ fram_gui_models.py
 
 Purpose:
 
-- Read and write model slots in transmitter FRAM.
+- Read and write model slots in external FRAM or M0 internal flash.
 - Edit model name, bind code, rates, expo, subtrim, endpoints, and reverse flags.
+- Configure per-model aileron-to-rudder mixing.
+- Read and assign the V3 Instructor / Student role through the ESP USB port.
 - Set active model.
 - Import/export model JSON files.
 
@@ -252,7 +306,29 @@ python3 fram_gui_models.py
 2. Launch GUI.
 3. Select serial port.
 4. Click Connect.
-5. Use Load From FRAM / Save To FRAM.
+5. Use Load From Radio / Save To Radio.
+
+The connection status identifies the active storage backend as `fram` or
+`internal flash`.
+
+### Assigning Instructor or Student Role
+
+With current V3 firmware, only the ESP32-C3 USB cable is needed:
+
+1. Keep the aircraft powered off.
+2. Start the transmitter in Config, Simulator, or Setup mode.
+3. Open the **Instructor / Student** tab.
+4. Select the ESP32-C3 USB port and click **Connect**.
+5. Confirm the displayed MAC address, M0 mode, and existing role.
+6. Select **Set as Instructor (Master)** or **Set as Student**.
+7. Confirm the warning and wait for readback verification.
+8. Restart the transmitter before normal operation.
+
+The firmware refuses role changes in Flight or Bind mode. When either processor
+has older firmware that does not report M0 mode, connect the M0 USB port through
+the Models header as a Config Mode safety proof, or update both processors.
+
+Never leave both radios assigned as Master or both assigned as Student.
 
 The config protocol uses text commands such as `PING`, `INFO`, `READ`, `WRITE`, and `RANGE`.
 

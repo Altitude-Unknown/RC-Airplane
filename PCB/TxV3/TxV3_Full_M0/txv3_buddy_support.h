@@ -25,6 +25,8 @@ static bool txv3StudentFresh=false,txv3StudentGranted=false,txv3AuxWasPressed=fa
 static bool txv3LastReportedGrant=true;
 static uint32_t txv3StudentReceivedMs=0,txv3LastLocalMs=0;
 static uint32_t txv3LastAuthorityHeartbeatMs=0;
+static uint32_t txv3LastModeHeartbeatMs=0;
+static const char *txv3Mode="UNKNOWN";
 static uint16_t txv3LocalSequence=0;
 static char txv3Line[48]; static uint8_t txv3LineLength=0;
 static uint8_t txv3PacketBytes[sizeof(TxV3StudentPacket)],txv3PacketLength=0;
@@ -86,6 +88,15 @@ static void txv3ReadUart(){
 void txv3BuddyBegin(){
   pinMode(TXV3_TRAINER_PIN,INPUT_PULLUP);txv3UartBegin();uint32_t query=0;
   while(txv3Role==TXV3_UNKNOWN){uint32_t now=millis();if(now-query>=100){query=now;txv3Write("ROLE?\n");}txv3ReadUart();delay(1);}txv3Write("READY\n");
+}
+void txv3BuddyModeOnlyBegin(const char *mode){
+  pinMode(TXV3_TRAINER_PIN,INPUT_PULLUP);txv3UartBegin();txv3Mode=mode;char out[32];snprintf(out,sizeof(out),"MODE %s\n",txv3Mode);txv3Write(out);txv3LastModeHeartbeatMs=millis();
+}
+void txv3BuddySetMode(const char *mode){
+  txv3Mode=mode;txv3LastModeHeartbeatMs=0;
+}
+void txv3BuddyModeService(){
+  uint32_t now=millis();if(now-txv3LastModeHeartbeatMs<500)return;txv3LastModeHeartbeatMs=now;char out[32];snprintf(out,sizeof(out),"MODE %s\n",txv3Mode);txv3Write(out);
 }
 void txv3BuddyService(){
   txv3ReadUart(); if(txv3Role!=TXV3_MASTER)return;uint32_t now=millis();

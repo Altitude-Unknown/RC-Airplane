@@ -183,6 +183,14 @@ class SerialWorker:
         if not self.ser: raise RuntimeError("Not connected")
         return self.ser.readline().decode("ascii", errors="ignore").strip()
 
+    def verify_config_mode(self):
+        """Prove this SAMD21 is still serving the no-LoRa Config Mode."""
+        if not self.ser:
+            return False
+        self.ser.reset_input_buffer()
+        self.send_line("PING")
+        return self.read_line() == "PONG"
+
     # --- Protocol: READ/WRITE ---
     def cmd_read(self, addr: int, length: int) -> bytes:
         # Ask the transmitter for raw persistent-storage bytes.
@@ -209,6 +217,79 @@ class SerialWorker:
         resp = self.read_line()
         if resp != "OK":
             raise RuntimeError(f"WRITE failed: {resp}")
+
+class EspRoleWorker:
+    """USB-serial client for the V3 transmitter's ESP32-C3 role service."""
+
+    def __init__(self):
+        self.ser = None
+
+    def open(self, port):
+        try:
+            self.ser = serial.Serial(port=port, baudrate=BAUD, timeout=0.25)
+            time.sleep(0.35)
+            self.ser.reset_input_buffer()
+            self.ser.reset_output_buffer()
+            return self.status(timeout=2.0)
+        except Exception:
+            self.close()
+            raise
+
+    def close(self):
+        if self.ser:
+            try:
+                self.ser.close()
+            except Exception:
+                pass
+        self.ser = None
+
+    def _write(self, command):
+        if not self.ser:
+            raise RuntimeError("ESP role port is not connected")
+        self.ser.write((command + "\n").encode("ascii"))
+        self.ser.flush()
+
+    def _read_matching(self, prefixes, timeout):
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            line = self.ser.readline().decode("ascii", errors="ignore").strip()
+            if line and any(line.startswith(prefix) for prefix in prefixes):
+                return line
+        raise RuntimeError("No role-service response from the ESP32-C3")
+
+    @staticmethod
+    def parse_status(line):
+        if not line.startswith("STATUS "):
+            raise ValueError(f"Unexpected ESP response: {line}")
+        values = {}
+        for field in line.split()[1:]:
+            if "=" in field:
+                key, value = field.split("=", 1)
+                values[key] = value
+        for required in ("role", "authority", "mac"):
+            if required not in values:
+                raise ValueError(f"Incomplete ESP status: {line}")
+        return values
+
+    def status(self, timeout=1.5):
+        self._write("STATUS")
+        return self.parse_status(self._read_matching(("STATUS ",), timeout))
+
+    def set_role(self, role):
+        role = role.upper()
+        if role not in ("MASTER", "STUDENT"):
+            raise ValueError("Role must be MASTER or STUDENT")
+        self._write(f"ROLE {role}")
+        response = self._read_matching(("OK ", "ERR"), 1.5)
+        if not response.startswith(f"OK role={role}"):
+            raise RuntimeError(f"Role change failed: {response}")
+        verified = self.status()
+        if verified.get("role") != role:
+            raise RuntimeError(
+                f"ESP reported {verified.get('role', 'UNKNOWN')} after writing {role}"
+            )
+        return verified
+
 
 class ModelsStore:
     """
@@ -304,6 +385,9 @@ class ModelsStore:
         reserved = tup[24]
         rev_mask = reserved[0] if isinstance(reserved, (bytes, bytearray)) and len(reserved) > 0 else 0
         reverse = [bool((rev_mask >> i) & 1) for i in range(4)]
+        mix_enabled = bool(reserved[1] & 0x01) if len(reserved) > 1 else False
+        mix_percent = struct.unpack("b", reserved[2:3])[0] if len(reserved) > 2 else 0
+        mix_percent = max(-100, min(100, mix_percent))
 
         # Return a plain dictionary because it is easy for the GUI and JSON
         # import/export code to work with.
@@ -311,6 +395,8 @@ class ModelsStore:
                 dr_switch=dr_switch, active_rates=active_rates,
                 subtrim=subtrim, endpoints=endpoints,
                 reverse=reverse,
+                ail_to_rud_mix_enabled=mix_enabled,
+                ail_to_rud_mix_percent=mix_percent,
                 crc_ok=(crc_stored == crc_calc))
 
     def write_model(self, slot: int, model):
@@ -346,7 +432,10 @@ class ModelsStore:
         if "reverse" in model:
             for i in range(4):
                 if model["reverse"][i]: rev_mask |= (1 << i)
-        reserved = bytes([rev_mask]) + b"\x00"*5
+        mix_enabled = bool(model.get("ail_to_rud_mix_enabled", False))
+        mix_percent = int(max(-100, min(100, model.get("ail_to_rud_mix_percent", 0))))
+        mix_flags = 0x01 if mix_enabled else 0x00
+        reserved = bytes([rev_mask, mix_flags]) + struct.pack("b", mix_percent) + b"\x00"*3
 
         # Pack everything except the CRC first, because the CRC is calculated
         # over these first 58 bytes.
@@ -443,6 +532,7 @@ class App(tk.Tk):
 
         # Create helper objects used by the UI callbacks.
         self.w = SerialWorker()
+        self.role_worker = EspRoleWorker()
         self.store = ModelsStore(self.w)
         self.channel_labels = ChannelLabelStore()
 
@@ -454,6 +544,7 @@ class App(tk.Tk):
         self._install_app_icon()
         self._install_style()
         self._build_ui()
+        self.protocol("WM_DELETE_WINDOW", self.on_close)
 
         # Populate the serial-port dropdown right away.
         self.refresh_ports()
@@ -574,6 +665,8 @@ class App(tk.Tk):
         self.bind_changed = False
         self.dr_active_var = tk.BooleanVar(value=False)
         self.dr_switch_var = tk.StringVar(value="0")
+        self.ail_rud_mix_enabled_var = tk.BooleanVar(value=False)
+        self.ail_rud_mix_percent_var = tk.IntVar(value=30)
 
         ttk.Label(form, text="Model Name", style="Panel.TLabel").grid(row=0, column=0, sticky='e', pady=4)
         ttk.Entry(form, textvariable=self.name_var, width=24).grid(row=0, column=1, sticky='w', padx=6)
@@ -592,6 +685,23 @@ class App(tk.Tk):
         ttk.Label(form, text="DR Switch", style="Panel.TLabel").grid(row=0, column=5, sticky='e')
         ttk.Entry(form, textvariable=self.dr_switch_var, width=6).grid(row=0, column=6, sticky='w', padx=6)
         ttk.Checkbutton(form, text="High Rates Active", variable=self.dr_active_var).grid(row=0, column=7, sticky='w', padx=6)
+
+        mix_frame = ttk.LabelFrame(right, text="Control Mixing", padding=(12, 8))
+        mix_frame.pack(fill='x', pady=(0, 6))
+        ttk.Checkbutton(
+            mix_frame, text="Mix aileron into rudder",
+            variable=self.ail_rud_mix_enabled_var
+        ).pack(side='left')
+        ttk.Label(mix_frame, text="Rudder amount:", style="Panel.TLabel").pack(side='left', padx=(18, 5))
+        ttk.Spinbox(
+            mix_frame, from_=-100, to=100, increment=5, width=6,
+            textvariable=self.ail_rud_mix_percent_var
+        ).pack(side='left')
+        ttk.Label(
+            mix_frame,
+            text="%  (negative reverses the mix direction)",
+            style="Muted.TLabel"
+        ).pack(side='left', padx=5)
 
         # Editable channel table. A Treeview is normally read-only, so the
         # _install_cell_editor method below adds double-click editing behavior.
@@ -622,6 +732,73 @@ class App(tk.Tk):
         ttk.Button(bottom, text="Save To Radio", command=self.on_save_slot, style="Accent.TButton").pack(side='left', padx=6)
         ttk.Button(bottom, text="Export Model (.json)", command=self.on_export_model).pack(side='left', padx=6)
         ttk.Button(bottom, text="Import Model (.json)", command=self.on_import_model).pack(side='left', padx=6)
+
+        self._build_role_tab()
+
+    def _build_role_tab(self):
+        """Build the guarded ESP32 instructor/student role controls."""
+        self.tab_roles = ttk.Frame(self.nb, padding=22, style="Panel.TFrame")
+        self.nb.add(self.tab_roles, text="Instructor / Student")
+
+        ttk.Label(self.tab_roles, text="Transmitter Role", style="Panel.TLabel",
+                  font=("Helvetica", 16, "bold")).pack(anchor="w")
+        ttk.Label(
+            self.tab_roles,
+            text=("Connect the transmitter's ESP32-C3 USB port here. This is the small "
+                  "ESP USB connector, not the M0 model-configurator connector."),
+            style="Muted.TLabel", wraplength=820, justify="left"
+        ).pack(anchor="w", pady=(5, 18))
+
+        connection = ttk.LabelFrame(self.tab_roles, text="ESP32-C3 connection", padding=14)
+        connection.pack(fill="x")
+        row = ttk.Frame(connection, style="Panel.TFrame")
+        row.pack(fill="x")
+        ttk.Label(row, text="ESP Port:", style="Panel.TLabel").pack(side="left")
+        self.esp_port_var = tk.StringVar()
+        self.esp_port_cmb = ttk.Combobox(row, textvariable=self.esp_port_var, width=46, state="readonly")
+        self.esp_port_cmb.pack(side="left", padx=7)
+        ttk.Button(row, text="Refresh", command=self.refresh_role_ports).pack(side="left")
+        self.esp_connect_btn = ttk.Button(row, text="Connect", command=self.on_role_connect)
+        self.esp_connect_btn.pack(side="left", padx=7)
+
+        details = ttk.LabelFrame(self.tab_roles, text="Detected transmitter", padding=14)
+        details.pack(fill="x", pady=16)
+        self.role_vars = {
+            "mac": tk.StringVar(value="—"), "role": tk.StringVar(value="—"),
+            "mode": tk.StringVar(value="—"), "authority": tk.StringVar(value="—"),
+            "link": tk.StringVar(value="—"),
+        }
+        labels = (("ESP MAC address", "mac"), ("Current role", "role"),
+                  ("M0 operating mode", "mode"), ("Current authority", "authority"),
+                  ("Link counters", "link"))
+        for row_number, (caption, key) in enumerate(labels):
+            ttk.Label(details, text=caption + ":", style="Panel.TLabel").grid(
+                row=row_number, column=0, sticky="e", padx=(0, 10), pady=4)
+            ttk.Label(details, textvariable=self.role_vars[key], style="Panel.TLabel",
+                      font=("Menlo", 11, "bold")).grid(row=row_number, column=1, sticky="w", pady=4)
+
+        actions = ttk.LabelFrame(self.tab_roles, text="Assign role", padding=14)
+        actions.pack(fill="x")
+        self.role_safety_var = tk.StringVar(
+            value="Connect to the ESP32-C3 to read its role before making changes.")
+        ttk.Label(actions, textvariable=self.role_safety_var, style="Muted.TLabel",
+                  wraplength=820, justify="left").pack(anchor="w", pady=(0, 12))
+        buttons = ttk.Frame(actions, style="Panel.TFrame")
+        buttons.pack(anchor="w")
+        self.master_role_btn = ttk.Button(
+            buttons, text="Set as Instructor (Master)",
+            command=lambda: self.on_set_role("MASTER"), state="disabled")
+        self.master_role_btn.pack(side="left")
+        self.student_role_btn = ttk.Button(
+            buttons, text="Set as Student", command=lambda: self.on_set_role("STUDENT"),
+            state="disabled")
+        self.student_role_btn.pack(side="left", padx=8)
+        ttk.Button(buttons, text="Read Status Again", command=self.on_role_refresh).pack(side="left")
+
+    def on_close(self):
+        self.w.close()
+        self.role_worker.close()
+        self.destroy()
 
     # ---------- Editable Treeview ----------
     def _install_cell_editor(self, tree: ttk.Treeview):
@@ -734,6 +911,151 @@ class App(tk.Tk):
         self.port_cmb["values"] = labels
         if labels:
             self.port_cmb.current(0)
+        self.refresh_role_ports(detected)
+
+    def refresh_role_ports(self, detected=None):
+        detected = list(detected if detected is not None else list_ports.comports())
+
+        def esp_priority(port):
+            text = " ".join(filter(None, (port.product, port.description, port.manufacturer))).lower()
+            return 0 if (port.vid == 0x303A or "esp32" in text or "espressif" in text) else 1
+
+        detected.sort(key=esp_priority)
+        self.esp_port_devices = {}
+        labels = []
+        for port in detected:
+            name = port.product or port.description or "Serial device"
+            label = f"{name} — {port.device}"
+            self.esp_port_devices[label] = port.device
+            labels.append(label)
+        self.esp_port_cmb["values"] = labels
+        if labels and self.esp_port_var.get() not in labels:
+            self.esp_port_cmb.current(0)
+
+    def _show_role_status(self, status):
+        self.role_vars["mac"].set(status.get("mac", "—"))
+        self.role_vars["role"].set(status.get("role", "—"))
+        self.role_vars["mode"].set(status.get("mode", "Not reported by older firmware"))
+        self.role_vars["authority"].set(status.get("authority", "—"))
+        counters = [f"{key}={status[key]}" for key in ("sent", "received", "forwarded") if key in status]
+        self.role_vars["link"].set("   ".join(counters) or "—")
+        # A role button performs its own two-sample activity test before it
+        # writes. Do not lock solely from authority: the ESP can retain the
+        # last authority string after the SAMD enters Config Mode and stops
+        # sending heartbeats.
+        self.master_role_btn.config(state="normal")
+        self.student_role_btn.config(state="normal")
+        if status.get("mode") in ("CONFIG", "SIMULATOR", "SETUP"):
+            self.role_safety_var.set(
+                f"The M0 reports safe {status['mode']} mode. Keep the aircraft powered off while changing roles.")
+        elif status.get("mode"):
+            self.role_safety_var.set(
+                f"Role changes are locked in {status['mode']} mode. Restart in Config or Simulator mode.")
+        elif status.get("authority") == "UNKNOWN":
+            self.role_safety_var.set(
+                "No flight authority is currently reported. A final M0 activity check will run "
+                "before saving. Keep the aircraft powered off.")
+        else:
+            self.role_safety_var.set(
+                "The displayed authority may be live or stale. Select a role to run the final "
+                "M0 activity check; saving remains blocked if messages are still arriving.")
+
+    def _clear_role_status(self):
+        for value in self.role_vars.values():
+            value.set("—")
+        self.master_role_btn.config(state="disabled")
+        self.student_role_btn.config(state="disabled")
+        self.role_safety_var.set("Connect to the ESP32-C3 to read its role before making changes.")
+
+    def on_role_connect(self):
+        if self.role_worker.ser:
+            self.role_worker.close()
+            self.esp_connect_btn.config(text="Connect")
+            self._clear_role_status()
+            return
+        selection = self.esp_port_var.get().strip()
+        port = self.esp_port_devices.get(selection, selection)
+        if not port:
+            messagebox.showerror("ESP role", "Select the ESP32-C3 serial port")
+            return
+        try:
+            status = self.role_worker.open(port)
+            self.esp_connect_btn.config(text="Disconnect")
+            self._show_role_status(status)
+        except Exception as exc:
+            messagebox.showerror(
+                "ESP connection failed",
+                f"{exc}\n\nSelect the ESP32-C3 USB port, not the Altitude RC TX M0 port.")
+
+    def on_role_refresh(self):
+        if not self.role_worker.ser:
+            messagebox.showerror("ESP role", "Connect the ESP32-C3 port first")
+            return
+        try:
+            self._show_role_status(self.role_worker.status())
+        except Exception as exc:
+            messagebox.showerror("Status failed", str(exc))
+
+    def on_set_role(self, role):
+        friendly = "Instructor (Master)" if role == "MASTER" else "Student"
+        try:
+            # Two readings more than one firmware heartbeat apart close the
+            # short startup window before the M0 reports active authority.
+            first = self.role_worker.status()
+            time.sleep(1.1)
+            second = self.role_worker.status()
+            self._show_role_status(second)
+            try:
+                first_lines = int(first["samd_lines"])
+                second_lines = int(second["samd_lines"])
+            except (KeyError, TypeError, ValueError):
+                raise RuntimeError(
+                    "The ESP status did not include its M0 message counter. Reflash the current "
+                    "TxV3 Buddy ESP32 firmware before changing roles with the GUI.")
+            mode = second.get("mode")
+            try:
+                mode_fresh = int(second.get("mode_age_ms", "999999")) <= 1500
+            except ValueError:
+                mode_fresh = False
+            if mode and mode_fresh:
+                if mode not in ("CONFIG", "SIMULATOR", "SETUP"):
+                    raise RuntimeError(
+                        f"The M0 reports {mode} mode, so role changes are locked. Keep the aircraft "
+                        "powered off and restart in Config or Simulator mode.")
+            elif second_lines != first_lines:
+                # A master M0 sends AUTHORITY heartbeats even in Config Mode,
+                # although that mode returns before LoRa initialization. Older
+                # firmware has no MODE field, so prove its safe branch through
+                # the independent M0 USB config service.
+                config_verified = False
+                try:
+                    config_verified = self.w.verify_config_mode()
+                except Exception:
+                    config_verified = False
+                if not config_verified:
+                    raise RuntimeError(
+                        "M0 messages are arriving and Config Mode has not been verified. Connect "
+                        "the same transmitter's M0 USB port using the Models connection at the "
+                        "top of this window, then try again. Keep the aircraft powered off.")
+            current = second.get("role", "UNKNOWN")
+            mac = second.get("mac", "unknown")
+            if current == role:
+                messagebox.showinfo("Role unchanged", f"This transmitter is already {friendly}.")
+                return
+            confirmed = messagebox.askyesno(
+                "Confirm transmitter role",
+                f"ESP {mac}\n\nChange role from {current} to {friendly}?\n\n"
+                "Confirm the aircraft is powered off. Assign exactly one radio as Master; "
+                "incorrect role assignments can prevent control.")
+            if not confirmed:
+                return
+            verified = self.role_worker.set_role(role)
+            self._show_role_status(verified)
+            messagebox.showinfo(
+                "Role saved",
+                f"ESP {verified.get('mac', mac)} is now {friendly}.\n\nRestart the transmitter before flight.")
+        except Exception as exc:
+            messagebox.showerror("Role change failed", str(exc))
 
     def on_connect(self):
         # The same button handles both connecting and disconnecting.
@@ -822,7 +1144,9 @@ class App(tk.Tk):
             active_rates=False,
             subtrim=[0,0,0,0],
             endpoints=[[1000,2000],[1000,2000],[1000,2000],[1000,2000]],
-            reverse=[False, False, False, False]
+            reverse=[False, False, False, False],
+            ail_to_rud_mix_enabled=False,
+            ail_to_rud_mix_percent=30
         )
 
         # Write the model, then set the used bit for this slot in the header.
@@ -874,6 +1198,8 @@ class App(tk.Tk):
         self.bind_changed = False
         self.dr_switch_var.set(str(m["dr_switch"]))
         self.dr_active_var.set(bool(m["active_rates"]))
+        self.ail_rud_mix_enabled_var.set(bool(m.get("ail_to_rud_mix_enabled", False)))
+        self.ail_rud_mix_percent_var.set(int(m.get("ail_to_rud_mix_percent", 30)))
 
         # Channel names can come from imported JSON, local GUI preferences, or
         # defaults if neither is available.
@@ -902,6 +1228,8 @@ class App(tk.Tk):
             bind_code=int(self.bind_var.get() or "0"),
             dr_switch=int(self.dr_switch_var.get() or "0"),
             active_rates=bool(self.dr_active_var.get()),
+            ail_to_rud_mix_enabled=bool(self.ail_rud_mix_enabled_var.get()),
+            ail_to_rud_mix_percent=max(-100, min(100, int(self.ail_rud_mix_percent_var.get()))),
             rates=[0]*4, expo=[0]*4, subtrim=[0]*4, endpoints=[[0,0] for _ in range(4)],
             channel_names=[""]*4
         )

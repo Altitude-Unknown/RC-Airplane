@@ -2,6 +2,19 @@
 
 This repository contains a Tkinter-based desktop GUI to manage transmitter models over USB serial. The radio automatically uses external FRAM when installed or the SAMD21's internal-flash fallback when FRAM is absent. The main script is `fram_gui_models.py`.
 
+For V3 buddy-box radios, the **Instructor / Student** tab can also read and set
+the persistent role through the transmitter's separate ESP32-C3 USB port. With
+current M0 and ESP firmware, only the ESP cable is needed: the M0 reports its
+operating mode internally and the ESP rejects role writes unless that mode is
+Config, Simulator, or Setup. Keep the aircraft powered off while assigning
+roles. The GUI retains a two-cable Config Mode check for older firmware.
+
+Each model also has an optional **Mix aileron into rudder** setting. Enable it
+under Control Mixing and choose a signed percentage from -100% to +100%.
+Positive values move rudder with aileron; negative values reverse the mix
+direction. Start around 20-30%, save the model to the radio, and verify both
+directions on the bench before flight.
+
 For the full RC transmitter, receiver, and GUI operating manual, see [MANUAL.md](MANUAL.md).
 
 Prerequisites
