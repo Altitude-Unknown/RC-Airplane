@@ -67,6 +67,22 @@ V2 target retains its original behavior.
 6. Moving any master stick, including throttle, immediately takes control back.
 7. Following an automatic takeover, cycle AUX to grant control again.
 
+## USB flight-simulator mode
+
+The SAMD21 firmware exposes a standard four-axis USB HID joystick for macOS and
+Windows. To enter the safe simulator mode:
+
+1. Disconnect or switch off the transmitter.
+2. Connect the transmitter's **SAMD21 USB** port while holding **AUX/trainer**.
+3. Release AUX after the transmitter starts; the user LED remains solid.
+4. Open the simulator's controller setup and map X/aileron, Y/elevator,
+   Z/rudder, and Rz/throttle.
+
+Simulator mode is selected only when AUX is held by itself at boot. The SAMD21
+does not initialize LoRa or the ESP buddy UART in this mode, so it cannot send
+commands to an aircraft. Normal power-up retains flight operation. Bind +
+aileron-right at boot retains the existing USB configurator mode.
+
 The master LED is solid under instructor control and rapidly flashes while the
 student has authority. The student LED slowly flashes.
 

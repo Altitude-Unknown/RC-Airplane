@@ -375,6 +375,7 @@ bool bindMode=false;
 bool escOverride=false;
 bool configMode=false;
 bool setupMode=false;
+bool simulatorMode=false;
 bool txLocked=false;
 const bool ENABLE_TX_DEBUG = false;
 const bool ENABLE_TX_BOOT_LOCK = true;
@@ -744,13 +745,18 @@ void setup() {
   pinMode(PIN_ESC_BTN, INPUT_PULLUP);
   setupTrimPins();
 
-#ifdef TXV3_BUDDY_BUILD
-  txv3BuddyBegin();
-#endif
-
   bool bindHeld = (digitalRead(PIN_BIND_BTN)==LOW);
   bool escHeld  = (digitalRead(PIN_ESC_BTN)==LOW);
   bool setupHeld = (digitalRead(PIN_TRIM_RUD_L)==LOW && digitalRead(PIN_TRIM_RUD_R)==LOW);
+#ifdef TXV3_BUDDY_BUILD
+  pinMode(TXV3_TRAINER_PIN, INPUT_PULLUP);
+  delay(2);
+  bool simulatorHeld = (digitalRead(TXV3_TRAINER_PIN)==LOW);
+  // AUX alone at boot selects a USB-only simulator mode. Do not initialize the
+  // buddy UART or LoRa in this mode; a simulator session must not fly a model.
+  simulatorMode = simulatorHeld && !bindHeld && !escHeld && !setupHeld;
+  if (!simulatorMode) txv3BuddyBegin();
+#endif
 
   // Modes
   // These mode checks happen before LoRa is initialized. That lets setup/config
@@ -760,7 +766,7 @@ void setup() {
   bindMode   = (!setupMode && bindHeld && !escHeld);  // Only bind   -> Bind Mode
   escOverride= (!setupMode && !bindHeld && escHeld);  // Only ESC    -> ESC override
 #ifdef TXV3_BUDDY_BUILD
-  if (txv3BuddyIsStudent()) { bindMode=false; escOverride=false; }
+  if (!simulatorMode && txv3BuddyIsStudent()) { bindMode=false; escOverride=false; }
 #endif
 
   if (configMode || ENABLE_TX_DEBUG) {
@@ -800,7 +806,7 @@ void setup() {
   // blinking forever is safer than pretending the transmitter is working.
   bool enableLoRa = true;
 #ifdef TXV3_BUDDY_BUILD
-  enableLoRa = !txv3BuddyIsStudent();
+  enableLoRa = !simulatorMode && !txv3BuddyIsStudent();
 #endif
   if (enableLoRa) {
     pinMode(RFM95_RST,OUTPUT);
@@ -839,7 +845,7 @@ void setup() {
     ? (uint16_t)TXCF::channelToUs(xThr, 3, gModel, highRates) // ch3 = throttle
     : (uint16_t)constrain((int)(RC_MIN + (xThr+1.0f)*0.5f*(RC_MAX-RC_MIN) + 0.5f), RC_MIN, RC_MAX);
 
-  txLocked = (ENABLE_TX_BOOT_LOCK && !escOverride && (thr > UNLOCK_THRESH_US));
+  txLocked = (!simulatorMode && ENABLE_TX_BOOT_LOCK && !escOverride && (thr > UNLOCK_THRESH_US));
   if (escOverride) ledTripleFlash();
 
   pkt.ch_rud=RC_MID; pkt.ch_ail=RC_MID; pkt.ch_ele=RC_MID; pkt.ch_thr=RC_MIN;
@@ -880,7 +886,7 @@ void loop() {
   uint32_t loopNow = millis();
 
 #ifdef TXV3_BUDDY_BUILD
-  txv3BuddyService();
+  if (!simulatorMode) txv3BuddyService();
 #endif
 
   // The buzzer is checked first so alarm tones continue even while the rest of
@@ -1021,7 +1027,7 @@ void loop() {
   }
 
 #ifdef TXV3_BUDDY_BUILD
-  if (txv3BuddyIsStudent()) {
+  if (!simulatorMode && txv3BuddyIsStudent()) {
     txv3BuddyPublishLocal(pkt.ch_rud, pkt.ch_ail, pkt.ch_ele, pkt.ch_thr, buddyAux);
     driveBlink(LED_SLOW);
     delay(TX_LOOP_DELAY_MS);
@@ -1031,8 +1037,15 @@ void loop() {
 
 #ifdef TXV3_BUDDY_BUILD
   uint16_t selectedRud=pkt.ch_rud, selectedAil=pkt.ch_ail, selectedEle=pkt.ch_ele, selectedThr=pkt.ch_thr;
-  txv3BuddySelectChannels(selectedRud, selectedAil, selectedEle, selectedThr, buddyAux);
+  if (!simulatorMode) txv3BuddySelectChannels(selectedRud, selectedAil, selectedEle, selectedThr, buddyAux);
   pkt.ch_rud=selectedRud; pkt.ch_ail=selectedAil; pkt.ch_ele=selectedEle; pkt.ch_thr=selectedThr;
+
+  if (simulatorMode) {
+    txv3UsbHid.send(pkt.ch_rud, pkt.ch_ail, pkt.ch_ele, pkt.ch_thr, buddyAux);
+    driveBlink(LED_SOLID);
+    delay(4);
+    return;
+  }
 #endif
 
   updateThrottleTimer(pkt.ch_thr, loopNow);
