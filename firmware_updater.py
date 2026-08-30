@@ -10,6 +10,7 @@ import hashlib
 import json
 import os
 import shutil
+import ssl
 import string
 import sys
 import tempfile
@@ -17,12 +18,15 @@ import time
 import urllib.request
 from pathlib import Path
 
+import certifi
+
 
 GITHUB_REPOSITORY = "Altitude-Unknown/RC-Airplane"
 LATEST_RELEASE_URL = f"https://api.github.com/repos/{GITHUB_REPOSITORY}/releases/latest"
 MANIFEST_ASSET_NAME = "transmitter-firmware-manifest.json"
 USER_AGENT = "Walach-Transmitter-Configurator/firmware-updater"
 TARGETS = ("samd21", "esp32c3")
+TLS_CONTEXT = ssl.create_default_context(cafile=certifi.where())
 
 
 class FirmwareUpdateError(RuntimeError):
@@ -33,7 +37,7 @@ def _request_json(url, timeout=20):
     request = urllib.request.Request(
         url, headers={"Accept": "application/vnd.github+json", "User-Agent": USER_AGENT}
     )
-    with urllib.request.urlopen(request, timeout=timeout) as response:
+    with urllib.request.urlopen(request, timeout=timeout, context=TLS_CONTEXT) as response:
         return json.load(response)
 
 
@@ -98,7 +102,7 @@ def download_firmware(release_info, target, destination=None, timeout=60):
     request = urllib.request.Request(board["download_url"], headers={"User-Agent": USER_AGENT})
     try:
         digest = hashlib.sha256()
-        with urllib.request.urlopen(request, timeout=timeout) as response, destination.open("wb") as output:
+        with urllib.request.urlopen(request, timeout=timeout, context=TLS_CONTEXT) as response, destination.open("wb") as output:
             while True:
                 chunk = response.read(128 * 1024)
                 if not chunk:
