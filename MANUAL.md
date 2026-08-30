@@ -311,6 +311,24 @@ python3 fram_gui_models.py
 The connection status identifies the active storage backend as `fram` or
 `internal flash`.
 
+### Updating transmitter firmware from the configurator
+
+Open **Firmware Update** and click **Check GitHub**. The configurator reads the
+latest release's firmware manifest and verifies each downloaded image with its
+published SHA-256 checksum. Choose **Both** after a firmware/protocol change so
+the SAMD21 and ESP32-C3 remain compatible.
+
+For the SAMD21 stage, connect the larger **M0** USB connector and double-tap its
+RESET button when prompted. The configurator waits for the UF2 bootloader drive
+and copies the firmware. For the ESP32-C3 stage, connect the small **ESP** USB
+connector, select its serial port, and follow the prompt. If automatic ESP
+bootloader entry fails, hold BOOT, tap RESET, release BOOT, and retry.
+
+Before updating, power off the aircraft, remove the propeller, and export
+important models. Do not disconnect USB during a write. After both stages,
+power-cycle the transmitter and bench-check its model selection, roles, stick
+directions, endpoints, failsafe behavior, and buddy-box handoff before flight.
+
 ### Assigning Instructor or Student Role
 
 With current V3 firmware, only the ESP32-C3 USB cable is needed:

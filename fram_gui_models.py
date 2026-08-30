@@ -19,9 +19,11 @@ struct format strings below. If the firmware struct changes, this file must be
 updated to match it byte-for-byte.
 """
 
-import sys, os, binascii, json, time, struct, random
+import sys, os, binascii, json, time, struct, random, threading
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, simpledialog
+
+import firmware_updater
 
 try:
     import serial
@@ -535,6 +537,8 @@ class App(tk.Tk):
         self.role_worker = EspRoleWorker()
         self.store = ModelsStore(self.w)
         self.channel_labels = ChannelLabelStore()
+        self.firmware_release = None
+        self.firmware_busy = False
 
         # Tracks which slot was last loaded into the editor. The selected slot
         # in the list is still the source of truth when saving.
@@ -734,6 +738,188 @@ class App(tk.Tk):
         ttk.Button(bottom, text="Import Model (.json)", command=self.on_import_model).pack(side='left', padx=6)
 
         self._build_role_tab()
+        self._build_firmware_tab()
+
+    def _build_firmware_tab(self):
+        """Build the guided SAMD21/ESP32-C3 firmware updater."""
+        self.tab_firmware = ttk.Frame(self.nb, padding=22, style="Panel.TFrame")
+        self.nb.add(self.tab_firmware, text="Firmware Update")
+
+        ttk.Label(self.tab_firmware, text="Transmitter Firmware Update", style="Panel.TLabel",
+                  font=("Helvetica", 16, "bold")).pack(anchor="w")
+        ttk.Label(
+            self.tab_firmware,
+            text=("Download verified firmware from the latest Altitude Unknown GitHub release. "
+                  "Keep the aircraft powered off and remove its propeller before updating."),
+            style="Muted.TLabel", wraplength=850, justify="left"
+        ).pack(anchor="w", pady=(5, 16))
+
+        release_frame = ttk.LabelFrame(self.tab_firmware, text="Latest release", padding=14)
+        release_frame.pack(fill="x")
+        release_row = ttk.Frame(release_frame, style="Panel.TFrame")
+        release_row.pack(fill="x")
+        self.firmware_release_var = tk.StringVar(value="Not checked")
+        ttk.Label(release_row, textvariable=self.firmware_release_var,
+                  style="Panel.TLabel", font=("Menlo", 11, "bold")).pack(side="left", fill="x", expand=True)
+        self.firmware_check_btn = ttk.Button(
+            release_row, text="Check GitHub", command=self.on_check_firmware)
+        self.firmware_check_btn.pack(side="right")
+
+        target_frame = ttk.LabelFrame(self.tab_firmware, text="Processors to update", padding=14)
+        target_frame.pack(fill="x", pady=14)
+        self.firmware_target_var = tk.StringVar(value="both")
+        for text, value in (("Both (recommended)", "both"),
+                            ("SAMD21 / M0 only", "samd21"),
+                            ("ESP32-C3 only", "esp32c3")):
+            ttk.Radiobutton(target_frame, text=text, value=value,
+                            variable=self.firmware_target_var,
+                            command=self._update_firmware_instructions).pack(anchor="w", pady=2)
+
+        port_frame = ttk.LabelFrame(self.tab_firmware, text="ESP32-C3 USB port", padding=14)
+        port_frame.pack(fill="x")
+        port_row = ttk.Frame(port_frame, style="Panel.TFrame")
+        port_row.pack(fill="x")
+        self.firmware_esp_port_var = tk.StringVar()
+        self.firmware_esp_port_cmb = ttk.Combobox(
+            port_row, textvariable=self.firmware_esp_port_var, width=52, state="readonly")
+        self.firmware_esp_port_cmb.pack(side="left")
+        ttk.Button(port_row, text="Refresh Ports", command=self.refresh_ports).pack(side="left", padx=8)
+        ttk.Label(
+            port_frame,
+            text="Use the small ESP USB connector. The Altitude RC TX M0 port is the other processor.",
+            style="Muted.TLabel").pack(anchor="w", pady=(8, 0))
+
+        guide = ttk.LabelFrame(self.tab_firmware, text="Connection guide", padding=14)
+        guide.pack(fill="x", pady=14)
+        self.firmware_guide_var = tk.StringVar()
+        ttk.Label(guide, textvariable=self.firmware_guide_var, style="Panel.TLabel",
+                  wraplength=850, justify="left").pack(anchor="w")
+
+        action_row = ttk.Frame(self.tab_firmware, style="Panel.TFrame")
+        action_row.pack(fill="x")
+        self.firmware_flash_btn = ttk.Button(
+            action_row, text="Download and Flash Latest", style="Accent.TButton",
+            command=self.on_flash_firmware, state="disabled")
+        self.firmware_flash_btn.pack(side="left")
+        self.firmware_progress_var = tk.StringVar(value="Check GitHub to begin.")
+        ttk.Label(action_row, textvariable=self.firmware_progress_var,
+                  style="Muted.TLabel").pack(side="left", padx=14)
+        self._update_firmware_instructions()
+
+    def _update_firmware_instructions(self):
+        target = self.firmware_target_var.get()
+        samd = ("SAMD21: connect the larger M0 USB connector. When prompted, double-tap the "
+                "SAMD RESET button so its UF2 drive appears.")
+        esp = ("ESP32-C3: connect the small ESP USB connector and select it above. The updater "
+               "will enter its bootloader automatically; if asked, hold BOOT and tap RESET.")
+        self.firmware_guide_var.set(samd if target == "samd21" else esp if target == "esp32c3" else samd + "\n\n" + esp)
+
+    def _set_firmware_busy(self, busy, status=None):
+        self.firmware_busy = busy
+        self.firmware_check_btn.config(state="disabled" if busy else "normal")
+        can_flash = (not busy and self.firmware_release is not None)
+        self.firmware_flash_btn.config(state="normal" if can_flash else "disabled")
+        if status:
+            self.firmware_progress_var.set(status)
+
+    def _firmware_thread(self, work, completed):
+        def runner():
+            try:
+                result = work()
+                self.after(0, lambda: completed(result, None))
+            except Exception as exc:
+                self.after(0, lambda exc=exc: completed(None, exc))
+        threading.Thread(target=runner, daemon=True).start()
+
+    def on_check_firmware(self):
+        if self.firmware_busy:
+            return
+        self._set_firmware_busy(True, "Checking GitHub…")
+
+        def completed(result, error):
+            self.firmware_release = result
+            self._set_firmware_busy(False, "Ready to update." if result else "Update check failed.")
+            if error:
+                messagebox.showerror("Firmware update", str(error))
+                return
+            published = result.get("published_at", "")[:10]
+            self.firmware_release_var.set(f"{result['name']}  •  {published}")
+        self._firmware_thread(firmware_updater.fetch_latest_firmware, completed)
+
+    def _selected_firmware_esp_port(self):
+        selection = self.firmware_esp_port_var.get().strip()
+        return self.esp_port_devices.get(selection, selection)
+
+    def on_flash_firmware(self):
+        if self.firmware_busy or not self.firmware_release:
+            return
+        target = self.firmware_target_var.get()
+        targets = ["samd21", "esp32c3"] if target == "both" else [target]
+        esp_port = self._selected_firmware_esp_port()
+        if "esp32c3" in targets and not esp_port:
+            messagebox.showerror("Firmware update", "Select the ESP32-C3 USB port before flashing.")
+            return
+        if not messagebox.askyesno(
+                "Confirm firmware update",
+                "Keep the aircraft powered off and remove the propeller. Do not unplug USB while "
+                "a processor is being written.\n\nContinue with the latest verified firmware?"):
+            return
+        self.w.close()
+        self.role_worker.close()
+        self.connect_btn.config(text="Connect")
+        self.esp_connect_btn.config(text="Connect")
+        self._set_firmware_busy(True, "Preparing firmware…")
+
+        def work():
+            for current in targets:
+                label = "SAMD21" if current == "samd21" else "ESP32-C3"
+                self.after(0, lambda label=label: self.firmware_progress_var.set(f"Downloading {label} firmware…"))
+                image = firmware_updater.download_firmware(self.firmware_release, current)
+                try:
+                    if current == "samd21":
+                        before = firmware_updater.uf2_mounts()
+                        proceed = threading.Event()
+                        answer = {"yes": False}
+                        def prompt_samd():
+                            answer["yes"] = messagebox.askokcancel(
+                                "Connect the SAMD21 / M0",
+                                "1. Connect the larger M0 USB connector.\n"
+                                "2. Double-tap the SAMD RESET button.\n"
+                                "3. Wait for its UF2 drive to appear.\n\nClick OK after double-tapping RESET.")
+                            proceed.set()
+                        self.after(0, prompt_samd)
+                        proceed.wait()
+                        if not answer["yes"]:
+                            raise firmware_updater.FirmwareUpdateError("Firmware update cancelled.")
+                        self.after(0, lambda: self.firmware_progress_var.set("Waiting for the SAMD21 UF2 drive…"))
+                        mount = firmware_updater.wait_for_new_uf2_mount(before)
+                        firmware_updater.flash_samd_uf2(image, mount)
+                        time.sleep(2)
+                    else:
+                        self.after(0, lambda: self.firmware_progress_var.set("Flashing ESP32-C3…"))
+                        firmware_updater.flash_esp32(image, esp_port)
+                finally:
+                    try:
+                        os.unlink(image)
+                    except OSError:
+                        pass
+            return targets
+
+        def completed(result, error):
+            self._set_firmware_busy(False, "Update complete." if result else "Update stopped.")
+            self.refresh_ports()
+            if error:
+                messagebox.showerror(
+                    "Firmware update failed",
+                    f"{error}\n\nNo other processor will be flashed. If this was the ESP32-C3, "
+                    "hold BOOT, tap RESET, release BOOT, and try again.")
+                return
+            names = " and ".join("SAMD21" if item == "samd21" else "ESP32-C3" for item in result)
+            messagebox.showinfo(
+                "Firmware update complete",
+                f"Updated {names}. Power-cycle the transmitter, reconnect, and verify its models "
+                "and controls before flight.")
+        self._firmware_thread(work, completed)
 
     def _build_role_tab(self):
         """Build the guarded ESP32 instructor/student role controls."""
@@ -931,6 +1117,10 @@ class App(tk.Tk):
         self.esp_port_cmb["values"] = labels
         if labels and self.esp_port_var.get() not in labels:
             self.esp_port_cmb.current(0)
+        if hasattr(self, "firmware_esp_port_cmb"):
+            self.firmware_esp_port_cmb["values"] = labels
+            if labels and self.firmware_esp_port_var.get() not in labels:
+                self.firmware_esp_port_cmb.current(0)
 
     def _show_role_status(self, status):
         self.role_vars["mac"].set(status.get("mac", "—"))

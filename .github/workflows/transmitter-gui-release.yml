@@ -31,12 +31,12 @@ jobs:
           - name: Windows
             os: windows-latest
             asset_name: Walach-Aviation-Transmitter-Configurator-Windows-x64.zip
-            build_cmd: pyinstaller --clean --noconfirm --onefile --windowed --name "WalachTransmitterConfigurator" fram_gui_models.py
+            build_cmd: pyinstaller --clean --noconfirm --collect-all esptool --onefile --windowed --name "WalachTransmitterConfigurator" fram_gui_models.py
             package_cmd: Compress-Archive -Path "dist/WalachTransmitterConfigurator.exe" -DestinationPath "Walach-Aviation-Transmitter-Configurator-Windows-x64.zip" -Force
           - name: Raspberry Pi ARM64
             os: ubuntu-24.04-arm
             asset_name: Walach-Aviation-Transmitter-Configurator-Raspberry-Pi-ARM64.zip
-            build_cmd: pyinstaller --clean --noconfirm --onefile --windowed --name "Walach Aviation Transmitter Configurator" fram_gui_models.py
+            build_cmd: pyinstaller --clean --noconfirm --collect-all esptool --onefile --windowed --name "Walach Aviation Transmitter Configurator" fram_gui_models.py
             package_cmd: zip -j "Walach-Aviation-Transmitter-Configurator-Raspberry-Pi-ARM64.zip" "dist/Walach Aviation Transmitter Configurator"
 
     steps:
@@ -133,9 +133,60 @@ jobs:
           path: ${{ matrix.asset_name }}
           if-no-files-found: error
 
+  firmware:
+    name: Build transmitter firmware
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out transmitter repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - name: Set up Arduino CLI
+        uses: arduino/setup-arduino-cli@v2
+
+      - name: Install cores and libraries
+        shell: bash
+        run: |
+          arduino-cli core update-index --additional-urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
+          arduino-cli core install adafruit:samd@1.7.10
+          arduino-cli core install esp32:esp32@3.3.10 --additional-urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
+          arduino-cli lib install "RadioHead" "Adafruit GFX Library" "Adafruit SSD1306" "FlashStorage_SAMD"
+
+      - name: Compile both transmitter processors
+        shell: bash
+        run: |
+          arduino-cli compile --output-dir firmware-build/samd \
+            --fqbn adafruit:samd:adafruit_feather_m0_express \
+            --build-property 'build.usb_product="Altitude RC TX M0"' \
+            --build-property 'build.usb_manufacturer="Altitude Unknown"' \
+            --build-property build.vid=0x03EB \
+            --build-property build.pid=0x2402 \
+            --build-property 'build.extra_flags=-D__SAMD21G18A__ -DARDUINO_SAMD_FEATHER_M0 -DARDUINO_SAMD_ZERO -DARM_MATH_CM0PLUS -DALTITUDE_RC_TX_M0 {build.usb_flags}' \
+            PCB/TxV3/TxV3_Full_M0
+          arduino-cli compile --output-dir firmware-build/esp --fqbn esp32:esp32:esp32c3 --board-options CDCOnBoot=cdc PCB/TxV3/TxV3_Buddy_ESP32
+
+      - name: Package firmware and checksums
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          SAMD_BIN="$(find firmware-build/samd -name '*.bin' ! -name '*.with_bootloader.bin' | head -n 1)"
+          ESP_BIN="$(find firmware-build/esp -name '*.merged.bin' | head -n 1)"
+          test -n "$SAMD_BIN" -a -f "$SAMD_BIN"
+          test -n "$ESP_BIN" -a -f "$ESP_BIN"
+          python tools/package_transmitter_firmware.py --samd-bin "$SAMD_BIN" --esp-merged-bin "$ESP_BIN" --version "$RELEASE_VERSION" --output firmware-assets
+
+      - name: Upload firmware artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: transmitter-firmware
+          path: firmware-assets/*
+          if-no-files-found: error
+
   release:
     name: Publish GitHub release
-    needs: build
+    needs: [build, firmware]
     runs-on: ubuntu-latest
     steps:
       - name: Download packages
@@ -160,7 +211,7 @@ jobs:
           RELEASE_TAG: ${{ steps.release_tag.outputs.tag }}
         shell: bash
         run: |
-          release_notes="Transmitter GUI builds for macOS ARM64, Windows x64, and Raspberry Pi OS ARM64. This release adds guarded Instructor/Student role assignment through the ESP32-C3 USB port and per-model adjustable aileron-to-rudder mixing. It supports external FRAM or the SAMD21 internal-flash fallback and displays the detected storage backend. Current TxV3 M0 and ESP firmware is required for single-cable role changes. The macOS build is Developer ID signed, notarized, and stapled."
+          release_notes="Transmitter GUI builds for macOS ARM64, Windows x64, and Raspberry Pi OS ARM64, plus checksum-verified TxV3 SAMD21 and ESP32-C3 firmware images. The configurator can download and guide installation of the latest firmware from this release. Keep the aircraft powered off, remove the propeller, and verify all controls after updating."
           if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release edit "$RELEASE_TAG" \
               --repo "$GITHUB_REPOSITORY" \
@@ -172,6 +223,6 @@ jobs:
               --title "Transmitter GUI ${RELEASE_TAG#transmitter-gui-v}" \
               --notes "$release_notes"
           fi
-          gh release upload "$RELEASE_TAG" release-assets/*.zip \
+          gh release upload "$RELEASE_TAG" release-assets/* \
             --repo "$GITHUB_REPOSITORY" \
             --clobber

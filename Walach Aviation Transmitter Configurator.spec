@@ -1,12 +1,15 @@
 # -*- mode: python ; coding: utf-8 -*-
+from PyInstaller.utils.hooks import collect_all
+
+esptool_datas, esptool_binaries, esptool_hiddenimports = collect_all('esptool')
 
 
 a = Analysis(
     ['fram_gui_models.py'],
     pathex=[],
-    binaries=[],
-    datas=[],
-    hiddenimports=[],
+    binaries=esptool_binaries,
+    datas=esptool_datas,
+    hiddenimports=esptool_hiddenimports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

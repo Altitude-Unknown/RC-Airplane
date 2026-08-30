@@ -15,12 +15,20 @@ Positive values move rudder with aileron; negative values reverse the mix
 direction. Start around 20-30%, save the model to the radio, and verify both
 directions on the bench before flight.
 
+The **Firmware Update** tab checks the project's latest GitHub release and can
+update the V3 transmitter's SAMD21/M0, ESP32-C3, or both. Firmware images are
+SHA-256 verified before flashing. The guided flow identifies the two separate
+USB connectors: the larger M0 connector enters its UF2 bootloader after a
+double-tap of RESET, while the small ESP connector uses its native serial/JTAG
+bootloader. Keep the aircraft powered off, remove the propeller, and export
+important models before updating.
+
 For the full RC transmitter, receiver, and GUI operating manual, see [MANUAL.md](MANUAL.md).
 
 Prerequisites
 - Python 3 (3.8+ recommended)
 - `tkinter` (usually bundled with CPython)
-- `pyserial` (install via `pip`)
+- `pyserial` and `esptool` (installed by `requirements.txt`)
 
 Install dependencies
 
