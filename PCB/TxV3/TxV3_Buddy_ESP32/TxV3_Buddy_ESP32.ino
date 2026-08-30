@@ -210,11 +210,24 @@ static void beginBleHid() {
   // service UUID all fit in the 31-byte primary advertising packet. macOS uses
   // that UUID to classify the device as BLE HID before connecting.
   BLEDevice::init("Walach Tx2");
-#if defined(CONFIG_BLUEDROID_ENABLED)
+#if defined(CONFIG_NIMBLE_ENABLED)
   // Changing the public BLE identity while retaining the previous LTK makes
   // macOS attempt encryption with a stale key and disconnect with a MIC
   // failure. Clear bonds once when the HID identity version changes.
-  static constexpr uint8_t BLE_IDENTITY_VERSION = 2;
+  // Prefer this branch when the Arduino compatibility layer exposes both
+  // backend macros; the ESP32-C3 package actually runs NimBLE.
+  static constexpr uint8_t BLE_IDENTITY_VERSION = 5;
+  if (preferences.getUChar("ble-id", 0) != BLE_IDENTITY_VERSION) {
+    const int clearResult = ble_store_clear();
+    Serial.printf("BLE bond cleanup result=%d\n", clearResult);
+    if (clearResult == 0) {
+      preferences.putUChar("ble-id", BLE_IDENTITY_VERSION);
+    } else {
+      Serial.println("BLE bond cleanup will retry on next simulator-mode boot");
+    }
+  }
+#elif defined(CONFIG_BLUEDROID_ENABLED)
+  static constexpr uint8_t BLE_IDENTITY_VERSION = 5;
   if (preferences.getUChar("ble-id", 0) != BLE_IDENTITY_VERSION) {
     int bondCount = esp_ble_get_bond_device_num();
     if (bondCount > 0) {
@@ -226,21 +239,6 @@ static void beginBleHid() {
       free(bonds);
     }
     preferences.putUChar("ble-id", BLE_IDENTITY_VERSION);
-  }
-#endif
-#if defined(CONFIG_NIMBLE_ENABLED)
-  // Version 3 retries the cleanup attempted by version 2.  The old code
-  // advanced this marker even when ble_store_clear() failed, leaving the ESP
-  // and macOS with different LTKs and causing an immediate MIC failure.
-  static constexpr uint8_t BLE_IDENTITY_VERSION = 3;
-  if (preferences.getUChar("ble-id", 0) != BLE_IDENTITY_VERSION) {
-    const int clearResult = ble_store_clear();
-    Serial.printf("BLE bond cleanup result=%d\n", clearResult);
-    if (clearResult == 0) {
-      preferences.putUChar("ble-id", BLE_IDENTITY_VERSION);
-    } else {
-      Serial.println("BLE bond cleanup will retry on next simulator-mode boot");
-    }
   }
 #endif
   BLESecurity *security = new BLESecurity();
@@ -368,8 +366,15 @@ static void processUsbLine(String line) {
   if (line == "ROLE MASTER") { if (roleChangeAllowed()) setRole(ROLE_MASTER); else Serial.printf("ERR role_locked mode=%s\n", samdMode); }
   else if (line == "ROLE STUDENT" || line == "ROLE SLAVE") { if (roleChangeAllowed()) setRole(ROLE_STUDENT); else Serial.printf("ERR role_locked mode=%s\n", samdMode); }
   else if (line == "ROLE CLEAR") { if (roleChangeAllowed()) setRole(ROLE_UNCONFIGURED); else Serial.printf("ERR role_locked mode=%s\n", samdMode); }
+  else if (line == "BLE CLEAR") {
+    // Schedule bond deletion for the next simulator-mode boot, after the BLE
+    // host has initialized. This recovers cleanly when a computer forgets its
+    // half of a bond while the transmitter still retains the old key.
+    preferences.remove("ble-id");
+    Serial.println("OK ble_bonds_clear_on_next_simulator_boot");
+  }
   else if (line == "STATUS") printStatus();
-  else if (line == "HELP") Serial.println("ROLE MASTER | ROLE STUDENT | ROLE CLEAR | STATUS");
+  else if (line == "HELP") Serial.println("ROLE MASTER | ROLE STUDENT | ROLE CLEAR | BLE CLEAR | STATUS");
   else if (line.length()) Serial.println("ERR unknown_command");
 }
 

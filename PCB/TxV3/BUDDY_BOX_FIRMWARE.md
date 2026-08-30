@@ -126,6 +126,11 @@ If a computer has cached an older HID descriptor during development, remove
 `Walach Tx2` from its Bluetooth devices and pair it again. To return
 to flight mode, power-cycle the transmitter without holding AUX.
 
+If pairing repeatedly fails after a computer has forgotten a previously bonded
+transmitter, connect the ESP32-C3 USB console at 115200 baud and enter
+`BLE CLEAR`. Power-cycle back into simulator mode; the ESP clears its retained
+bond after the BLE host initializes, then advertises for fresh pairing.
+
 The master LED is solid under instructor control and rapidly flashes while the
 student has authority. The student LED slowly flashes.
 
