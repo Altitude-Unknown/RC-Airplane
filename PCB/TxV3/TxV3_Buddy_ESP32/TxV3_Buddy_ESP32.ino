@@ -16,6 +16,17 @@
 #include <Preferences.h>
 #include <WiFi.h>
 #include <esp_now.h>
+#include <BLEDevice.h>
+#include <BLEServer.h>
+#include <BLEHIDDevice.h>
+#include <BLESecurity.h>
+#include <esp_mac.h>
+#if defined(CONFIG_BLUEDROID_ENABLED)
+#include <esp_gap_ble_api.h>
+#endif
+#if defined(CONFIG_NIMBLE_ENABLED)
+#include <host/ble_store.h>
+#endif
 
 static constexpr int SAMD_RX_PIN = 20;  // ESP RX <- SAMD PB22 TX
 static constexpr int SAMD_TX_PIN = 21;  // ESP TX -> SAMD PB23 RX
@@ -26,6 +37,47 @@ static constexpr uint8_t FRAME_VERSION = 1;
 // 100 Hz matches a typical RC control-frame rate. The master forwards each
 // newly received frame immediately rather than adding a second timing gate.
 static constexpr uint32_t TX_INTERVAL_MS = 10;
+static constexpr uint8_t BLE_HID_REPORT_ID = 1;
+
+// Apple requires the standard Gamepad/Pointer collection shape for a BLE HID
+// controller to be published through IOHID. Flight Lab handles the resulting
+// macOS axis mapping separately from its USB joystick mapping.
+static const uint8_t BLE_HID_REPORT_MAP[] = {
+  0x05, 0x01,                    // Usage Page (Generic Desktop)
+  0x09, 0x05,                    // Usage (Gamepad)
+  0xA1, 0x01,                    // Collection (Application)
+  0x85, BLE_HID_REPORT_ID,       //   Report ID
+  0x09, 0x01,                    //   Usage (Pointer)
+  0xA1, 0x00,                    //   Collection (Physical)
+  0x05, 0x01,                    //   Usage Page (Generic Desktop)
+  0x09, 0x30,                    //   Usage (X: aileron)
+  0x09, 0x31,                    //   Usage (Y: elevator)
+  0x09, 0x33,                    //   Usage (Rx: rudder)
+  0x09, 0x34,                    //   Usage (Ry: throttle)
+  0x15, 0x81,                    //   Logical Minimum (-127)
+  0x25, 0x7F,                    //   Logical Maximum (127)
+  0x75, 0x08,                    //   Report Size (8)
+  0x95, 0x04,                    //   Report Count (4)
+  0x81, 0x02,                    //   Input (Data, Variable, Absolute)
+  0xC0,                          //   End Physical Collection
+  0x05, 0x09,                    //   Usage Page (Button)
+  0x19, 0x01,                    //   Usage Minimum (1)
+  0x29, 0x08,                    //   Usage Maximum (8)
+  0x15, 0x00,                    //   Logical Minimum (0)
+  0x25, 0x01,                    //   Logical Maximum (1)
+  0x75, 0x01,                    //   Report Size (1)
+  0x95, 0x08,                    //   Report Count (8)
+  0x81, 0x02,                    //   Input (Data, Variable, Absolute)
+  0xC0                           // End Collection
+};
+
+struct __attribute__((packed)) BleGamepadReport {
+  int8_t aileron;
+  int8_t elevator;
+  int8_t rudder;
+  int8_t throttle;
+  uint8_t buttons;
+};
 
 enum Role : uint8_t { ROLE_UNCONFIGURED = 0, ROLE_MASTER = 1, ROLE_STUDENT = 2 };
 
@@ -80,6 +132,187 @@ bool samdReady = false;
 const char *samdAuthority = "UNKNOWN";
 const char *samdMode = "UNKNOWN";
 uint32_t samdModeAtMs = 0;
+BLEHIDDevice *bleHid = nullptr;
+BLECharacteristic *bleInputReport = nullptr;
+bool bleHidStarted = false;
+volatile bool bleConnected = false;
+uint16_t lastBleSequence = 0;
+volatile uint32_t bleConnectCount = 0;
+volatile uint32_t bleDisconnectCount = 0;
+volatile int bleAuthStatus = -1;
+volatile bool bleReportSubscribed = false;
+bool bleFilterInitialized = false;
+uint16_t filteredAileron = 1500;
+uint16_t filteredElevator = 1500;
+uint16_t filteredRudder = 1500;
+uint16_t filteredThrottle = 1000;
+
+class HidServerCallbacks final : public BLEServerCallbacks {
+  void onConnect(BLEServer *) override {
+    bleConnected = true;
+    bleAuthStatus = -1;
+    bleReportSubscribed = false;
+    ++bleConnectCount;
+  }
+
+  void onDisconnect(BLEServer *) override {
+    bleConnected = false;
+    bleReportSubscribed = false;
+    ++bleDisconnectCount;
+    BLEDevice::startAdvertising();
+  }
+};
+
+class HidReportCallbacks final : public BLECharacteristicCallbacks {
+#if defined(CONFIG_NIMBLE_ENABLED)
+  void onSubscribe(BLECharacteristic *, ble_gap_conn_desc *, uint16_t value) override {
+    bleReportSubscribed = value != 0;
+  }
+#endif
+};
+
+class HidSecurityCallbacks final : public BLESecurityCallbacks {
+  bool onSecurityRequest() override {
+    return true;
+  }
+
+#if defined(CONFIG_BLUEDROID_ENABLED)
+  void onAuthenticationComplete(esp_ble_auth_cmpl_t result) override {
+    bleAuthStatus = result.success ? 0 : result.fail_reason;
+  }
+#elif defined(CONFIG_NIMBLE_ENABLED)
+  void onAuthenticationComplete(ble_gap_conn_desc *result) override {
+    bleAuthStatus = result != nullptr && result->sec_state.encrypted ? 0 : 1;
+  }
+#endif
+};
+
+static int8_t pulseToBleAxis(uint16_t pulseUs) {
+  const int32_t bounded = constrain(static_cast<int32_t>(pulseUs), 1000L, 2000L);
+  return static_cast<int8_t>(map(bounded, 1000L, 2000L, -127L, 127L));
+}
+
+static uint16_t filterBlePulse(uint16_t previous, uint16_t current) {
+  // Four-sample IIR at the 100 Hz control rate removes ADC chatter while
+  // retaining a quick (~40 ms) control response.
+  return static_cast<uint16_t>((3UL * previous + current + 2UL) / 4UL);
+}
+
+static void beginBleHid() {
+  if (bleHidStarted) return;
+
+  // Simulator mode persists until reboot. Stop the unused buddy radio before
+  // starting BLE so Wi-Fi/ESP-NOW cannot compete for airtime or power.
+  esp_now_deinit();
+  WiFi.mode(WIFI_OFF);
+
+  // Keep the name short enough that flags, HID appearance, name, and the 1812
+  // service UUID all fit in the 31-byte primary advertising packet. macOS uses
+  // that UUID to classify the device as BLE HID before connecting.
+  BLEDevice::init("Walach Tx2");
+#if defined(CONFIG_BLUEDROID_ENABLED)
+  // Changing the public BLE identity while retaining the previous LTK makes
+  // macOS attempt encryption with a stale key and disconnect with a MIC
+  // failure. Clear bonds once when the HID identity version changes.
+  static constexpr uint8_t BLE_IDENTITY_VERSION = 2;
+  if (preferences.getUChar("ble-id", 0) != BLE_IDENTITY_VERSION) {
+    int bondCount = esp_ble_get_bond_device_num();
+    if (bondCount > 0) {
+      esp_ble_bond_dev_t *bonds = static_cast<esp_ble_bond_dev_t *>(
+          malloc(sizeof(esp_ble_bond_dev_t) * bondCount));
+      if (bonds != nullptr && esp_ble_get_bond_device_list(&bondCount, bonds) == ESP_OK) {
+        for (int i = 0; i < bondCount; ++i) esp_ble_remove_bond_device(bonds[i].bd_addr);
+      }
+      free(bonds);
+    }
+    preferences.putUChar("ble-id", BLE_IDENTITY_VERSION);
+  }
+#endif
+#if defined(CONFIG_NIMBLE_ENABLED)
+  // Version 3 retries the cleanup attempted by version 2.  The old code
+  // advanced this marker even when ble_store_clear() failed, leaving the ESP
+  // and macOS with different LTKs and causing an immediate MIC failure.
+  static constexpr uint8_t BLE_IDENTITY_VERSION = 3;
+  if (preferences.getUChar("ble-id", 0) != BLE_IDENTITY_VERSION) {
+    const int clearResult = ble_store_clear();
+    Serial.printf("BLE bond cleanup result=%d\n", clearResult);
+    if (clearResult == 0) {
+      preferences.putUChar("ble-id", BLE_IDENTITY_VERSION);
+    } else {
+      Serial.println("BLE bond cleanup will retry on next simulator-mode boot");
+    }
+  }
+#endif
+  BLESecurity *security = new BLESecurity();
+  security->setCapability(ESP_IO_CAP_NONE);
+  security->setAuthenticationMode(true, false, true); // Bonded Just Works pairing.
+  BLEDevice::setSecurityCallbacks(new HidSecurityCallbacks());
+
+  BLEServer *server = BLEDevice::createServer();
+  server->setCallbacks(new HidServerCallbacks());
+  bleHid = new BLEHIDDevice(server);
+  bleHid->manufacturer()->setValue("Walach Aviation");
+  // Arduino-ESP32 3.3.x serializes these 16-bit PnP fields big-endian,
+  // although Bluetooth DIS defines them little-endian. Pass byte-swapped
+  // constants so hosts receive VID=0x1209, PID=0x5247, version=0x0101.
+  // PID 0x5247 identifies the four-axis report and avoids the cached two-axis
+  // diagnostic descriptor (PID 0x5246).
+  bleHid->pnp(0x02, 0x0912, 0x4752, 0x0101);
+  bleHid->hidInfo(0x00, 0x01);
+  bleHid->reportMap(const_cast<uint8_t *>(BLE_HID_REPORT_MAP), sizeof(BLE_HID_REPORT_MAP));
+  bleInputReport = bleHid->inputReport(BLE_HID_REPORT_ID);
+  bleInputReport->setCallbacks(new HidReportCallbacks());
+  bleHid->setBatteryLevel(100); // No battery-voltage divider is fitted yet.
+  bleHid->startServices();
+
+  BLEAdvertising *advertising = BLEDevice::getAdvertising();
+  // macOS only publishes a generic HOGP controller through IOHID when it uses
+  // the Gamepad appearance. The report map itself remains the USB-style RC
+  // joystick layout, without a Pointer collection.
+  advertising->setAppearance(0x03C4); // HID gamepad appearance
+  advertising->addServiceUUID(bleHid->hidService()->getUUID());
+  advertising->setScanResponse(true);
+  advertising->setMinPreferred(0x06);
+  advertising->setMaxPreferred(0x12);
+  BLEDevice::startAdvertising();
+  bleHidStarted = true;
+}
+
+static void sendBleHidReport() {
+  // Match Espressif's HID examples: once the link is connected, publish fresh
+  // reports and let the BLE stack decide whether a subscribed client receives
+  // them. bleReportSubscribed is only updated by NimBLE's optional onSubscribe
+  // callback and otherwise stays false even after macOS enables the CCCD.
+  // Bonded reconnects can likewise skip a new authentication callback.
+  if (!bleHidStarted || !bleConnected || bleInputReport == nullptr ||
+      localFrame.magic != FRAME_MAGIC || localFrame.sequence == lastBleSequence) return;
+  lastBleSequence = localFrame.sequence;
+  if (!bleFilterInitialized) {
+    filteredAileron = localFrame.aileron;
+    filteredElevator = localFrame.elevator;
+    filteredRudder = localFrame.rudder;
+    filteredThrottle = localFrame.throttle;
+    bleFilterInitialized = true;
+  } else {
+    filteredAileron = filterBlePulse(filteredAileron, localFrame.aileron);
+    filteredElevator = filterBlePulse(filteredElevator, localFrame.elevator);
+    filteredRudder = filterBlePulse(filteredRudder, localFrame.rudder);
+    filteredThrottle = filterBlePulse(filteredThrottle, localFrame.throttle);
+  }
+  // The Report Reference descriptor on this characteristic already supplies
+  // BLE_HID_REPORT_ID. The notification value contains report data only;
+  // including the ID here shifts every axis and drops throttle from the
+  // four-axis portion of the report.
+  const BleGamepadReport report = {
+    pulseToBleAxis(filteredAileron),
+    pulseToBleAxis(filteredElevator),
+    pulseToBleAxis(filteredRudder),
+    pulseToBleAxis(filteredThrottle),
+    localFrame.auxFlags
+  };
+  bleInputReport->setValue(reinterpret_cast<const uint8_t *>(&report), sizeof(report));
+  bleInputReport->notify();
+}
 
 static uint16_t crc16(const uint8_t *data, size_t length) {
   uint16_t crc = 0xFFFF;
@@ -100,9 +333,13 @@ static const char *roleName(Role value) {
 
 static void printStatus() {
   const uint32_t modeAge = samdModeAtMs ? millis() - samdModeAtMs : 0xFFFFFFFFUL;
-  Serial.printf("STATUS role=%s authority=%s mode=%s mode_age_ms=%lu mac=%s sent=%lu received=%lu forwarded=%lu samd_lines=%lu role_replies=%lu\n", roleName(role), samdAuthority, samdMode,
+  Serial.printf("STATUS role=%s authority=%s mode=%s mode_age_ms=%lu mac=%s ble=%s ble_conn=%lu ble_disc=%lu ble_auth=%d ble_sub=%s sent=%lu received=%lu forwarded=%lu samd_lines=%lu role_replies=%lu\n", roleName(role), samdAuthority, samdMode,
                 static_cast<unsigned long>(modeAge),
-                WiFi.macAddress().c_str(), static_cast<unsigned long>(sentFrames),
+                WiFi.macAddress().c_str(), bleConnected ? "connected" : (bleHidStarted ? "advertising" : "off"),
+                static_cast<unsigned long>(bleConnectCount),
+                static_cast<unsigned long>(bleDisconnectCount), bleAuthStatus,
+                bleReportSubscribed ? "yes" : "no",
+                static_cast<unsigned long>(sentFrames),
                 static_cast<unsigned long>(receivedFrames),
                 static_cast<unsigned long>(studentFramesForwarded),
                 static_cast<unsigned long>(samdLinesReceived),
@@ -208,6 +445,16 @@ static bool beginEspNow() {
 void setup() {
   Serial.begin(115200);
   samdLink.begin(LINK_BAUD, SERIAL_8N1, SAMD_RX_PIN, SAMD_TX_PIN);
+  // Derive a stable, unique locally administered base address from this
+  // chip's factory address. macOS keys its BLE GATT cache by address and can
+  // retain a rejected HID descriptor even after "Forget This Device". The
+  // local-address bit gives the corrected HID identity a clean cache entry
+  // without giving multiple transmitters the same address.
+  uint8_t localBaseMac[6];
+  if (esp_read_mac(localBaseMac, ESP_MAC_EFUSE_FACTORY) == ESP_OK) {
+    localBaseMac[0] = static_cast<uint8_t>((localBaseMac[0] | 0x02) ^ 0x08);
+    esp_base_mac_addr_set(localBaseMac);
+  }
   preferences.begin("txv3-buddy", false);
   const uint8_t stored = preferences.getUChar("role", ROLE_UNCONFIGURED);
   role = stored <= ROLE_STUDENT ? static_cast<Role>(stored) : ROLE_UNCONFIGURED;
@@ -233,6 +480,11 @@ void loop() {
       if (samdLength) { samdLine[samdLength] = 0; processSamdLine(samdLine); samdLength = 0; }
     } else if (samdLength < sizeof(samdLine) - 1) samdLine[samdLength++] = c;
     else samdLength = 0;
+  }
+
+  if (!strcmp(samdMode, "SIMULATOR")) {
+    beginBleHid();
+    sendBleHidReport();
   }
 
   const uint32_t now = millis();

@@ -95,22 +95,36 @@ propeller removed.
 6. Moving any master stick, including throttle, immediately takes control back.
 7. Following an automatic takeover, cycle AUX to grant control again.
 
-## USB flight-simulator mode
+## USB and Bluetooth flight-simulator mode
 
-The SAMD21 firmware exposes a standard four-axis USB HID joystick for macOS and
-Windows. To enter the safe simulator mode:
+The transmitter exposes the same four calibrated channels in two ways while in
+simulator mode:
+
+- The SAMD21 USB port is a wired four-axis HID joystick.
+- The ESP32-C3 advertises a Bluetooth LE HID gamepad named `Walach Tx2`.
+
+Both transports use X/aileron, Y/elevator, Z/rudder, and Rz/throttle. The BLE
+gamepad uses bonded "Just Works" pairing and sends fresh reports at the existing
+100 Hz SAMD-to-ESP control-frame rate. To enter the safe simulator mode:
 
 1. Disconnect or switch off the transmitter.
-2. Connect the transmitter's **SAMD21 USB** port while holding **AUX/trainer**.
+2. Hold **AUX/trainer** while powering the transmitter. The SAMD21 USB cable is
+   optional when the transmitter has another power source.
 3. Release AUX after the transmitter starts; the user LED remains solid.
-4. Open the simulator's controller setup and map X/aileron, Y/elevator,
-   Z/rudder, and Rz/throttle.
+4. For wireless use, pair `Walach Tx2` in the computer's Bluetooth
+   settings. For wired use, connect the SAMD21 USB port.
+5. Open the simulator's controller setup and map the four axes.
 
 Simulator mode is selected only when AUX is held by itself at boot. The SAMD21
-does not initialize LoRa or buddy control forwarding in this mode; it sends
-only the safe-mode heartbeat used by the ESP interlock, so it cannot send
-commands to an aircraft. Normal power-up retains flight operation. Bind +
-aileron-right at boot retains the existing USB configurator mode.
+does not initialize LoRa or buddy control forwarding in this mode. The ESP32-C3
+stops ESP-NOW before starting BLE, so neither processor can send commands to an
+aircraft. Normal power-up retains flight operation and does not advertise the
+BLE gamepad. Bind + aileron-right at boot retains the existing USB configurator
+mode.
+
+If a computer has cached an older HID descriptor during development, remove
+`Walach Tx2` from its Bluetooth devices and pair it again. To return
+to flight mode, power-cycle the transmitter without holding AUX.
 
 The master LED is solid under instructor control and rapidly flashes while the
 student has authority. The student LED slowly flashes.

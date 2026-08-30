@@ -1058,6 +1058,9 @@ void loop() {
   pkt.ch_rud=selectedRud; pkt.ch_ail=selectedAil; pkt.ch_ele=selectedEle; pkt.ch_thr=selectedThr;
 
   if (simulatorMode) {
+    // Feed the same calibrated channels to the onboard ESP32-C3 so it can
+    // expose a wireless BLE HID gamepad alongside this wired USB HID path.
+    txv3BuddyPublishLocal(pkt.ch_rud, pkt.ch_ail, pkt.ch_ele, pkt.ch_thr, buddyAux);
     txv3UsbHid.send(pkt.ch_rud, pkt.ch_ail, pkt.ch_ele, pkt.ch_thr, buddyAux);
     driveBlink(LED_SOLID);
     delay(4);

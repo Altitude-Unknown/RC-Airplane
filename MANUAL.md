@@ -79,7 +79,7 @@ Hardware schematic PDFs are kept in this repo for quick reference:
 | Bind mode | Hold D9 low at boot | Repeatedly sends bind packets |
 | USB config mode | Hold both D9 and D5 low at boot | No LoRa transmit; desktop GUI can read/write FRAM |
 | OLED setup mode | Hold both rudder trims at boot | No LoRa transmit; setup menu shown on OLED |
-| USB simulator mode | Hold AUX/trainer by itself at boot | No LoRa or trainer forwarding; USB HID joystick active |
+| Simulator mode | Hold AUX/trainer by itself at boot | No LoRa or trainer forwarding; USB and BLE HID gamepads active |
 
 ### Normal Transmitter Operation
 
