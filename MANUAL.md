@@ -318,6 +318,17 @@ latest release's firmware manifest and verifies each downloaded image with its
 published SHA-256 checksum. Choose **Both** after a firmware/protocol change so
 the SAMD21 and ESP32-C3 remain compatible.
 
+The updater currently supports Transmitter V3 hardware. It downloads these
+release assets automatically:
+
+- `walach-tx-v3-samd21.uf2` for the transmitter M0.
+- `walach-tx-v3-esp32c3.bin` for the ESP32-C3.
+- `transmitter-firmware-manifest.json` containing the expected SHA-256 values.
+
+The official desktop builds include the ESP flashing tool and a trusted TLS CA
+bundle; the user does not need Arduino IDE, Arduino CLI, or a separate Python
+installation to perform an update.
+
 For the SAMD21 stage, connect the larger **M0** USB connector and double-tap its
 RESET button when prompted. The configurator waits for the UF2 bootloader drive
 and copies the firmware. For the ESP32-C3 stage, connect the small **ESP** USB
@@ -328,6 +339,17 @@ Before updating, power off the aircraft, remove the propeller, and export
 important models. Do not disconnect USB during a write. After both stages,
 power-cycle the transmitter and bench-check its model selection, roles, stick
 directions, endpoints, failsafe behavior, and buddy-box handoff before flight.
+
+If the transmitter uses the M0 internal-flash model-storage fallback, firmware
+flashing may reset its stored models. Export important models first. External
+FRAM models normally survive, but they must still be inspected after updating.
+
+The first updater-enabled, end-to-end validated release is
+`transmitter-gui-v2026.08.30.2`. Its signed/notarized macOS, Windows x64, and
+Raspberry Pi ARM64 packages and both firmware images were built by GitHub
+Actions. Live latest-release discovery, TLS download, and checksum validation
+passed for both images. A physical Transmitter V3 was then updated through the
+GUI, power-cycled, and reported working normally in the post-update bench test.
 
 ### Assigning Instructor or Student Role
 
@@ -395,10 +417,36 @@ Important commits/tags:
 
 ### Desktop GUI Cannot Connect
 
-- Confirm transmitter is in USB config mode, not normal mode.
+- Confirm transmitter is in USB config mode, not normal Flight Mode. Hold Bind
+  and Aileron Trim Right while powering the transmitter, then release them
+  after startup.
 - Refresh serial ports.
-- Try `/dev/cu.usbmodem...` on macOS.
+- Select the **Altitude RC TX M0** `/dev/cu.usbmodem...` port on macOS, not the
+  separate ESP32-C3 port.
 - Replug USB or double-tap reset if the port is missing.
+
+Seeing a serial device in the list does not prove Config Mode is active. The
+GUI connects only after the M0 configurator service answers its `PING` command.
+
+### Firmware Update Cannot Check GitHub
+
+- Confirm the computer has internet access and GitHub is reachable.
+- Use configurator release `transmitter-gui-v2026.08.30.2` or later; older
+  releases do not contain the firmware manifest and verified images.
+- Do not bypass a checksum failure. Retry the download and report the release
+  tag and error if it fails again.
+
+### SAMD21 UF2 Drive Does Not Appear
+
+- Confirm the larger M0 USB connector is attached.
+- Double-tap the SAMD RESET button when the updater prompts.
+- Try a known data-capable USB cable and connect directly to the computer.
+
+### ESP32-C3 Flashing Cannot Connect
+
+- Confirm the small ESP USB connector and its serial port are selected.
+- Hold BOOT, tap RESET, release BOOT, and retry.
+- Do not select the **Altitude RC TX M0** port for the ESP32-C3 stage.
 
 ### Buzzer Too Quiet
 
