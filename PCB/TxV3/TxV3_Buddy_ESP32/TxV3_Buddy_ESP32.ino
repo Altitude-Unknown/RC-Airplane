@@ -142,6 +142,7 @@ volatile uint32_t bleDisconnectCount = 0;
 volatile int bleAuthStatus = -1;
 volatile bool bleReportSubscribed = false;
 bool bleFilterInitialized = false;
+uint8_t bleAddressVersion = 1;
 uint16_t filteredAileron = 1500;
 uint16_t filteredElevator = 1500;
 uint16_t filteredRudder = 1500;
@@ -367,11 +368,17 @@ static void processUsbLine(String line) {
   else if (line == "ROLE STUDENT" || line == "ROLE SLAVE") { if (roleChangeAllowed()) setRole(ROLE_STUDENT); else Serial.printf("ERR role_locked mode=%s\n", samdMode); }
   else if (line == "ROLE CLEAR") { if (roleChangeAllowed()) setRole(ROLE_UNCONFIGURED); else Serial.printf("ERR role_locked mode=%s\n", samdMode); }
   else if (line == "BLE CLEAR") {
-    // Schedule bond deletion for the next simulator-mode boot, after the BLE
-    // host has initialized. This recovers cleanly when a computer forgets its
-    // half of a bond while the transmitter still retains the old key.
+    // Rotate the BLE identity as well as deleting the ESP's bond. macOS can
+    // retain a rejected HID/GATT cache even after "Forget This Device"; a new
+    // stable address forces it to treat the transmitter as a fresh controller.
+    ++bleAddressVersion;
+    if (bleAddressVersion == 0) bleAddressVersion = 1;
+    preferences.putUChar("ble-addr", bleAddressVersion);
     preferences.remove("ble-id");
-    Serial.println("OK ble_bonds_clear_on_next_simulator_boot");
+    Serial.println("OK ble_identity_rotated_restarting");
+    Serial.flush();
+    delay(100);
+    ESP.restart();
   }
   else if (line == "STATUS") printStatus();
   else if (line == "HELP") Serial.println("ROLE MASTER | ROLE STUDENT | ROLE CLEAR | BLE CLEAR | STATUS");
@@ -450,6 +457,8 @@ static bool beginEspNow() {
 void setup() {
   Serial.begin(115200);
   samdLink.begin(LINK_BAUD, SERIAL_8N1, SAMD_RX_PIN, SAMD_TX_PIN);
+  preferences.begin("txv3-buddy", false);
+  bleAddressVersion = preferences.getUChar("ble-addr", 1);
   // Derive a stable, unique locally administered base address from this
   // chip's factory address. macOS keys its BLE GATT cache by address and can
   // retain a rejected HID descriptor even after "Forget This Device". The
@@ -458,9 +467,9 @@ void setup() {
   uint8_t localBaseMac[6];
   if (esp_read_mac(localBaseMac, ESP_MAC_EFUSE_FACTORY) == ESP_OK) {
     localBaseMac[0] = static_cast<uint8_t>((localBaseMac[0] | 0x02) ^ 0x08);
+    localBaseMac[5] ^= static_cast<uint8_t>(0x40U + bleAddressVersion);
     esp_base_mac_addr_set(localBaseMac);
   }
-  preferences.begin("txv3-buddy", false);
   const uint8_t stored = preferences.getUChar("role", ROLE_UNCONFIGURED);
   role = stored <= ROLE_STUDENT ? static_cast<Role>(stored) : ROLE_UNCONFIGURED;
   const bool radioOk = beginEspNow();
