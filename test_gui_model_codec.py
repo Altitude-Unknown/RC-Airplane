@@ -4,7 +4,13 @@
 import struct
 import unittest
 
-from fram_gui_models import EspRoleWorker, MODEL_BIN_SIZE, MODEL_FMT, ModelsStore
+from fram_gui_models import (
+    EspRoleWorker,
+    MODEL_BIN_SIZE,
+    MODEL_FMT,
+    ModelsStore,
+    validate_model_controls,
+)
 
 
 class MemoryWorker:
@@ -19,6 +25,28 @@ class MemoryWorker:
 
 
 class ModelCodecTests(unittest.TestCase):
+    def test_collapsed_zero_endpoints_are_rejected(self):
+        model = {
+            "rates": [50, 50, 50, 0],
+            "expo": [40, 40, 40, 0],
+            "subtrim": [0, 0, 0, 0],
+            "endpoints": [[0, 0] for _ in range(4)],
+        }
+
+        with self.assertRaisesRegex(ValueError, "Rudder endpoints"):
+            validate_model_controls(model)
+
+    def test_endpoints_are_limited_to_receiver_range(self):
+        model = {
+            "rates": [100] * 4,
+            "expo": [0] * 4,
+            "subtrim": [0] * 4,
+            "endpoints": [[700, 2300] for _ in range(4)],
+        }
+
+        validate_model_controls(model)
+        self.assertEqual(model["endpoints"], [[800, 2200] for _ in range(4)])
+
     def test_mix_and_reverse_round_trip_with_valid_crc(self):
         worker = MemoryWorker()
         store = ModelsStore(worker)

@@ -96,6 +96,22 @@ HDR_FMT = "<I H H H I 18s"   # 32 bytes header: 4+2+2+2+4+18
 MODEL_FMT_NOCRC = "<16s H 4b 4b B B 4h 8H 6s"  # 58 bytes
 MODEL_FMT       = MODEL_FMT_NOCRC + " H"       # +2 = 60
 
+def validate_model_controls(model: dict) -> dict:
+    """Clamp editable controls and reject endpoints that collapse a channel."""
+    for i in range(4):
+        model["rates"][i] = max(0, min(100, model["rates"][i]))
+        model["expo"][i] = max(-100, min(100, model["expo"][i]))
+        model["subtrim"][i] = max(-500, min(500, model["subtrim"][i]))
+        mn, mx = model["endpoints"][i]
+        mn = max(800, min(2200, mn))
+        mx = max(800, min(2200, mx))
+        if mn >= mx:
+            raise ValueError(
+                f"{CHANNEL_DEFAULT_NAMES[i]} endpoints must have Min us below Max us"
+            )
+        model["endpoints"][i] = [mn, mx]
+    return model
+
 def crc16_ccitt(data: bytes, poly=0x1021, init=0xFFFF) -> int:
     """Return the CRC used to detect corrupted model bytes in radio storage."""
     crc = init
@@ -998,8 +1014,8 @@ class App(tk.Tk):
             "Rate%":   (0, 100),
             "Expo%":   (-100, 100),
             "Subtrim": (-500, 500),
-            "Min us":  (700, 2300),
-            "Max us":  (700, 2300),
+            "Min us":  (800, 2200),
+            "Max us":  (800, 2200),
         }
 
         def start_edit(event):
@@ -1474,15 +1490,7 @@ class App(tk.Tk):
             # collect_editor converts text to numbers, but this final pass makes
             # sure imported/edited values are inside known-safe bounds before
             # they reach ModelsStore.write_model.
-            for i in range(4):
-                m["rates"][i]   = max(0, min(100, m["rates"][i]))
-                m["expo"][i]    = max(-100, min(100, m["expo"][i]))
-                m["subtrim"][i] = max(-500, min(500, m["subtrim"][i]))
-                mn, mx = m["endpoints"][i]
-                mn = max(700, min(2300, mn))
-                mx = max(700, min(2300, mx))
-                if mn > mx: mx = mn
-                m["endpoints"][i] = [mn, mx]
+            validate_model_controls(m)
 
             # Firmware-compatible model bytes go to FRAM. GUI-only channel names
             # go to the local JSON preferences file.
