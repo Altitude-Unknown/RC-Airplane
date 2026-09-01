@@ -2,7 +2,7 @@
 
 Living manual for the RC airplane transmitter, receiver, and transmitter configurator GUI.
 
-Last updated: 2026-08-21
+Last updated: 2026-09-01
 
 ## System Overview
 
@@ -212,7 +212,7 @@ storage is in use.
 | Throttle output | A0 | Servo/ESC pulse |
 | Aileron output | A1 | Servo pulse |
 | Elevator output | A2 | Servo pulse |
-| Rudder output | A3 | Servo pulse |
+| Rudder output | A3 | Servo pulse; also detects signal-to-ground bind plug at boot |
 | Battery monitor | A4 | Disabled unless voltage divider is fitted |
 
 ### Receiver LED Meanings
@@ -226,10 +226,59 @@ storage is in use.
 
 ### Receiver Bind Mode
 
-1. Hold receiver bind button low at boot.
-2. Put transmitter in bind mode by holding D9 low at boot.
-3. Receiver waits for bind packet and stores bind code to flash.
-4. After bind is stored, receiver exits bind mode.
+The receiver must have an explicitly stored, nonzero bind code before it will
+accept control packets. An unbound receiver remains disarmed in failsafe even
+if valid packets are present on the correct LoRa channel.
+
+Use this sequence:
+
+1. Turn off both transmitter and receiver and remove the propeller.
+2. Hold the receiver Bind button (D10) while powering or resetting the receiver.
+3. Release the receiver Bind button after it enters bind mode.
+4. Hold the transmitter Bind button (D9) while powering or resetting the
+   transmitter.
+5. Wait for the receiver's bind confirmation. It stores the transmitted bind
+   code in flash and exits bind mode.
+6. Release the transmitter Bind button.
+7. Restart the transmitter normally with throttle low. Power-cycle the receiver
+   as well if its normal armed/linked indication does not appear.
+8. Verify all surfaces, throttle safety, and failsafe behavior before flight.
+
+Changing the active model's bind code in the configurator does not update an
+already-bound receiver. Save the new code to the transmitter, restart it, and
+repeat the complete bind sequence above for every receiver that should accept
+that model.
+
+Flashing receiver firmware can clear its stored bind code. Treat a freshly
+flashed receiver as unbound and bind it again before testing controls.
+
+#### Binding With A Rudder-Port Bind Plug
+
+This method avoids holding the receiver's D10 button while connecting the
+aircraft battery:
+
+1. Turn off the transmitter and receiver and remove the propeller.
+2. Disconnect the rudder servo from the receiver.
+3. Insert a standard bind plug that connects only the rudder connector's
+   **signal** pin to its **ground** pin. Never short 5 V to ground.
+4. Power the receiver. It detects the grounded A3 signal at startup and enters
+   bind mode.
+5. Start the transmitter while holding its Bind button (D9).
+6. Wait for the receiver's bind confirmation, then release the transmitter
+   Bind button.
+7. Turn off the receiver. The bind-plug startup intentionally cannot transition
+   into flight during the same power cycle.
+8. Remove the bind plug, reconnect the rudder servo in the correct orientation,
+   and restart the transmitter and receiver normally.
+9. Verify rudder direction, every other surface, throttle safety, and failsafe
+   before flight.
+
+For electrical safety, receiver firmware latches bind-plug mode at boot and
+keeps A3 as a high-impedance input for that entire power cycle. It never sends
+rudder PWM while the plug may be grounding the signal. After storing the bind
+code, the receiver remains disarmed and rejects normal control packets until it
+is restarted without the plug. The original D10 receiver Bind button remains
+supported.
 
 ### Arming And Failsafe
 
@@ -237,6 +286,10 @@ The receiver requires a fresh link and low throttle before arming.
 
 Failsafe behavior:
 
+- No stored bind code: reject all normal control packets, remain disarmed, and
+  hold failsafe outputs.
+- Wrong bind code: reject the packet and remain in the existing failsafe/link
+  state.
 - 0-1 seconds without packets: hold last surfaces, preserve staged motor behavior.
 - Around 1 second: throttle kill.
 - Around 3 seconds: surfaces neutralize.
@@ -352,6 +405,17 @@ Actions. Live latest-release discovery, TLS download, and checksum validation
 passed for both images. A physical Transmitter V3 was then updated through the
 GUI, power-cycled, and reported working normally in the post-update bench test.
 
+Release `transmitter-gui-v2026.09.01.1` is the minimum receiver safety baseline.
+It includes `walach-rx-samd21.uf2` and prevents an unbound receiver from
+accepting every otherwise-valid control packet. The correction was verified on
+physical hardware: the unbound receiver rejected packets and stayed in
+failsafe, then stored bind code `9905` during an explicit bind and accepted
+matching packets afterward. Flight-control surface movement was confirmed.
+
+Release `transmitter-gui-v2026.09.01.2` adds the safe rudder-port bind-plug
+startup described above. It was validated with an actual bind and control check
+on the airplane before publication.
+
 ### Assigning Instructor or Student Role
 
 With current V3 firmware, only the ESP32-C3 USB cable is needed:
@@ -411,7 +475,13 @@ Important commits/tags:
 
 ### Receiver Does Not Move Servos
 
-- Confirm receiver is bound or no bind code is stored.
+- Confirm the receiver has been explicitly bound to the active transmitter
+  model. A receiver with no stored bind code intentionally rejects all control
+  packets.
+- If the receiver was just flashed, repeat the complete bind sequence; flashing
+  may clear its stored bind code.
+- If the bind code was changed in the GUI, save it to the transmitter, restart
+  the transmitter, and rebind the receiver.
 - Confirm transmitter is sending normal packets.
 - Check receiver LED state.
 - Check servo output pins and power.
