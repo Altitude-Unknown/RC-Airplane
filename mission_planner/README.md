@@ -1,4 +1,4 @@
-# Walach Aviation Mission Planner
+# Altitude Unknown Mission Planner
 
 Standalone mission-planning GUI for the RC airplane flight-controller project.
 

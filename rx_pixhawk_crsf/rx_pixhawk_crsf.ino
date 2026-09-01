@@ -1,5 +1,5 @@
 /*
-  Walach Aviation Receiver V4 -> Pixhawk CRSF prototype
+  Altitude Unknown Receiver V4 -> Pixhawk CRSF prototype
 
   This is intentionally a separate sketch from rx_firmware/rx_firmware.ino.
   The proven standalone receiver remains unchanged and continues to drive four

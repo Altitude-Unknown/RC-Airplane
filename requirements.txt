@@ -1,3 +1,4 @@
 pyserial
 esptool>=4.7,<6
 certifi>=2024.2.2
+Pillow>=10,<13

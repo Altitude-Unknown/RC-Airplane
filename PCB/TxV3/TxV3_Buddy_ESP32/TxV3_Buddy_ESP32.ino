@@ -210,7 +210,7 @@ static void beginBleHid() {
   // Keep the name short enough that flags, HID appearance, name, and the 1812
   // service UUID all fit in the 31-byte primary advertising packet. macOS uses
   // that UUID to classify the device as BLE HID before connecting.
-  BLEDevice::init("Walach Tx2");
+  BLEDevice::init("Altitude RC Tx");
 #if defined(CONFIG_NIMBLE_ENABLED)
   // Changing the public BLE identity while retaining the previous LTK makes
   // macOS attempt encryption with a stale key and disconnect with a MIC
@@ -250,7 +250,7 @@ static void beginBleHid() {
   BLEServer *server = BLEDevice::createServer();
   server->setCallbacks(new HidServerCallbacks());
   bleHid = new BLEHIDDevice(server);
-  bleHid->manufacturer()->setValue("Walach Aviation");
+  bleHid->manufacturer()->setValue("Altitude Unknown");
   // Arduino-ESP32 3.3.x serializes these 16-bit PnP fields big-endian,
   // although Bluetooth DIS defines them little-endian. Pass byte-swapped
   // constants so hosts receive VID=0x1209, PID=0x5247, version=0x0101.

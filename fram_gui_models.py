@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Desktop transmitter configuration GUI.
+Desktop RC transmitter and receiver configuration GUI.
 
 This program talks to the SAMD21 transmitter over USB serial while the
 transmitter is in Config Mode. The transmitter firmware exposes a tiny text
@@ -32,7 +32,7 @@ except Exception as e:
     raise SystemExit("This app requires 'pyserial' (or apt python3-serial on Debian).\n" + str(e))
 
 # Basic application-wide settings.
-APP_TITLE = "Walach Aviation Transmitter Configurator"
+APP_TITLE = "Altitude Unknown RC Configurator"
 BAUD = 115200
 
 # The firmware uses four fixed channel indexes internally:
@@ -49,7 +49,8 @@ CHANNEL_DISPLAY_ORDER = [3, 1, 2, 0]  # Show receiver-style TAER order while kee
 # Channel label names are GUI-only metadata. The transmitter's 60-byte model
 # struct has no spare room for long names, so custom channel labels live in this
 # local JSON preferences file instead of FRAM.
-LOCAL_PREFS_PATH = os.path.join(os.path.expanduser("~"), ".walach_transmitter_configurator.json")
+LOCAL_PREFS_PATH = os.path.join(os.path.expanduser("~"), ".altitude_unknown_rc_configurator.json")
+LEGACY_PREFS_PATH = os.path.join(os.path.expanduser("~"), ".walach_transmitter_configurator.json")
 
 # Centralized colors for the custom Tk/ttk styling. Keeping them here makes it
 # easier to adjust the visual design without searching through the UI code.
@@ -64,6 +65,11 @@ COLORS = {
     "border": "#cfd9e2",
     "success": "#1f8a4c",
 }
+
+def resource_path(relative):
+    """Resolve bundled PyInstaller assets and normal source-tree assets."""
+    base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(base, relative)
 
 # ---- FRAM map constants (mirror of tx_config.h) ----
 #
@@ -488,7 +494,10 @@ class ChannelLabelStore:
         # If the preferences file is missing or malformed, fall back quietly to
         # default names. The GUI should still open even if local preferences fail.
         try:
-            with open(self.path, "r") as f:
+            source = self.path
+            if source == LOCAL_PREFS_PATH and not os.path.exists(source) and os.path.exists(LEGACY_PREFS_PATH):
+                source = LEGACY_PREFS_PATH
+            with open(source, "r") as f:
                 data = json.load(f)
             self.labels = data.get("channel_labels", {})
         except Exception:
@@ -570,23 +579,9 @@ class App(tk.Tk):
         self.refresh_ports()
 
     def _install_app_icon(self):
-        # Build a tiny icon using Tk's PhotoImage. This avoids needing a PNG/ICO
-        # file just to get a nice window icon during normal Python launches.
         try:
-            icon = tk.PhotoImage(width=64, height=64)
-
-            # PhotoImage.put fills rectangular regions. The result is a simple
-            # transmitter-like mark with an antenna and control body.
-            icon.put(COLORS["accent_dark"], to=(0, 0, 64, 64))
-            icon.put(COLORS["accent"], to=(6, 6, 58, 58))
-            icon.put("#ffffff", to=(14, 18, 50, 24))
-            icon.put("#ffffff", to=(20, 28, 44, 34))
-            icon.put("#ffffff", to=(26, 38, 38, 44))
-            icon.put("#d9f3f6", to=(12, 46, 52, 50))
-            icon.put(COLORS["accent_dark"], to=(28, 12, 36, 54))
-            icon.put("#f6c64f", to=(27, 10, 37, 18))
-            self._app_icon = icon
-            self.iconphoto(True, icon)
+            self._app_icon = tk.PhotoImage(file=resource_path("assets/altitude_unknown_icon.png"))
+            self.iconphoto(True, self._app_icon)
         except Exception:
             # Icons are nice-to-have. If a platform rejects this icon setup, the
             # app should still run normally.
@@ -634,10 +629,15 @@ class App(tk.Tk):
         # Header band across the top of the window.
         header = ttk.Frame(self, padding=(18, 14), style="Header.TFrame")
         header.pack(fill='x')
+        try:
+            self._header_logo = tk.PhotoImage(file=resource_path("assets/altitude_unknown_icon.png")).subsample(7, 7)
+            ttk.Label(header, image=self._header_logo, style="Header.TLabel").pack(side='left', padx=(0, 14))
+        except Exception:
+            pass
         title_area = ttk.Frame(header, style="Header.TFrame")
         title_area.pack(side='left', fill='x', expand=True)
         ttk.Label(title_area, text=APP_TITLE, style="Header.TLabel").pack(anchor='w')
-        ttk.Label(title_area, text="Model setup, channel tuning, and transmitter-memory sync", style="HeaderSub.TLabel").pack(anchor='w', pady=(2, 0))
+        ttk.Label(title_area, text="Transmitter setup, receiver updates, and flight-system tools", style="HeaderSub.TLabel").pack(anchor='w', pady=(2, 0))
 
         # Serial connection controls. The user chooses a USB port, then connects
         # to the transmitter while it is in Config Mode.
@@ -761,7 +761,7 @@ class App(tk.Tk):
         self.tab_firmware = ttk.Frame(self.nb, padding=22, style="Panel.TFrame")
         self.nb.add(self.tab_firmware, text="Firmware Update")
 
-        ttk.Label(self.tab_firmware, text="Transmitter Firmware Update", style="Panel.TLabel",
+        ttk.Label(self.tab_firmware, text="RC Firmware Update", style="Panel.TLabel",
                   font=("Helvetica", 16, "bold")).pack(anchor="w")
         ttk.Label(
             self.tab_firmware,
@@ -783,16 +783,31 @@ class App(tk.Tk):
 
         target_frame = ttk.LabelFrame(self.tab_firmware, text="Processors to update", padding=14)
         target_frame.pack(fill="x", pady=14)
-        self.firmware_target_var = tk.StringVar(value="both")
-        for text, value in (("Both (recommended)", "both"),
-                            ("SAMD21 / M0 only", "samd21"),
-                            ("ESP32-C3 only", "esp32c3")):
+        self.firmware_target_var = tk.StringVar(value="tx_both")
+        for text, value in (("Transmitter — both processors (recommended)", "tx_both"),
+                            ("Transmitter M0 only", "tx_samd21"),
+                            ("Transmitter ESP32-C3 only", "tx_esp32c3"),
+                            ("Receiver", "receiver_samd21")):
             ttk.Radiobutton(target_frame, text=text, value=value,
                             variable=self.firmware_target_var,
                             command=self._update_firmware_instructions).pack(anchor="w", pady=2)
 
-        port_frame = ttk.LabelFrame(self.tab_firmware, text="ESP32-C3 USB port", padding=14)
-        port_frame.pack(fill="x")
+        samd_port_frame = ttk.LabelFrame(self.tab_firmware, text="Transmitter M0 or receiver USB port", padding=14)
+        samd_port_frame.pack(fill="x")
+        samd_port_row = ttk.Frame(samd_port_frame, style="Panel.TFrame")
+        samd_port_row.pack(fill="x")
+        self.firmware_samd_port_var = tk.StringVar()
+        self.firmware_samd_port_cmb = ttk.Combobox(
+            samd_port_row, textvariable=self.firmware_samd_port_var, width=52, state="readonly")
+        self.firmware_samd_port_cmb.pack(side="left")
+        ttk.Button(samd_port_row, text="Refresh Ports", command=self.refresh_ports).pack(side="left", padx=8)
+        ttk.Label(
+            samd_port_frame,
+            text="Used for automatic bootloader entry; manual RESET remains available as a fallback.",
+            style="Muted.TLabel").pack(anchor="w", pady=(8, 0))
+
+        port_frame = ttk.LabelFrame(self.tab_firmware, text="Transmitter ESP32-C3 USB port", padding=14)
+        port_frame.pack(fill="x", pady=(14, 0))
         port_row = ttk.Frame(port_frame, style="Panel.TFrame")
         port_row.pack(fill="x")
         self.firmware_esp_port_var = tk.StringVar()
@@ -824,11 +839,17 @@ class App(tk.Tk):
 
     def _update_firmware_instructions(self):
         target = self.firmware_target_var.get()
-        samd = ("SAMD21: connect the larger M0 USB connector. When prompted, double-tap the "
-                "SAMD RESET button so its UF2 drive appears.")
+        samd = ("SAMD21: select its USB port. The configurator will request bootloader mode "
+                "automatically; use a RESET double-tap only if automatic entry fails.")
         esp = ("ESP32-C3: connect the small ESP USB connector and select it above. The updater "
                "will enter its bootloader automatically; if asked, hold BOOT and tap RESET.")
-        self.firmware_guide_var.set(samd if target == "samd21" else esp if target == "esp32c3" else samd + "\n\n" + esp)
+        receiver = ("Receiver: remove the propeller, select the receiver USB port, and update. "
+                    "Afterward, rebind it and verify controls and failsafe before flight.")
+        if target == "tx_both": guide = samd + "\n\n" + esp
+        elif target == "tx_esp32c3": guide = esp
+        elif target == "receiver_samd21": guide = receiver
+        else: guide = samd
+        self.firmware_guide_var.set(guide)
 
     def _set_firmware_busy(self, busy, status=None):
         self.firmware_busy = busy
@@ -866,19 +887,45 @@ class App(tk.Tk):
         selection = self.firmware_esp_port_var.get().strip()
         return self.esp_port_devices.get(selection, selection)
 
+    def _selected_firmware_samd_port(self):
+        selection = self.firmware_samd_port_var.get().strip()
+        return self.firmware_samd_port_devices.get(selection, selection)
+
     def on_flash_firmware(self):
         if self.firmware_busy or not self.firmware_release:
             return
         target = self.firmware_target_var.get()
-        targets = ["samd21", "esp32c3"] if target == "both" else [target]
+        targets = {
+            "tx_both": ["samd21", "esp32c3"],
+            "tx_samd21": ["samd21"],
+            "tx_esp32c3": ["esp32c3"],
+            "receiver_samd21": ["receiver_samd21"],
+        }[target]
         esp_port = self._selected_firmware_esp_port()
+        samd_port = self._selected_firmware_samd_port()
         if "esp32c3" in targets and not esp_port:
             messagebox.showerror("Firmware update", "Select the ESP32-C3 USB port before flashing.")
             return
+        if any(item in targets for item in ("samd21", "receiver_samd21")) and not samd_port:
+            messagebox.showerror("Firmware update", "Select the transmitter M0 or receiver USB port before flashing.")
+            return
+        samd_selection = self.firmware_samd_port_var.get().strip()
+        samd_kind = self.firmware_samd_port_kinds.get(samd_selection, "unknown")
+        expected_kind = "receiver" if "receiver_samd21" in targets else "transmitter"
+        if any(item in targets for item in ("samd21", "receiver_samd21")) and \
+                samd_kind != "unknown" and samd_kind != expected_kind:
+            messagebox.showerror(
+                "Wrong SAMD21 device selected",
+                f"The selected USB port identifies as a {samd_kind}, but this update targets the "
+                f"{expected_kind}. Select the correct port before continuing.")
+            return
+        receiver_warning = ("\n\nReceiver firmware can clear its bind code. You must rebind and "
+                            "perform a complete control and failsafe check.") if "receiver_samd21" in targets else ""
         if not messagebox.askyesno(
                 "Confirm firmware update",
                 "Keep the aircraft powered off and remove the propeller. Do not unplug USB while "
-                "a processor is being written.\n\nContinue with the latest verified firmware?"):
+                "a processor is being written." + receiver_warning +
+                "\n\nContinue with the latest verified firmware?"):
             return
         self.w.close()
         self.role_worker.close()
@@ -888,28 +935,38 @@ class App(tk.Tk):
 
         def work():
             for current in targets:
-                label = "SAMD21" if current == "samd21" else "ESP32-C3"
+                label = {"samd21": "Transmitter M0", "esp32c3": "Transmitter ESP32-C3",
+                         "receiver_samd21": "Receiver"}[current]
                 self.after(0, lambda label=label: self.firmware_progress_var.set(f"Downloading {label} firmware…"))
-                image = firmware_updater.download_firmware(self.firmware_release, current)
+                image = firmware_updater.download_firmware(
+                    self.firmware_release, current, serial_image=(current == "receiver_samd21"))
                 try:
-                    if current == "samd21":
-                        before = firmware_updater.uf2_mounts()
-                        proceed = threading.Event()
-                        answer = {"yes": False}
-                        def prompt_samd():
-                            answer["yes"] = messagebox.askokcancel(
-                                "Connect the SAMD21 / M0",
-                                "1. Connect the larger M0 USB connector.\n"
-                                "2. Double-tap the SAMD RESET button.\n"
-                                "3. Wait for its UF2 drive to appear.\n\nClick OK after double-tapping RESET.")
-                            proceed.set()
-                        self.after(0, prompt_samd)
-                        proceed.wait()
-                        if not answer["yes"]:
-                            raise firmware_updater.FirmwareUpdateError("Firmware update cancelled.")
-                        self.after(0, lambda: self.firmware_progress_var.set("Waiting for the SAMD21 UF2 drive…"))
-                        mount = firmware_updater.wait_for_new_uf2_mount(before)
-                        firmware_updater.flash_samd_uf2(image, mount)
+                    if current == "receiver_samd21":
+                        self.after(0, lambda: self.firmware_progress_var.set(
+                            "Entering the receiver bootloader and flashing over USB serial…"))
+                        firmware_updater.flash_receiver_samba(image, samd_port)
+                        time.sleep(2)
+                    elif current == "samd21":
+                        self.after(0, lambda label=label: self.firmware_progress_var.set(
+                            f"Requesting automatic bootloader mode on {label}…"))
+                        try:
+                            mount = firmware_updater.enter_samd_uf2(samd_port)
+                        except firmware_updater.FirmwareUpdateError as auto_error:
+                            before = firmware_updater.uf2_mounts()
+                            proceed = threading.Event()
+                            answer = {"yes": False}
+                            def prompt_samd():
+                                answer["yes"] = messagebox.askokcancel(
+                                    "Automatic bootloader entry failed",
+                                    f"{auto_error}\n\nDouble-tap the device RESET button, then click OK. "
+                                    "The configurator will continue waiting for its UF2 drive.")
+                                proceed.set()
+                            self.after(0, prompt_samd)
+                            proceed.wait()
+                            if not answer["yes"]:
+                                raise firmware_updater.FirmwareUpdateError("Firmware update cancelled.")
+                            mount = firmware_updater.wait_for_new_uf2_mount(before)
+                        firmware_updater.flash_samd_uf2(image, mount, "ALTITUDE_TX.UF2")
                         time.sleep(2)
                     else:
                         self.after(0, lambda: self.firmware_progress_var.set("Flashing ESP32-C3…"))
@@ -930,11 +987,14 @@ class App(tk.Tk):
                     f"{error}\n\nNo other processor will be flashed. If this was the ESP32-C3, "
                     "hold BOOT, tap RESET, release BOOT, and try again.")
                 return
-            names = " and ".join("SAMD21" if item == "samd21" else "ESP32-C3" for item in result)
+            names = " and ".join({"samd21": "Transmitter M0", "esp32c3": "Transmitter ESP32-C3",
+                                  "receiver_samd21": "Receiver"}[item] for item in result)
+            followup = (" Rebind the receiver, then verify every control and failsafe before flight."
+                        if "receiver_samd21" in result else
+                        " Power-cycle the transmitter, reconnect, and verify its models and controls before flight.")
             messagebox.showinfo(
                 "Firmware update complete",
-                f"Updated {names}. Power-cycle the transmitter, reconnect, and verify its models "
-                "and controls before flight.")
+                f"Updated {names}." + followup)
         self._firmware_thread(work, completed)
 
     def _build_role_tab(self):
@@ -1137,6 +1197,29 @@ class App(tk.Tk):
             self.firmware_esp_port_cmb["values"] = labels
             if labels and self.firmware_esp_port_var.get() not in labels:
                 self.firmware_esp_port_cmb.current(0)
+        if hasattr(self, "firmware_samd_port_cmb"):
+            # The user may deliberately flash either the transmitter M0 or the
+            # receiver, so retain all detected ports and show their USB names.
+            def samd_priority(port):
+                text = " ".join(filter(None, (port.product, port.description, port.manufacturer))).lower()
+                return 0 if (port.vid in (0x03EB, 0x239A) or "samd" in text or
+                             "feather" in text or "altitude rc tx" in text) else 1
+            samd_ports = sorted(detected, key=samd_priority)
+            self.firmware_samd_port_devices = {}
+            self.firmware_samd_port_kinds = {}
+            samd_labels = []
+            for port in samd_ports:
+                name = port.product or port.description or "Serial device"
+                label = f"{name} — {port.device}"
+                text = " ".join(filter(None, (port.product, port.description, port.manufacturer))).lower()
+                kind = ("transmitter" if "altitude rc tx" in text else
+                        "receiver" if ("receiver" in text or "feather m0" in text) else "unknown")
+                self.firmware_samd_port_devices[label] = port.device
+                self.firmware_samd_port_kinds[label] = kind
+                samd_labels.append(label)
+            self.firmware_samd_port_cmb["values"] = samd_labels
+            if samd_labels and self.firmware_samd_port_var.get() not in samd_labels:
+                self.firmware_samd_port_cmb.current(0)
 
     def _show_role_status(self, status):
         self.role_vars["mac"].set(status.get("mac", "—"))

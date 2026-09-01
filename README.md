@@ -1,4 +1,4 @@
-# Walach Aviation Transmitter Configurator — Build & Run
+# Altitude Unknown RC Configurator — Build & Run
 
 This repository contains a Tkinter-based desktop GUI to manage transmitter models over USB serial. The radio automatically uses external FRAM when installed or the SAMD21's internal-flash fallback when FRAM is absent. The main script is `fram_gui_models.py`.
 
@@ -16,12 +16,13 @@ direction. Start around 20-30%, save the model to the radio, and verify both
 directions on the bench before flight.
 
 The **Firmware Update** tab checks the project's latest GitHub release and can
-update the V3 transmitter's SAMD21/M0, ESP32-C3, or both. Firmware images are
-SHA-256 verified before flashing. The guided flow identifies the two separate
-USB connectors: the larger M0 connector enters its UF2 bootloader after a
-double-tap of RESET, while the small ESP connector uses its native serial/JTAG
-bootloader. Keep the aircraft powered off, remove the propeller, and export
-important models before updating.
+update the V3 transmitter's SAMD21/M0, ESP32-C3, or both, and can update the V4
+receiver. Firmware images are SHA-256 verified before flashing. The transmitter
+M0 uses automatic 1200-baud UF2 bootloader entry. Receiver V4 uses a guarded
+USB bootloader request and bundled BOSSA programmer. A RESET double-tap remains
+the recovery fallback. The small ESP connector uses its native
+serial/JTAG bootloader. Keep the aircraft powered off, remove the propeller,
+and export important models before updating.
 
 For the full RC transmitter, receiver, and GUI operating manual, see [MANUAL.md](MANUAL.md).
 
@@ -54,9 +55,9 @@ pip install pyinstaller
 3. Build a one-file, windowed executable (run on Windows):
 
 ```powershell
-pyinstaller --onefile --windowed --name "WalachTransmitterConfigurator" fram_gui_models.py
+pyinstaller --onefile --windowed --name "AltitudeUnknownRCConfigurator" fram_gui_models.py
 
-# Result: dist\WalachTransmitterConfigurator.exe
+# Result: dist\AltitudeUnknownRCConfigurator.exe
 ```
 
 4. Test the exe by running it and verifying the serial port list and connectivity to your device (use COMx on Windows).
@@ -73,19 +74,19 @@ Option B — bundle with PyInstaller (build on macOS):
 
 ```bash
 pip install pyinstaller
-pyinstaller --windowed --name "Walach Aviation Transmitter Configurator" fram_gui_models.py
+pyinstaller --windowed --name "Altitude Unknown RC Configurator" fram_gui_models.py
 
-# Result: dist/Walach\ Aviation\ Transmitter\ Configurator.app
+# Result: dist/Altitude\ Unknown\ RC\ Configurator.app
 ```
 
 Raspberry Pi OS (64-bit) — released executable
 
-Download `Walach-Aviation-Transmitter-Configurator-Raspberry-Pi-ARM64.zip`
+Download `Altitude-Unknown-RC-Configurator-Raspberry-Pi-ARM64.zip`
 from the GitHub release, unzip it, and run:
 
 ```bash
-chmod +x "Walach Aviation Transmitter Configurator"
-./"Walach Aviation Transmitter Configurator"
+chmod +x "Altitude Unknown RC Configurator"
+./"Altitude Unknown RC Configurator"
 ```
 
 This build is for 64-bit Raspberry Pi OS on ARM64 hardware (such as Pi 3, 4,

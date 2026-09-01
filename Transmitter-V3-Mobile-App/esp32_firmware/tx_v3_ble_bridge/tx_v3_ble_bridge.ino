@@ -1,5 +1,5 @@
 /*
-  Walach Aviation Transmitter V3 BLE-to-UART configuration bridge.
+  Altitude Unknown Transmitter V3 BLE-to-UART configuration bridge.
 
   IMPORTANT:
   - Confirm SAMD_RX_PIN and SAMD_TX_PIN against the source schematic before use.
@@ -90,7 +90,7 @@ void setup() {
   pinMode(CONFIG_ENABLE_PIN, INPUT_PULLUP);
   samdSerial.begin(SAMD_BAUD, SERIAL_8N1, SAMD_RX_PIN, SAMD_TX_PIN);
 
-  NimBLEDevice::init("Walach Transmitter V3");
+  NimBLEDevice::init("Altitude Unknown Tx V3");
   NimBLEDevice::setSecurityAuth(true, true, true);
   NimBLEDevice::setSecurityIOCap(BLE_HS_IO_DISPLAY_YESNO);
 

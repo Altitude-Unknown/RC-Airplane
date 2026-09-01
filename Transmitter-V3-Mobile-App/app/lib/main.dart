@@ -71,7 +71,7 @@ class HomeScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(
-      title: const Text('Walach Aviation Tx V3'),
+      title: const Text('Altitude Unknown Tx V3'),
       actions: [
         if (controller.connected)
           IconButton(

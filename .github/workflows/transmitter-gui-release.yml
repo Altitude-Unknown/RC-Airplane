@@ -1,4 +1,4 @@
-name: Transmitter GUI Release
+name: Altitude Unknown RC Configurator Release
 
 on:
   push:
@@ -24,20 +24,20 @@ jobs:
         include:
           - name: macOS
             os: macos-latest
-            asset_name: Walach-Aviation-Transmitter-Configurator-macOS-ARM64.zip
-            build_cmd: python -m PyInstaller --clean --noconfirm "Walach Aviation Transmitter Configurator.spec"
-            package_cmd: ditto -c -k --sequesterRsrc --keepParent "dist/Walach Aviation Transmitter Configurator.app" "Walach-Aviation-Transmitter-Configurator-macOS-ARM64.zip"
-            app_path: dist/Walach Aviation Transmitter Configurator.app
+            asset_name: Altitude-Unknown-RC-Configurator-macOS-ARM64.zip
+            build_cmd: python -m PyInstaller --clean --noconfirm "Altitude Unknown RC Configurator.spec"
+            package_cmd: ditto -c -k --sequesterRsrc --keepParent "dist/Altitude Unknown RC Configurator.app" "Altitude-Unknown-RC-Configurator-macOS-ARM64.zip"
+            app_path: dist/Altitude Unknown RC Configurator.app
           - name: Windows
             os: windows-latest
-            asset_name: Walach-Aviation-Transmitter-Configurator-Windows-x64.zip
-            build_cmd: pyinstaller --clean --noconfirm --collect-all esptool --onefile --windowed --name "WalachTransmitterConfigurator" fram_gui_models.py
-            package_cmd: Compress-Archive -Path "dist/WalachTransmitterConfigurator.exe" -DestinationPath "Walach-Aviation-Transmitter-Configurator-Windows-x64.zip" -Force
+            asset_name: Altitude-Unknown-RC-Configurator-Windows-x64.zip
+            build_cmd: pyinstaller --clean --noconfirm --collect-all esptool --add-data "assets/altitude_unknown_icon.png;assets" --add-binary "tools/bossac.exe;tools" --icon "assets/altitude_unknown_icon.png" --onefile --windowed --name "AltitudeUnknownRCConfigurator" fram_gui_models.py
+            package_cmd: Compress-Archive -Path "dist/AltitudeUnknownRCConfigurator.exe" -DestinationPath "Altitude-Unknown-RC-Configurator-Windows-x64.zip" -Force
           - name: Raspberry Pi ARM64
             os: ubuntu-24.04-arm
-            asset_name: Walach-Aviation-Transmitter-Configurator-Raspberry-Pi-ARM64.zip
-            build_cmd: pyinstaller --clean --noconfirm --collect-all esptool --onefile --windowed --name "Walach Aviation Transmitter Configurator" fram_gui_models.py
-            package_cmd: zip -j "Walach-Aviation-Transmitter-Configurator-Raspberry-Pi-ARM64.zip" "dist/Walach Aviation Transmitter Configurator"
+            asset_name: Altitude-Unknown-RC-Configurator-Raspberry-Pi-ARM64.zip
+            build_cmd: pyinstaller --clean --noconfirm --collect-all esptool --add-data "assets/altitude_unknown_icon.png:assets" --add-binary "tools/bossac:tools" --icon "assets/altitude_unknown_icon.png" --onefile --windowed --name "Altitude Unknown RC Configurator" fram_gui_models.py
+            package_cmd: zip -j "Altitude-Unknown-RC-Configurator-Raspberry-Pi-ARM64.zip" "dist/Altitude Unknown RC Configurator"
 
     steps:
       - name: Check out repository
@@ -60,6 +60,19 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt pyinstaller
+
+      - name: Set up Arduino CLI for receiver flashing tool
+        uses: arduino/setup-arduino-cli@v2
+
+      - name: Stage native BOSSA receiver flashing tool
+        shell: bash
+        run: |
+          arduino-cli core update-index --additional-urls https://adafruit.github.io/arduino-board-index/package_adafruit_index.json
+          arduino-cli core install adafruit:samd@1.7.10 --additional-urls https://adafruit.github.io/arduino-board-index/package_adafruit_index.json
+          BOSSAC_PATH="$(find "$HOME" -type f \( -name bossac -o -name bossac.exe \) -path '*/packages/adafruit/tools/bossac/*' | head -n 1)"
+          test -n "$BOSSAC_PATH" -a -f "$BOSSAC_PATH"
+          mkdir -p tools
+          if [[ "$BOSSAC_PATH" == *.exe ]]; then cp "$BOSSAC_PATH" tools/bossac.exe; else cp "$BOSSAC_PATH" tools/bossac; fi
 
       - name: Require Apple signing secrets
         if: runner.os == 'macOS'
@@ -134,7 +147,7 @@ jobs:
           if-no-files-found: error
 
   firmware:
-    name: Build transmitter firmware
+    name: Build RC firmware
     runs-on: ubuntu-latest
     steps:
       - name: Check out transmitter repository
@@ -184,7 +197,7 @@ jobs:
       - name: Upload firmware artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: transmitter-firmware
+          name: rc-firmware
           path: firmware-assets/*
           if-no-files-found: error
 
@@ -215,16 +228,16 @@ jobs:
           RELEASE_TAG: ${{ steps.release_tag.outputs.tag }}
         shell: bash
         run: |
-          release_notes="Transmitter GUI builds for macOS ARM64, Windows x64, and Raspberry Pi OS ARM64, plus checksum-verified TxV3 SAMD21, ESP32-C3, and receiver SAMD21 firmware images. This release keeps an unbound receiver in failsafe until it is explicitly bound. Keep the aircraft powered off, remove the propeller, and verify all controls after updating."
+          release_notes="Altitude Unknown RC Configurator builds for macOS ARM64, Windows x64, and Raspberry Pi OS ARM64, plus checksum-verified Altitude Unknown Transmitter V3 and Receiver V4 firmware. The configurator supports automatic SAMD21 bootloader entry and receiver flashing. Keep the aircraft powered off, remove the propeller, rebind receivers after updating, and verify all controls and failsafe behavior."
           if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release edit "$RELEASE_TAG" \
               --repo "$GITHUB_REPOSITORY" \
-              --title "Transmitter GUI ${RELEASE_TAG#transmitter-gui-v}" \
+              --title "Altitude Unknown RC Configurator ${RELEASE_TAG#transmitter-gui-v}" \
               --notes "$release_notes"
           else
             gh release create "$RELEASE_TAG" \
               --repo "$GITHUB_REPOSITORY" \
-              --title "Transmitter GUI ${RELEASE_TAG#transmitter-gui-v}" \
+              --title "Altitude Unknown RC Configurator ${RELEASE_TAG#transmitter-gui-v}" \
               --notes "$release_notes"
           fi
           gh release upload "$RELEASE_TAG" release-assets/* \

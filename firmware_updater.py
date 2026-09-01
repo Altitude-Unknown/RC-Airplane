@@ -12,6 +12,7 @@ import os
 import shutil
 import ssl
 import string
+import subprocess
 import sys
 import tempfile
 import time
@@ -24,8 +25,8 @@ import certifi
 GITHUB_REPOSITORY = "Altitude-Unknown/RC-Airplane"
 LATEST_RELEASE_URL = f"https://api.github.com/repos/{GITHUB_REPOSITORY}/releases/latest"
 MANIFEST_ASSET_NAME = "transmitter-firmware-manifest.json"
-USER_AGENT = "Walach-Transmitter-Configurator/firmware-updater"
-TARGETS = ("samd21", "esp32c3")
+USER_AGENT = "Altitude-Unknown-RC-Configurator/firmware-updater"
+TARGETS = ("samd21", "esp32c3", "receiver_samd21")
 TLS_CONTEXT = ssl.create_default_context(cafile=certifi.where())
 
 
@@ -80,6 +81,13 @@ def fetch_latest_firmware(timeout=20):
         if name not in assets or len(checksum) != 64 or any(c not in string.hexdigits for c in checksum):
             raise FirmwareUpdateError(f"The {target} firmware entry is incomplete or invalid.")
         board["download_url"] = assets[name]
+        if target == "receiver_samd21" and board.get("serial_asset"):
+            serial_name = board["serial_asset"]
+            serial_checksum = str(board.get("serial_sha256", "")).lower()
+            if serial_name not in assets or len(serial_checksum) != 64 or \
+                    any(c not in string.hexdigits for c in serial_checksum):
+                raise FirmwareUpdateError("The receiver serial firmware entry is incomplete or invalid.")
+            board["serial_download_url"] = assets[serial_name]
     return {
         "tag": release.get("tag_name", "unknown"),
         "name": release.get("name") or release.get("tag_name", "Latest release"),
@@ -89,17 +97,22 @@ def fetch_latest_firmware(timeout=20):
     }
 
 
-def download_firmware(release_info, target, destination=None, timeout=60):
+def download_firmware(release_info, target, destination=None, timeout=60, serial_image=False):
     """Download one image and reject it unless its SHA-256 matches."""
     if target not in TARGETS:
         raise FirmwareUpdateError(f"Unknown firmware target: {target}")
     board = release_info["manifest"]["boards"][target]
-    suffix = Path(board["asset"]).suffix
+    asset_key = "serial_asset" if serial_image else "asset"
+    url_key = "serial_download_url" if serial_image else "download_url"
+    checksum_key = "serial_sha256" if serial_image else "sha256"
+    if asset_key not in board or url_key not in board:
+        raise FirmwareUpdateError(f"The release has no {'serial' if serial_image else target} image.")
+    suffix = Path(board[asset_key]).suffix
     if destination is None:
-        fd, destination = tempfile.mkstemp(prefix=f"walach-{target}-", suffix=suffix)
+        fd, destination = tempfile.mkstemp(prefix=f"altitude-unknown-{target}-", suffix=suffix)
         os.close(fd)
     destination = Path(destination)
-    request = urllib.request.Request(board["download_url"], headers={"User-Agent": USER_AGENT})
+    request = urllib.request.Request(board[url_key], headers={"User-Agent": USER_AGENT})
     try:
         digest = hashlib.sha256()
         with urllib.request.urlopen(request, timeout=timeout, context=TLS_CONTEXT) as response, destination.open("wb") as output:
@@ -112,7 +125,7 @@ def download_firmware(release_info, target, destination=None, timeout=60):
     except Exception as exc:
         destination.unlink(missing_ok=True)
         raise FirmwareUpdateError(f"Firmware download failed: {exc}") from exc
-    if digest.hexdigest().lower() != board["sha256"].lower():
+    if digest.hexdigest().lower() != board[checksum_key].lower():
         destination.unlink(missing_ok=True)
         raise FirmwareUpdateError("Firmware checksum did not match. Nothing was flashed.")
     return destination
@@ -154,19 +167,124 @@ def wait_for_new_uf2_mount(previous=(), timeout=90, poll_interval=0.5):
             return mounts[0]
         time.sleep(poll_interval)
     raise FirmwareUpdateError(
-        "The SAMD21 UF2 drive did not appear. Check the M0 USB cable and double-tap RESET again."
+        "The SAMD21 UF2 drive did not appear automatically. Double-tap RESET and try again."
     )
 
 
-def flash_samd_uf2(image, mount):
+def request_samd_bootloader(port):
+    """Ask a running SAMD21 application to reboot into UF2 via 1200-baud touch."""
+    if not port:
+        raise FirmwareUpdateError("Select the transmitter M0 or receiver USB port first.")
+    try:
+        import serial
+        connection = serial.Serial(port=port, baudrate=1200, timeout=0.25)
+        # Match Arduino CLI's touch1200 operation: open at 1200 baud and close.
+        # Closing drops the control lines through the OS serial driver. Some
+        # older SAM-BA receivers do not react correctly if DTR is forced low
+        # explicitly before the close.
+        connection.close()
+    except Exception as exc:
+        raise FirmwareUpdateError(
+            f"Could not request automatic SAMD21 bootloader entry on {port}: {exc}"
+        ) from exc
+
+
+def enter_samd_uf2(port, timeout=20, poll_interval=0.25):
+    """Perform a 1200-baud touch and return the newly mounted UF2 volume."""
+    before = uf2_mounts()
+    request_samd_bootloader(port)
+    return wait_for_new_uf2_mount(before, timeout=timeout, poll_interval=poll_interval)
+
+
+def flash_samd_uf2(image, mount, destination_name="ALTITUDE.UF2"):
     image = Path(image)
     mount = Path(mount)
     if image.suffix.lower() != ".uf2" or not (mount / "INFO_UF2.TXT").is_file():
         raise FirmwareUpdateError("The selected file or drive is not a valid UF2 update target.")
     try:
-        shutil.copyfile(image, mount / "WALACH_TX.UF2")
+        shutil.copyfile(image, mount / destination_name)
     except Exception as exc:
         raise FirmwareUpdateError(f"Could not copy firmware to the SAMD21: {exc}") from exc
+
+
+def _bossac_path():
+    name = "bossac.exe" if os.name == "nt" else "bossac"
+    bundled = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent)) / "tools" / name
+    if bundled.is_file():
+        return bundled
+    found = shutil.which(name)
+    if found:
+        return Path(found)
+    roots = ([Path.home() / "Library/Arduino15"] if sys.platform == "darwin" else
+             [Path.home() / ".arduino15", Path(os.environ.get("LOCALAPPDATA", "")) / "Arduino15"])
+    for root in roots:
+        matches = list(root.glob(f"packages/adafruit/tools/bossac/*/{name}"))
+        if matches:
+            return matches[-1]
+    raise FirmwareUpdateError("Receiver serial flashing support (BOSSA) is missing from this installation.")
+
+
+def flash_receiver_samba(image, port):
+    """Flash an older Receiver V4 SAM-BA bootloader without a physical reset."""
+    image = Path(image)
+    if image.suffix.lower() != ".bin":
+        raise FirmwareUpdateError("Receiver SAM-BA flashing requires the verified .bin image.")
+    # PySerial's 1200-baud control-line behavior is inconsistent with this
+    # original 2016 SAM-BA board on macOS. Current receiver firmware therefore
+    # exposes a guarded command and performs the SAMD core's normal reset while
+    # this connection remains open. Older firmware retains touch1200 fallback.
+    commanded = False
+    try:
+        import serial
+        connection = serial.Serial(port=port, baudrate=115200, timeout=1.0)
+        try:
+            time.sleep(0.5)
+            connection.reset_input_buffer()
+            connection.write(b"BOOTLOADER\n")
+            connection.flush()
+            commanded = b"OK BOOTLOADER" in connection.readline()
+            if commanded:
+                time.sleep(0.75)
+        finally:
+            connection.close()
+    except Exception:
+        commanded = False
+    if not commanded:
+        request_samd_bootloader(port)
+    def bossac_port_name(candidate):
+        # BOSSA expects macOS's actual basename (for example
+        # ``cu.usbmodem1101``), including the ``cu.`` prefix.
+        return Path(candidate).name
+
+    deadline = time.monotonic() + 15
+    result = None
+    first_attempt = True
+    while time.monotonic() < deadline:
+        if not first_attempt:
+            time.sleep(0.1)
+        first_attempt = False
+        candidates = [port]
+        try:
+            import serial.tools.list_ports
+            candidates += [item.device for item in serial.tools.list_ports.comports()
+                           if "usbmodem" in item.device.lower() and item.device not in candidates]
+        except Exception:
+            pass
+        for candidate in candidates:
+            command = [str(_bossac_path()), "-i", "-d",
+                       f"--port={bossac_port_name(candidate)}", "-U", "-i",
+                       "--offset=0x2000", "-e", "-w", "-v", str(image), "-R"]
+            try:
+                result = subprocess.run(command, capture_output=True, text=True, timeout=120)
+            except Exception as exc:
+                raise FirmwareUpdateError(f"Receiver serial flashing could not start: {exc}") from exc
+            if result.returncode == 0:
+                return
+            detail = (result.stderr or result.stdout).strip().lower()
+            if "no device found" not in detail and "failed to connect" not in detail:
+                break
+    detail = ((result.stderr or result.stdout).strip() if result else "bootloader did not respond")
+    raise FirmwareUpdateError(f"Receiver serial flashing failed: {detail}")
 
 
 def flash_esp32(image, port, offset="0x0", progress=None):

@@ -43,6 +43,7 @@
 
 #include <SPI.h>
 #include <RH_RF95.h>
+#include <Reset.h>
 #include <FlashStorage_SAMD.h>
 #include <string.h>
 
@@ -231,6 +232,9 @@ uint16_t lastPktBind = 0;
 uint16_t lastPktSeq = 0;
 int16_t lastRssi = 0;
 
+// Small, guarded USB command buffer used only for automatic firmware updates.
+// Normal flight does not print USB diagnostics or block waiting for serial.
+
 // --- ESC calibration safety ---
 // ESC calibration is intentionally hard to enter. It must happen right after
 // boot, with a special transmitter flag, and with high throttle.
@@ -319,6 +323,36 @@ void disarmAndLock() {
   des_t = RC_MIN;
 }
 
+// The desktop configurator uses this exact command to request the installed
+// SAM-BA bootloader. Keeping the USB connection open lets the SAMD core finish
+// its normal reset sequence; all unrelated serial input is ignored.
+void serviceUsbBootloaderRequest() {
+  static char command[16] = {0};
+  static uint8_t length = 0;
+  while (Serial.available()) {
+    char c = (char)Serial.read();
+    if (c == '\r') continue;
+    if (c == '\n') {
+      command[length] = '\0';
+      if (strcmp(command, "BOOTLOADER") == 0) {
+        setSafeDesired();
+        disarmAndLock();
+        cur_t = RC_MIN;
+        Serial.println("OK BOOTLOADER");
+        Serial.flush();
+        initiateReset(1);
+        delay(1); // advances the SAMD core reset state machine once
+        while (true) {}
+      }
+      length = 0;
+    } else if (length < sizeof(command) - 1) {
+      command[length++] = c;
+    } else {
+      length = 0;
+    }
+  }
+}
+
 // Hardware reset of the LoRa module.
 void hardResetRadio() {
   pinMode(RFM95_RST, OUTPUT);
@@ -362,9 +396,11 @@ void updateLed() {
 // Setup
 // ------------------------------
 void setup() {
+  // USB command input remains non-blocking and silent during flight.
+  Serial.begin(115200);
+
   // Serial debug is normally off for flying. If enabled, this opens USB serial.
   if (ENABLE_RX_DEBUG) {
-    Serial.begin(115200);
     delay(50);
   }
 
@@ -412,8 +448,14 @@ void setup() {
   // Reset and initialize the LoRa radio.
   hardResetRadio();
   if (!rf95.init()) {
-    // Fatal radio init failure: blink fast forever.
-    while(1){digitalWrite(LED_BUILTIN,!digitalRead(LED_BUILTIN));delay(100);}
+    // Radio hardware may be unavailable when the receiver is powered only for
+    // a desktop firmware update. Keep the safe error blink, but continue to
+    // accept the exact configurator bootloader command over USB.
+    while (1) {
+      serviceUsbBootloaderRequest();
+      digitalWrite(LED_BUILTIN, !digitalRead(LED_BUILTIN));
+      delay(100);
+    }
   }
 
   // The receiver and transmitter must use the same radio settings.
@@ -447,6 +489,8 @@ void setup() {
 // ------------------------------
 void loop() {
   uint32_t now = millis();
+
+  serviceUsbBootloaderRequest();
 
   // Battery check.
   // This only runs if ENABLE_VBAT_MONITOR is true.

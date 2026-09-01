@@ -4,7 +4,7 @@ block_cipher = None
 a = Analysis(['fram_gui_models.py'],
              pathex=['.'],
              binaries=[],
-             datas=[],
+             datas=[('assets/altitude_unknown_icon.png', 'assets')],
              hiddenimports=[],
              hookspath=[],
              runtime_hooks=[],
@@ -19,7 +19,7 @@ exe = EXE(pyz,
           a.scripts,
           [],
           exclude_binaries=True,
-          name='WalachTransmitterConfigurator',
+          name='AltitudeUnknownRCConfigurator',
           debug=False,
           bootloader_ignore_signals=False,
           strip=False,
@@ -32,7 +32,7 @@ coll = COLLECT(exe,
                a.datas,
                strip=False,
                upx=True,
-               name='WalachTransmitterConfigurator')
+               name='AltitudeUnknownRCConfigurator')
 
 # Notes: to build one-file exe, prefer the CLI:
 #   pyinstaller --onefile --windowed fram_gui_models.py

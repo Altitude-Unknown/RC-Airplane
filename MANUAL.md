@@ -1,6 +1,6 @@
 # RC Airplane System Manual
 
-Living manual for the RC airplane transmitter, receiver, and transmitter configurator GUI.
+Living manual for the Altitude Unknown RC transmitter, receiver, and configurator GUI.
 
 Last updated: 2026-09-01
 
@@ -364,30 +364,45 @@ python3 fram_gui_models.py
 The connection status identifies the active storage backend as `fram` or
 `internal flash`.
 
-### Updating transmitter firmware from the configurator
+### Updating transmitter or receiver firmware from the configurator
 
-Open **Firmware Update** and click **Check GitHub**. The configurator reads the
+Open **Firmware Update** in **Altitude Unknown RC Configurator** and click
+**Check GitHub**. The configurator reads the
 latest release's firmware manifest and verifies each downloaded image with its
-published SHA-256 checksum. Choose **Both** after a firmware/protocol change so
-the SAMD21 and ESP32-C3 remain compatible.
+published SHA-256 checksum. Choose **Transmitter — both processors** after a
+transmitter firmware/protocol change so the SAMD21 and ESP32-C3 remain
+compatible. Choose **Receiver** to update Receiver V4 directly.
 
-The updater currently supports Transmitter V3 hardware. It downloads these
-release assets automatically:
+The updater supports Altitude Unknown Transmitter V3 and Receiver V4 hardware.
+It downloads these release assets automatically:
 
-- `walach-tx-v3-samd21.uf2` for the transmitter M0.
-- `walach-tx-v3-esp32c3.bin` for the ESP32-C3.
-- `walach-rx-samd21.uf2` for the receiver M0 (manual UF2 installation).
+- `altitude-unknown-tx-v3-samd21.uf2` for the transmitter M0.
+- `altitude-unknown-tx-v3-esp32c3.bin` for the ESP32-C3.
+- `altitude-unknown-rx-v4-samd21.uf2` for the receiver M0.
 - `transmitter-firmware-manifest.json` containing the expected SHA-256 values.
 
 The official desktop builds include the ESP flashing tool and a trusted TLS CA
 bundle; the user does not need Arduino IDE, Arduino CLI, or a separate Python
 installation to perform an update.
 
-For the SAMD21 stage, connect the larger **M0** USB connector and double-tap its
-RESET button when prompted. The configurator waits for the UF2 bootloader drive
-and copies the firmware. For the ESP32-C3 stage, connect the small **ESP** USB
+For a transmitter M0 update, select its USB port. The configurator requests
+bootloader mode automatically, detects the UF2 drive, and copies the verified
+firmware. For a Receiver V4 update, select its USB port; the receiver accepts
+an exact guarded bootloader request, forces outputs safe, and the configurator
+uses its bundled BOSSA programmer to erase, write, and verify the serial image.
+This also works when USB-only power leaves the LoRa hardware unavailable.
+Double-tap RESET is only a recovery fallback. For the ESP32-C3 stage, connect
+the small **ESP** USB
 connector, select its serial port, and follow the prompt. If automatic ESP
 bootloader entry fails, hold BOOT, tap RESET, release BOOT, and retry.
+
+Receiver firmware older than the automatic-update bridge may require one final
+manual-reset/Arduino upload. Later receiver updates can then be completed from
+the configurator without reaching the RESET button.
+
+Receiver flashing may erase the stored bind code. Rebind the receiver after an
+update and complete a propeller-off control, direction, throttle-safety, and
+failsafe check before flight.
 
 Before updating, power off the aircraft, remove the propeller, and export
 important models. Do not disconnect USB during a write. After both stages,
@@ -406,7 +421,7 @@ passed for both images. A physical Transmitter V3 was then updated through the
 GUI, power-cycled, and reported working normally in the post-update bench test.
 
 Release `transmitter-gui-v2026.09.01.1` is the minimum receiver safety baseline.
-It includes `walach-rx-samd21.uf2` and prevents an unbound receiver from
+It includes the receiver UF2 and prevents an unbound receiver from
 accepting every otherwise-valid control packet. The correction was verified on
 physical hardware: the unbound receiver rejected packets and stayed in
 failsafe, then stored bind code `9905` during an explicit bind and accepted

@@ -47,8 +47,8 @@ def main():
     parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
-    samd_asset = args.output / "walach-tx-v3-samd21.uf2"
-    esp_asset = args.output / "walach-tx-v3-esp32c3.bin"
+    samd_asset = args.output / "altitude-unknown-tx-v3-samd21.uf2"
+    esp_asset = args.output / "altitude-unknown-tx-v3-esp32c3.bin"
     samd_asset.write_bytes(bin_to_uf2(args.samd_bin.read_bytes()))
     esp_asset.write_bytes(args.esp_merged_bin.read_bytes())
     manifest = {
@@ -60,12 +60,18 @@ def main():
         },
     }
     if args.receiver_bin:
-        receiver_asset = args.output / "walach-rx-samd21.uf2"
-        receiver_asset.write_bytes(bin_to_uf2(args.receiver_bin.read_bytes()))
+        receiver_asset = args.output / "altitude-unknown-rx-v4-samd21.uf2"
+        receiver_binary_asset = args.output / "altitude-unknown-rx-v4-samd21.bin"
+        receiver_binary = args.receiver_bin.read_bytes()
+        receiver_asset.write_bytes(bin_to_uf2(receiver_binary))
+        receiver_binary_asset.write_bytes(receiver_binary)
         manifest["boards"]["receiver_samd21"] = {
             "asset": receiver_asset.name,
             "format": "uf2",
             "sha256": sha256(receiver_asset),
+            "serial_asset": receiver_binary_asset.name,
+            "serial_format": "sam-ba-bin",
+            "serial_sha256": sha256(receiver_binary_asset),
         }
     (args.output / "transmitter-firmware-manifest.json").write_text(
         json.dumps(manifest, indent=2) + "\n", encoding="utf-8")

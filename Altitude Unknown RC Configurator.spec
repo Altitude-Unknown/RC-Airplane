@@ -7,8 +7,8 @@ esptool_datas, esptool_binaries, esptool_hiddenimports = collect_all('esptool')
 a = Analysis(
     ['fram_gui_models.py'],
     pathex=[],
-    binaries=esptool_binaries,
-    datas=esptool_datas,
+    binaries=esptool_binaries + [('tools/bossac', 'tools')],
+    datas=esptool_datas + [('assets/altitude_unknown_icon.png', 'assets')],
     hiddenimports=esptool_hiddenimports,
     hookspath=[],
     hooksconfig={},
@@ -24,7 +24,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name='Walach Aviation Transmitter Configurator',
+    name='Altitude Unknown RC Configurator',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -43,11 +43,11 @@ coll = COLLECT(
     strip=False,
     upx=True,
     upx_exclude=[],
-    name='Walach Aviation Transmitter Configurator',
+    name='Altitude Unknown RC Configurator',
 )
 app = BUNDLE(
     coll,
-    name='Walach Aviation Transmitter Configurator.app',
-    icon=None,
-    bundle_identifier=None,
+    name='Altitude Unknown RC Configurator.app',
+    icon='assets/altitude_unknown_icon.icns',
+    bundle_identifier='com.altitudeunknown.rcconfigurator',
 )

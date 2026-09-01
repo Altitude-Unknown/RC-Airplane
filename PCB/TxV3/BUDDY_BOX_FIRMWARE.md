@@ -101,7 +101,7 @@ The transmitter exposes the same four calibrated channels in two ways while in
 simulator mode:
 
 - The SAMD21 USB port is a wired four-axis HID joystick.
-- The ESP32-C3 advertises a Bluetooth LE HID gamepad named `Walach Tx2`.
+- The ESP32-C3 advertises a Bluetooth LE HID gamepad named `Altitude RC Tx`.
 
 Both transports use X/aileron, Y/elevator, Z/rudder, and Rz/throttle. The BLE
 gamepad uses bonded "Just Works" pairing and sends fresh reports at the existing
@@ -111,7 +111,7 @@ gamepad uses bonded "Just Works" pairing and sends fresh reports at the existing
 2. Hold **AUX/trainer** while powering the transmitter. The SAMD21 USB cable is
    optional when the transmitter has another power source.
 3. Release AUX after the transmitter starts; the user LED remains solid.
-4. For wireless use, pair `Walach Tx2` in the computer's Bluetooth
+4. For wireless use, pair `Altitude RC Tx` in the computer's Bluetooth
    settings. For wired use, connect the SAMD21 USB port.
 5. Open the simulator's controller setup and map the four axes.
 
@@ -123,7 +123,7 @@ BLE gamepad. Bind + aileron-right at boot retains the existing USB configurator
 mode.
 
 If a computer has cached an older HID descriptor during development, remove
-`Walach Tx2` from its Bluetooth devices and pair it again. To return
+`Altitude RC Tx` from its Bluetooth devices and pair it again. To return
 to flight mode, power-cycle the transmitter without holding AUX.
 
 If pairing repeatedly fails after a computer has forgotten a previously bonded

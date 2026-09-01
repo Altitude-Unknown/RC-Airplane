@@ -1,6 +1,6 @@
 # Transmitter V3 Mobile App
 
-Cross-platform iPhone and Android configurator for the Walach Aviation Transmitter V3.
+Cross-platform iPhone and Android configurator for the Altitude Unknown Transmitter V3.
 
 ## Goal
 

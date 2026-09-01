@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Walach Aviation Mission Planner.
+Altitude Unknown Mission Planner.
 
 First milestone:
 - Standalone GUI, separate from the transmitter configurator.
@@ -41,7 +41,7 @@ from mission_schema import (
 )
 
 
-APP_TITLE = "Walach Aviation Mission Planner"
+APP_TITLE = "Altitude Unknown Mission Planner"
 MAP_DIR = "mission_map"
 MAP_INDEX = "index.html"
 MAP_STYLE = "style.css"
@@ -649,7 +649,7 @@ INDEX_HTML = """<!doctype html>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Walach Aviation Mission Planner Map</title>
+  <title>Altitude Unknown Mission Planner Map</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <link rel="stylesheet" href="style.css">
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>

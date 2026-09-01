@@ -1,5 +1,5 @@
 /*
-  Walach Aviation Transmitter V3 basic board diagnostic.
+  Altitude Unknown Transmitter V3 basic board diagnostic.
 
   This is intentionally a bring-up sketch, not flight firmware.
   - It never transmits a LoRa packet.
