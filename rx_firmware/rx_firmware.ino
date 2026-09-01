@@ -478,13 +478,12 @@ void loop() {
             escFlagStreak = 0;
           }
 
-          // Accept controls if bind matches.
-          // If no bind code is stored yet, accept packets so initial setup is
-          // still possible.
-          bool accept = true;
-          if (g_bind.magic == BIND_MAGIC && g_bind.bindCode != 0) {
-            accept = (pktBind == g_bind.bindCode);
-          }
+          // Accept controls only after an explicit bind and only when the
+          // packet carries the stored code. An erased/new receiver must remain
+          // in failsafe instead of accepting the first transmitter it hears.
+          const bool hasBind =
+            (g_bind.magic == BIND_MAGIC && g_bind.bindCode != 0);
+          const bool accept = hasBind && (pktBind == g_bind.bindCode);
           if (accept) {
             acceptedPackets++;
 

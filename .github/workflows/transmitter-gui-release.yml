@@ -165,6 +165,8 @@ jobs:
             --build-property 'build.extra_flags=-D__SAMD21G18A__ -DARDUINO_SAMD_FEATHER_M0 -DARDUINO_SAMD_ZERO -DARM_MATH_CM0PLUS -DALTITUDE_RC_TX_M0 {build.usb_flags}' \
             PCB/TxV3/TxV3_Full_M0
           arduino-cli compile --output-dir firmware-build/esp --fqbn esp32:esp32:esp32c3 --board-options CDCOnBoot=cdc PCB/TxV3/TxV3_Buddy_ESP32
+          arduino-cli compile --output-dir firmware-build/rx \
+            --fqbn adafruit:samd:adafruit_feather_m0 rx_firmware
 
       - name: Package firmware and checksums
         shell: bash
@@ -173,9 +175,11 @@ jobs:
         run: |
           SAMD_BIN="$(find firmware-build/samd -name '*.bin' ! -name '*.with_bootloader.bin' | head -n 1)"
           ESP_BIN="$(find firmware-build/esp -name '*.merged.bin' | head -n 1)"
+          RX_BIN="$(find firmware-build/rx -name '*.bin' ! -name '*.with_bootloader.bin' | head -n 1)"
           test -n "$SAMD_BIN" -a -f "$SAMD_BIN"
           test -n "$ESP_BIN" -a -f "$ESP_BIN"
-          python tools/package_transmitter_firmware.py --samd-bin "$SAMD_BIN" --esp-merged-bin "$ESP_BIN" --version "$RELEASE_VERSION" --output firmware-assets
+          test -n "$RX_BIN" -a -f "$RX_BIN"
+          python tools/package_transmitter_firmware.py --samd-bin "$SAMD_BIN" --esp-merged-bin "$ESP_BIN" --receiver-bin "$RX_BIN" --version "$RELEASE_VERSION" --output firmware-assets
 
       - name: Upload firmware artifacts
         uses: actions/upload-artifact@v4
@@ -211,7 +215,7 @@ jobs:
           RELEASE_TAG: ${{ steps.release_tag.outputs.tag }}
         shell: bash
         run: |
-          release_notes="Transmitter GUI builds for macOS ARM64, Windows x64, and Raspberry Pi OS ARM64, plus checksum-verified TxV3 SAMD21 and ESP32-C3 firmware images. The configurator can download and guide installation of the latest firmware from this release. Keep the aircraft powered off, remove the propeller, and verify all controls after updating."
+          release_notes="Transmitter GUI builds for macOS ARM64, Windows x64, and Raspberry Pi OS ARM64, plus checksum-verified TxV3 SAMD21, ESP32-C3, and receiver SAMD21 firmware images. This release keeps an unbound receiver in failsafe until it is explicitly bound. Keep the aircraft powered off, remove the propeller, and verify all controls after updating."
           if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release edit "$RELEASE_TAG" \
               --repo "$GITHUB_REPOSITORY" \

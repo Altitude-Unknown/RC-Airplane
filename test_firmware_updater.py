@@ -1,5 +1,7 @@
 import hashlib
 import json
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -26,6 +28,31 @@ class FakeResponse:
 
 
 class FirmwareUpdaterTests(unittest.TestCase):
+    def test_release_packager_includes_receiver_uf2(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            samd = root / "tx.bin"
+            esp = root / "esp.bin"
+            receiver = root / "rx.bin"
+            output = root / "out"
+            samd.write_bytes(b"tx")
+            esp.write_bytes(b"esp")
+            receiver.write_bytes(b"rx")
+            subprocess.run([
+                sys.executable, "tools/package_transmitter_firmware.py",
+                "--samd-bin", str(samd),
+                "--esp-merged-bin", str(esp),
+                "--receiver-bin", str(receiver),
+                "--version", "test",
+                "--output", str(output),
+            ], check=True)
+            manifest = json.loads(
+                (output / "transmitter-firmware-manifest.json").read_text()
+            )
+            receiver_info = manifest["boards"]["receiver_samd21"]
+            self.assertEqual(receiver_info["asset"], "walach-rx-samd21.uf2")
+            self.assertTrue((output / receiver_info["asset"]).is_file())
+
     def test_fetch_latest_firmware_validates_manifest(self):
         images = {"samd21": b"samd", "esp32c3": b"esp"}
         assets = [{"name": updater.MANIFEST_ASSET_NAME, "browser_download_url": "manifest"}]

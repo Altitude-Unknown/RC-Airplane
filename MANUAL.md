@@ -323,6 +323,7 @@ release assets automatically:
 
 - `walach-tx-v3-samd21.uf2` for the transmitter M0.
 - `walach-tx-v3-esp32c3.bin` for the ESP32-C3.
+- `walach-rx-samd21.uf2` for the receiver M0 (manual UF2 installation).
 - `transmitter-firmware-manifest.json` containing the expected SHA-256 values.
 
 The official desktop builds include the ESP flashing tool and a trusted TLS CA

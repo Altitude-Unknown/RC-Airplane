@@ -42,6 +42,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--samd-bin", required=True, type=Path)
     parser.add_argument("--esp-merged-bin", required=True, type=Path)
+    parser.add_argument("--receiver-bin", type=Path)
     parser.add_argument("--version", required=True)
     parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args()
@@ -58,6 +59,14 @@ def main():
             "esp32c3": {"asset": esp_asset.name, "format": "merged-bin", "offset": "0x0", "sha256": sha256(esp_asset)},
         },
     }
+    if args.receiver_bin:
+        receiver_asset = args.output / "walach-rx-samd21.uf2"
+        receiver_asset.write_bytes(bin_to_uf2(args.receiver_bin.read_bytes()))
+        manifest["boards"]["receiver_samd21"] = {
+            "asset": receiver_asset.name,
+            "format": "uf2",
+            "sha256": sha256(receiver_asset),
+        }
     (args.output / "transmitter-firmware-manifest.json").write_text(
         json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
 
