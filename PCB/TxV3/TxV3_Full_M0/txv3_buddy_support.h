@@ -10,7 +10,12 @@ static constexpr uint32_t TXV3_STUDENT_TIMEOUT_MS=250;
 static constexpr uint16_t TXV3_MASTER_MOVE_US=35;
 static constexpr uint16_t TXV3_PACKET_MAGIC=0xB358;
 
-enum TxV3Role:uint8_t { TXV3_UNKNOWN=0, TXV3_MASTER=1, TXV3_STUDENT=2 };
+enum TxV3Role:uint8_t {
+  TXV3_UNKNOWN=0,
+  TXV3_MASTER=1,
+  TXV3_STUDENT=2,
+  TXV3_UNCONFIGURED=3
+};
 struct __attribute__((packed)) TxV3StudentPacket {
   uint16_t magic; uint8_t version; uint8_t type; uint16_t sequence;
   uint16_t rudder,aileron,elevator,throttle; uint8_t auxFlags,reserved; uint16_t crc;
@@ -71,6 +76,7 @@ static void txv3RoleLine(){
   txv3Line[txv3LineLength]=0;
   if(!strcmp(txv3Line,"ROLE MASTER"))txv3Role=TXV3_MASTER;
   else if(!strcmp(txv3Line,"ROLE STUDENT"))txv3Role=TXV3_STUDENT;
+  else if(!strcmp(txv3Line,"ROLE UNCONFIGURED"))txv3Role=TXV3_UNCONFIGURED;
   txv3LineLength=0;
 }
 static void txv3BinaryByte(uint8_t b){
@@ -108,6 +114,7 @@ void txv3BuddyService(){
   if(txv3StudentGranted!=txv3LastReportedGrant||now-txv3LastAuthorityHeartbeatMs>=1000){txv3LastReportedGrant=txv3StudentGranted;txv3LastAuthorityHeartbeatMs=now;txv3Write(txv3StudentGranted?"AUTHORITY STUDENT\n":"AUTHORITY INSTRUCTOR\n");}
 }
 bool txv3BuddyIsStudent(){return txv3Role==TXV3_STUDENT;}
+bool txv3BuddyIsUnconfigured(){return txv3Role==TXV3_UNCONFIGURED;}
 void txv3BuddyPublishLocal(uint16_t rud,uint16_t ail,uint16_t ele,uint16_t thr,uint8_t aux){
   uint32_t now=millis();if(now-txv3LastLocalMs<TXV3_LOCAL_INTERVAL_MS)return;txv3LastLocalMs=now;char out[96];snprintf(out,sizeof(out),"LOCAL %u %u %u %u %u %u\n",++txv3LocalSequence,rud,ail,ele,thr,aux);txv3Write(out);
 }

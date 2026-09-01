@@ -44,6 +44,7 @@
 void txv3BuddyBegin();
 void txv3BuddyService();
 bool txv3BuddyIsStudent();
+bool txv3BuddyIsUnconfigured();
 void txv3BuddyPublishLocal(uint16_t rud, uint16_t ail, uint16_t ele, uint16_t thr, uint8_t aux);
 bool txv3BuddySelectChannels(uint16_t &rud, uint16_t &ail, uint16_t &ele, uint16_t &thr, uint8_t &aux);
 #endif
@@ -771,6 +772,14 @@ void setup() {
     txv3BuddyModeOnlyBegin("SIMULATOR");
   } else {
     txv3BuddyBegin();
+  }
+  // An erased/new ESP has no role in NVS. Treat that as a completed handshake
+  // and force the M0 into safe Config Mode instead of waiting forever or
+  // allowing LoRa transmission. The GUI can then assign MASTER or STUDENT.
+  if (!simulatorMode && !setupMode && txv3BuddyIsUnconfigured()) {
+    configMode=true;
+    bindMode=false;
+    escOverride=false;
   }
   if (!simulatorMode && txv3BuddyIsStudent()) { bindMode=false; escOverride=false; }
   if (!simulatorMode) txv3BuddySetMode(configMode ? "CONFIG" : (setupMode ? "SETUP" : (bindMode ? "BIND" : "FLIGHT")));

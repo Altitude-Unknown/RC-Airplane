@@ -252,6 +252,10 @@ by holding Bind (D9) and Aileron Trim Right (D5) during transmitter startup. A
 student transmitter was verified to return `PONG` to the configurator handshake
 in this mode after the low-latency update.
 
+If the ESP32-C3 role is unconfigured, the SAMD21 now enters Config Mode
+automatically with LoRa disabled. This avoids a startup deadlock and leaves the
+radio in a safe state where the configurator can assign Master or Student.
+
 During that verification, `PING`, `INFO`, and `RANGE` succeeded but every FRAM
 `READ` returned `ERR`, including a one-byte read at address zero. USB config mode
 and the command parser are therefore working; the student transmitter's FRAM
