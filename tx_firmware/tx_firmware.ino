@@ -180,8 +180,6 @@ struct __attribute__((packed)) ControlPacket {
   uint8_t aux_flags;
   uint16_t seq;
 };
-const uint8_t AUX_AUTOLEVEL_ON  = 0x01;
-const uint8_t AUX_AUTOLEVEL_OFF = 0x02;
 struct __attribute__((packed)) BindPacket {
   uint32_t magic; uint16_t code; uint16_t _pad;
 };
@@ -504,7 +502,7 @@ void updatePhysicalTrims() {
     }
 
     if (b.wasPressed) {
-      if (b.ch != 0) stepTrim(b.ch, b.dir);
+      stepTrim(b.ch, b.dir);
       b.wasPressed = false;
       b.nextMs = 0;
     }
@@ -998,8 +996,6 @@ void loop() {
 
 #ifdef TXV3_BUDDY_BUILD
   uint8_t buddyAux = 0;
-  if (digitalRead(PIN_TRIM_RUD_L) == LOW) buddyAux |= AUX_AUTOLEVEL_ON;
-  if (digitalRead(PIN_TRIM_RUD_R) == LOW) buddyAux |= AUX_AUTOLEVEL_OFF;
 #endif
 
   // Safety
@@ -1042,8 +1038,6 @@ void loop() {
   // rolling counter that helps with debugging and packet-loss checks.
   pkt.flags = (uint16_t)( (g_bind.bindCode & 0x7FFF) | (escOverride ? 0x8000 : 0) ); // bit15 = ESC mode
   pkt.aux_flags = 0;
-  if (digitalRead(PIN_TRIM_RUD_L) == LOW) pkt.aux_flags |= AUX_AUTOLEVEL_ON;
-  if (digitalRead(PIN_TRIM_RUD_R) == LOW) pkt.aux_flags |= AUX_AUTOLEVEL_OFF;
 #ifdef TXV3_BUDDY_BUILD
   pkt.aux_flags = buddyAux;
 #endif

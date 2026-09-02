@@ -228,7 +228,7 @@ jobs:
           RELEASE_TAG: ${{ steps.release_tag.outputs.tag }}
         shell: bash
         run: |
-          release_notes="Altitude Unknown RC Configurator builds for macOS ARM64, Windows x64, and Raspberry Pi OS ARM64, plus checksum-verified Altitude Unknown Transmitter V3 and receiver firmware. The configurator supports transmitter UF2/ESP flashing, newer RCRXBOOT receiver UF2 flashing, and automatic BOSSA fallback for original Receiver V4 hardware. This release also makes the Firmware Update tab scrollable so its flash button remains reachable on smaller or scaled displays. Keep the aircraft powered off, remove the propeller, rebind receivers after updating, and verify all controls and failsafe behavior."
+          release_notes="Altitude Unknown RC Configurator builds for macOS ARM64, Windows x64, and Raspberry Pi OS ARM64, plus checksum-verified Altitude Unknown Transmitter V3 and receiver firmware. Current production firmware restores both rudder buttons to normal press-release trim, removes the temporary experimental autolevel button commands, and aligns the production Tx/Rx packet layout. Update the transmitter M0 and receiver together from this release. The configurator supports transmitter UF2/ESP flashing, newer RCRXBOOT receiver UF2 flashing, and automatic BOSSA fallback for original Receiver V4 hardware. The Firmware Update tab is scrollable so its flash button remains reachable on smaller or scaled displays. Keep the aircraft powered off, remove the propeller, rebind receivers after updating, and verify all controls and failsafe behavior."
           if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release edit "$RELEASE_TAG" \
               --repo "$GITHUB_REPOSITORY" \

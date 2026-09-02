@@ -26,6 +26,11 @@ the flash action remains reachable. The small ESP connector uses its native
 serial/JTAG bootloader. Keep the aircraft powered off, remove the propeller,
 and export important models before updating.
 
+Current production firmware uses the rudder buttons only as press-release
+rudder trims. The temporary experimental autolevel commands are not emitted or
+processed. Update the transmitter M0 and receiver from the same release so
+their over-air packet layouts match, then rebind and bench-test every control.
+
 For the full RC transmitter, receiver, and GUI operating manual, see [MANUAL.md](MANUAL.md).
 
 Prerequisites

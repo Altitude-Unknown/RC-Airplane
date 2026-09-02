@@ -181,6 +181,9 @@ struct __attribute__((packed)) ControlPacket {
   uint16_t ch_ele;
   uint16_t ch_thr;
   uint16_t flags; // bit15 = ESC mode request, lower 15 bits = bind code
+  // Reserved protocol byte. Production firmware deliberately ignores it;
+  // keeping it preserves the packet layout shared by current transmitters.
+  uint8_t aux_flags;
   uint16_t seq;
 };
 
