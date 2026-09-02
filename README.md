@@ -18,9 +18,11 @@ directions on the bench before flight.
 The **Firmware Update** tab checks the project's latest GitHub release and can
 update the V3 transmitter's SAMD21/M0, ESP32-C3, or both, and can update the V4
 receiver. Firmware images are SHA-256 verified before flashing. The transmitter
-M0 uses automatic 1200-baud UF2 bootloader entry. Receiver V4 uses a guarded
-USB bootloader request and bundled BOSSA programmer. A RESET double-tap remains
-the recovery fallback. The small ESP connector uses its native
+M0 uses automatic 1200-baud UF2 bootloader entry. Newer receivers use their
+`RCRXBOOT` UF2 bootloader; original Receiver V4 boards use a guarded USB
+bootloader request and the bundled BOSSA programmer. A RESET double-tap remains
+the recovery fallback. The update page scrolls on smaller or scaled displays so
+the flash action remains reachable. The small ESP connector uses its native
 serial/JTAG bootloader. Keep the aircraft powered off, remove the propeller,
 and export important models before updating.
 

@@ -107,6 +107,22 @@ class FirmwareUpdaterTests(unittest.TestCase):
         wait.assert_called_once_with([Path("/old")], timeout=7, poll_interval=0.25)
         self.assertEqual(result, Path("/new"))
 
+    def test_enter_receiver_uf2_reuses_matching_mounted_bootloader(self):
+        with mock.patch.object(updater, "receiver_uf2_mounts",
+                               return_value=[Path("/Volumes/RCRXBOOT")]), \
+             mock.patch.object(updater, "enter_samd_uf2") as enter:
+            result = updater.enter_receiver_uf2("/dev/receiver")
+        enter.assert_not_called()
+        self.assertEqual(result, Path("/Volumes/RCRXBOOT"))
+
+    def test_enter_receiver_uf2_requests_bootloader_when_not_mounted(self):
+        with mock.patch.object(updater, "receiver_uf2_mounts", return_value=[]), \
+             mock.patch.object(updater, "enter_samd_uf2",
+                               return_value=Path("/Volumes/RCRXBOOT")) as enter:
+            result = updater.enter_receiver_uf2("/dev/receiver", timeout=6)
+        enter.assert_called_once_with("/dev/receiver", timeout=6)
+        self.assertEqual(result, Path("/Volumes/RCRXBOOT"))
+
     def test_receiver_samba_uses_automatic_touch_and_verified_binary(self):
         with tempfile.TemporaryDirectory() as folder:
             image = Path(folder) / "receiver.bin"

@@ -758,19 +758,53 @@ class App(tk.Tk):
 
     def _build_firmware_tab(self):
         """Build the guided SAMD21/ESP32-C3 firmware updater."""
-        self.tab_firmware = ttk.Frame(self.nb, padding=22, style="Panel.TFrame")
+        self.tab_firmware = ttk.Frame(self.nb, style="Panel.TFrame")
         self.nb.add(self.tab_firmware, text="Firmware Update")
 
-        ttk.Label(self.tab_firmware, text="RC Firmware Update", style="Panel.TLabel",
+        # This form is intentionally detailed, and can be taller than the usable
+        # window on laptops or displays with increased scaling.  Keep it in a
+        # canvas so every control, especially the flash button at the bottom,
+        # remains reachable.
+        firmware_canvas = tk.Canvas(
+            self.tab_firmware, background=COLORS["panel"], highlightthickness=0)
+        firmware_scrollbar = ttk.Scrollbar(
+            self.tab_firmware, orient="vertical", command=firmware_canvas.yview)
+        firmware_canvas.configure(yscrollcommand=firmware_scrollbar.set)
+        firmware_scrollbar.pack(side="right", fill="y")
+        firmware_canvas.pack(side="left", fill="both", expand=True)
+
+        content = ttk.Frame(firmware_canvas, padding=22, style="Panel.TFrame")
+        content_window = firmware_canvas.create_window(
+            (0, 0), window=content, anchor="nw")
+
+        def resize_firmware_content(event):
+            firmware_canvas.itemconfigure(content_window, width=event.width)
+
+        def update_firmware_scrollregion(_event=None):
+            firmware_canvas.configure(scrollregion=firmware_canvas.bbox("all"))
+
+        def scroll_firmware(event):
+            if event.delta:
+                firmware_canvas.yview_scroll(-1 if event.delta > 0 else 1, "units")
+            return "break"
+
+        firmware_canvas.bind("<Configure>", resize_firmware_content)
+        content.bind("<Configure>", update_firmware_scrollregion)
+        firmware_canvas.bind("<MouseWheel>", scroll_firmware)
+        content.bind("<MouseWheel>", scroll_firmware)
+        firmware_canvas.bind("<Button-4>", lambda _event: firmware_canvas.yview_scroll(-1, "units"))
+        firmware_canvas.bind("<Button-5>", lambda _event: firmware_canvas.yview_scroll(1, "units"))
+
+        ttk.Label(content, text="RC Firmware Update", style="Panel.TLabel",
                   font=("Helvetica", 16, "bold")).pack(anchor="w")
         ttk.Label(
-            self.tab_firmware,
+            content,
             text=("Download verified firmware from the latest Altitude Unknown GitHub release. "
                   "Keep the aircraft powered off and remove its propeller before updating."),
             style="Muted.TLabel", wraplength=850, justify="left"
         ).pack(anchor="w", pady=(5, 16))
 
-        release_frame = ttk.LabelFrame(self.tab_firmware, text="Latest release", padding=14)
+        release_frame = ttk.LabelFrame(content, text="Latest release", padding=14)
         release_frame.pack(fill="x")
         release_row = ttk.Frame(release_frame, style="Panel.TFrame")
         release_row.pack(fill="x")
@@ -781,7 +815,7 @@ class App(tk.Tk):
             release_row, text="Check GitHub", command=self.on_check_firmware)
         self.firmware_check_btn.pack(side="right")
 
-        target_frame = ttk.LabelFrame(self.tab_firmware, text="Processors to update", padding=14)
+        target_frame = ttk.LabelFrame(content, text="Processors to update", padding=14)
         target_frame.pack(fill="x", pady=14)
         self.firmware_target_var = tk.StringVar(value="tx_both")
         for text, value in (("Transmitter — both processors (recommended)", "tx_both"),
@@ -792,7 +826,7 @@ class App(tk.Tk):
                             variable=self.firmware_target_var,
                             command=self._update_firmware_instructions).pack(anchor="w", pady=2)
 
-        samd_port_frame = ttk.LabelFrame(self.tab_firmware, text="Transmitter M0 or receiver USB port", padding=14)
+        samd_port_frame = ttk.LabelFrame(content, text="Transmitter M0 or receiver USB port", padding=14)
         samd_port_frame.pack(fill="x")
         samd_port_row = ttk.Frame(samd_port_frame, style="Panel.TFrame")
         samd_port_row.pack(fill="x")
@@ -806,7 +840,7 @@ class App(tk.Tk):
             text="Used for automatic bootloader entry; manual RESET remains available as a fallback.",
             style="Muted.TLabel").pack(anchor="w", pady=(8, 0))
 
-        port_frame = ttk.LabelFrame(self.tab_firmware, text="Transmitter ESP32-C3 USB port", padding=14)
+        port_frame = ttk.LabelFrame(content, text="Transmitter ESP32-C3 USB port", padding=14)
         port_frame.pack(fill="x", pady=(14, 0))
         port_row = ttk.Frame(port_frame, style="Panel.TFrame")
         port_row.pack(fill="x")
@@ -820,13 +854,13 @@ class App(tk.Tk):
             text="Use the small ESP USB connector. The Altitude RC TX M0 port is the other processor.",
             style="Muted.TLabel").pack(anchor="w", pady=(8, 0))
 
-        guide = ttk.LabelFrame(self.tab_firmware, text="Connection guide", padding=14)
+        guide = ttk.LabelFrame(content, text="Connection guide", padding=14)
         guide.pack(fill="x", pady=14)
         self.firmware_guide_var = tk.StringVar()
         ttk.Label(guide, textvariable=self.firmware_guide_var, style="Panel.TLabel",
                   wraplength=850, justify="left").pack(anchor="w")
 
-        action_row = ttk.Frame(self.tab_firmware, style="Panel.TFrame")
+        action_row = ttk.Frame(content, style="Panel.TFrame")
         action_row.pack(fill="x")
         self.firmware_flash_btn = ttk.Button(
             action_row, text="Download and Flash Latest", style="Accent.TButton",
@@ -938,13 +972,31 @@ class App(tk.Tk):
                 label = {"samd21": "Transmitter M0", "esp32c3": "Transmitter ESP32-C3",
                          "receiver_samd21": "Receiver"}[current]
                 self.after(0, lambda label=label: self.firmware_progress_var.set(f"Downloading {label} firmware…"))
-                image = firmware_updater.download_firmware(
-                    self.firmware_release, current, serial_image=(current == "receiver_samd21"))
+                image = firmware_updater.download_firmware(self.firmware_release, current)
                 try:
                     if current == "receiver_samd21":
                         self.after(0, lambda: self.firmware_progress_var.set(
-                            "Entering the receiver bootloader and flashing over USB serial…"))
-                        firmware_updater.flash_receiver_samba(image, samd_port)
+                            "Entering the receiver bootloader…"))
+                        try:
+                            mount = firmware_updater.enter_receiver_uf2(samd_port)
+                        except firmware_updater.FirmwareUpdateError:
+                            # Original Receiver V4 boards use SAM-BA rather than
+                            # the UF2 bootloader fitted to newer receivers.
+                            self.after(0, lambda: self.firmware_progress_var.set(
+                                "UF2 not detected; trying the legacy receiver bootloader…"))
+                            legacy_image = firmware_updater.download_firmware(
+                                self.firmware_release, current, serial_image=True)
+                            try:
+                                firmware_updater.flash_receiver_samba(legacy_image, samd_port)
+                            finally:
+                                try:
+                                    Path(legacy_image).unlink()
+                                except OSError:
+                                    pass
+                        else:
+                            self.after(0, lambda: self.firmware_progress_var.set(
+                                "Flashing receiver through its UF2 bootloader…"))
+                            firmware_updater.flash_samd_uf2(image, mount, "ALTITUDE_RX.UF2")
                         time.sleep(2)
                     elif current == "samd21":
                         self.after(0, lambda label=label: self.firmware_progress_var.set(

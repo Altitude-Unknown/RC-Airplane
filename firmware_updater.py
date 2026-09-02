@@ -196,6 +196,27 @@ def enter_samd_uf2(port, timeout=20, poll_interval=0.25):
     return wait_for_new_uf2_mount(before, timeout=timeout, poll_interval=poll_interval)
 
 
+def receiver_uf2_mounts():
+    """Return mounted UF2 volumes that identify as an Altitude receiver."""
+    matches = []
+    for mount in uf2_mounts():
+        try:
+            info = (Path(mount) / "INFO_UF2.TXT").read_text(errors="replace").lower()
+        except OSError:
+            continue
+        if "rx m0" in info or "receiver" in info or "altitude-rc-rx" in info:
+            matches.append(Path(mount))
+    return matches
+
+
+def enter_receiver_uf2(port, timeout=8):
+    """Enter a newer receiver's UF2 bootloader, or reuse it if already mounted."""
+    mounted = receiver_uf2_mounts()
+    if len(mounted) == 1:
+        return mounted[0]
+    return enter_samd_uf2(port, timeout=timeout)
+
+
 def flash_samd_uf2(image, mount, destination_name="ALTITUDE.UF2"):
     image = Path(image)
     mount = Path(mount)

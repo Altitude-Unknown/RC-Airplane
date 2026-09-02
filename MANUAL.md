@@ -387,12 +387,16 @@ installation to perform an update.
 
 For a transmitter M0 update, select its USB port. The configurator requests
 bootloader mode automatically, detects the UF2 drive, and copies the verified
-firmware. For a Receiver V4 update, select its USB port; the receiver accepts
-an exact guarded bootloader request, forces outputs safe, and the configurator
-uses its bundled BOSSA programmer to erase, write, and verify the serial image.
-This also works when USB-only power leaves the LoRa hardware unavailable.
-Double-tap RESET is only a recovery fallback. For the ESP32-C3 stage, connect
-the small **ESP** USB
+firmware. For a receiver update, select its USB port. Newer receivers mount an
+`RCRXBOOT` UF2 volume and receive the verified receiver UF2 directly. Original
+Receiver V4 boards retain their 2016 SAM-BA bootloader; if UF2 is not detected,
+the configurator automatically falls back to its bundled BOSSA programmer and
+the verified serial image. Current receiver firmware accepts an exact guarded
+bootloader request and forces outputs safe before resetting. This also works
+when USB-only power leaves the LoRa hardware unavailable. Double-tap RESET is
+only a recovery fallback. The Firmware Update tab is vertically scrollable so
+the flash button remains reachable on smaller or scaled displays. For the
+ESP32-C3 stage, connect the small **ESP** USB
 connector, select its serial port, and follow the prompt. If automatic ESP
 bootloader entry fails, hold BOOT, tap RESET, release BOOT, and retry.
 
@@ -430,6 +434,12 @@ matching packets afterward. Flight-control surface movement was confirmed.
 Release `transmitter-gui-v2026.09.01.2` adds the safe rudder-port bind-plug
 startup described above. It was validated with an actual bind and control check
 on the airplane before publication.
+
+Release `transmitter-gui-v2026.09.01.4` adds automatic support for newer
+receiver hardware with the `RCRXBOOT` UF2 bootloader while preserving the
+original Receiver V4 BOSSA path. It also makes the Firmware Update tab
+scrollable. The newer receiver was flashed through the GUI, rebound, and passed
+the flight-control bench test before publication.
 
 ### Assigning Instructor or Student Role
 
