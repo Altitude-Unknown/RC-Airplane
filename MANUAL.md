@@ -441,13 +441,15 @@ original Receiver V4 BOSSA path. It also makes the Firmware Update tab
 scrollable. The newer receiver was flashed through the GUI, rebound, and passed
 the flight-control bench test before publication.
 
-Production releases after `.4` restore both rudder buttons to press-release
-rudder trim. They no longer emit the temporary experimental autolevel commands.
-The production receiver retains the current packet's reserved auxiliary byte
-for Tx/Rx layout compatibility but deliberately ignores it and contains no
-autolevel control path. Because this corrects the over-air packet match, update
-the transmitter M0 and receiver from the same release, rebind, and complete the
-full propeller-off control and failsafe test before flight.
+Release `transmitter-gui-v2026.09.01.5` restores both rudder buttons to
+press-release rudder trim. They no longer emit the temporary experimental
+autolevel commands. The production receiver retains the current packet's
+reserved auxiliary byte for Tx/Rx layout compatibility but deliberately ignores
+it and contains no autolevel control path. Because this corrects the over-air
+packet match, update the transmitter M0 and receiver from the same release,
+rebind, and complete the full propeller-off control and failsafe test before
+flight. Physical testing confirmed the rudder trims and matched production
+Tx/Rx controls operate correctly after the `.5` update.
 
 ### Assigning Instructor or Student Role
 
