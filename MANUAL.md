@@ -209,10 +209,11 @@ storage is in use.
 | LoRa IRQ | D3 | RFM95 interrupt |
 | LoRa RST | D4 | RFM95 reset |
 | Bind button | D10 | Hold low at boot for bind mode |
+| Bind plug | D20 / SDA | Short to ground at boot for bind mode |
 | Throttle output | A0 | Servo/ESC pulse |
 | Aileron output | A1 | Servo pulse |
 | Elevator output | A2 | Servo pulse |
-| Rudder output | A3 | Servo pulse; also detects signal-to-ground bind plug at boot |
+| Rudder output | A3 | Servo pulse |
 | Battery monitor | A4 | Disabled unless voltage divider is fitted |
 
 ### Receiver LED Meanings
@@ -252,33 +253,30 @@ that model.
 Flashing receiver firmware can clear its stored bind code. Treat a freshly
 flashed receiver as unbound and bind it again before testing controls.
 
-#### Binding With A Rudder-Port Bind Plug
+#### Binding With A D20/SDA Bind Plug
 
 This method avoids holding the receiver's D10 button while connecting the
 aircraft battery:
 
 1. Turn off the transmitter and receiver and remove the propeller.
-2. Disconnect the rudder servo from the receiver.
-3. Insert a standard bind plug that connects only the rudder connector's
-   **signal** pin to its **ground** pin. Never short 5 V to ground.
-4. Power the receiver. It detects the grounded A3 signal at startup and enters
+2. Connect a bind plug between D20/SDA and ground. Never short 3.3 V or 5 V to
+   ground.
+3. Power the receiver. It detects the grounded D20/SDA pin at startup and enters
    bind mode.
-5. Start the transmitter while holding its Bind button (D9).
-6. Wait for the receiver's bind confirmation, then release the transmitter
+4. Start the transmitter while holding its Bind button (D9).
+5. Wait for the receiver's bind confirmation, then release the transmitter
    Bind button.
-7. Turn off the receiver. The bind-plug startup intentionally cannot transition
+6. Turn off the receiver. The bind-plug startup intentionally cannot transition
    into flight during the same power cycle.
-8. Remove the bind plug, reconnect the rudder servo in the correct orientation,
-   and restart the transmitter and receiver normally.
-9. Verify rudder direction, every other surface, throttle safety, and failsafe
+7. Remove the bind plug and restart the transmitter and receiver normally.
+8. Verify rudder direction, every other surface, throttle safety, and failsafe
    before flight.
 
 For electrical safety, receiver firmware latches bind-plug mode at boot and
-keeps A3 as a high-impedance input for that entire power cycle. It never sends
-rudder PWM while the plug may be grounding the signal. After storing the bind
-code, the receiver remains disarmed and rejects normal control packets until it
-is restarted without the plug. The original D10 receiver Bind button remains
-supported.
+keeps D20/SDA as a high-impedance input for that entire power cycle. After
+storing the bind code, the receiver remains disarmed and rejects normal control
+packets until it is restarted without the plug. The original D10 receiver Bind
+button remains supported.
 
 ### Arming And Failsafe
 

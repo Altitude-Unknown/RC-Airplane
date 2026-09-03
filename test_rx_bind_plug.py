@@ -10,19 +10,21 @@ class ReceiverBindPlugSafetyTests(unittest.TestCase):
     def setUpClass(cls):
         cls.source = SOURCE.read_text()
 
-    def test_rudder_output_is_guarded_for_bind_plug_boot(self):
-        self.assertIn("if (!bindPlugBoot) pinMode(PIN_SERVO_RUDDER, OUTPUT);", self.source)
-        self.assertIn("if (!bindPlugBoot) {\n    writePulse(PIN_SERVO_RUDDER, cur_r);", self.source)
+    def test_bind_plug_uses_d20_sda_and_not_a_servo_output(self):
+        self.assertIn("const int PIN_BIND_PLUG = 20;", self.source)
+        self.assertIn("pinMode(PIN_BIND_PLUG, INPUT_PULLUP);", self.source)
+        self.assertIn("digitalRead(PIN_BIND_PLUG)", self.source)
+        self.assertNotIn("pinMode(PIN_SERVO_RUDDER, INPUT_PULLUP);", self.source)
+        self.assertIn("pinMode(PIN_SERVO_RUDDER, OUTPUT);", self.source)
+        self.assertIn("writePulse(PIN_SERVO_RUDDER, cur_r);", self.source)
 
     def test_bind_plug_requires_restart_before_accepting_controls(self):
         self.assertIn("bindRestartRequired = bindPlugBoot;", self.source)
         self.assertIn("const bool accept = !bindMode && !bindRestartRequired", self.source)
         self.assertIn("if (bindRestartRequired) {", self.source)
 
-    def test_bind_plug_detection_precedes_rudder_output_configuration(self):
-        detection = self.source.index("bindPlugBoot = detectRudderBindPlug();")
-        output = self.source.index("if (!bindPlugBoot) pinMode(PIN_SERVO_RUDDER, OUTPUT);")
-        self.assertLess(detection, output)
+    def test_bind_plug_detection_is_latched_at_boot(self):
+        self.assertIn("bindPlugBoot = detectBindPlug();", self.source)
 
 
 if __name__ == "__main__":

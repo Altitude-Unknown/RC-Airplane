@@ -5,7 +5,7 @@
   - Receives RC packets (RH_RF95) ~100 Hz.
   - Channels: Rudder, Aileron, Elevator, Throttle + flags + seq.
   - D10 held LOW at power-up -> Bind Mode (slow blink).
-  - Rudder signal (A3) shorted to ground at power-up -> safe bind-plug mode.
+  - D20/SDA shorted to ground at power-up -> safe bind-plug mode.
   - In Bind Mode, waits for BindPacket { 'BIND', code } and stores to Flash.
   - Normal mode: accepts control packets if pkt.flags & 0x7FFF == stored bind code.
   - ESC Mode (intentional): requires several consecutive ESC-flagged packets
@@ -86,6 +86,7 @@ const int PIN_SERVO_RUDDER   = A3;
 // bind code. The bind code prevents this receiver from listening to the wrong
 // transmitter.
 const int PIN_BIND_BTN = 10;
+const int PIN_BIND_PLUG = 20; // Feather M0 D20 / SDA; unused by this firmware.
 
 // ------------------------------
 // RC pulse ranges
@@ -201,10 +202,10 @@ struct __attribute__((packed)) BindPacket {
 BindStore g_bind = {0, 0, 0};
 
 // bindMode means "learn a transmitter code."
-// bindPlugBoot latches when A3 is grounded at startup. During that entire boot,
-// A3 remains an input so firmware can never drive against the bind plug.
+// bindPlugBoot latches when D20/SDA is grounded at startup. D20 remains an
+// input so firmware can never drive against the bind plug.
 // bindRestartRequired prevents flight after a bind-plug bind until power is
-// removed, the plug is removed, and the rudder servo is reconnected.
+// removed and the plug is removed.
 // escMode means "intentional ESC calibration mode."
 // armed means "normal flight outputs may include throttle."
 bool bindMode = false;
@@ -295,25 +296,22 @@ static inline void writePulse(int pin, uint16_t us) {
   interrupts();
 }
 
-// Write servo/ESC pulses once. In bind-plug mode A3 must remain a high-impedance
-// input for the entire boot, including after a bind packet has been stored.
+// Write servo/ESC pulses once.
 void writeServoFrame() {
   writePulse(PIN_SERVO_THROTTLE, cur_t);
   writePulse(PIN_SERVO_AILERON,  cur_a);
   writePulse(PIN_SERVO_ELEVATOR, cur_e);
-  if (!bindPlugBoot) {
-    writePulse(PIN_SERVO_RUDDER, cur_r);
-  }
+  writePulse(PIN_SERVO_RUDDER, cur_r);
 }
 
-// A standard bind plug replaces the rudder servo and connects A3 signal to
-// ground. Multiple startup samples avoid treating a brief transient as a plug.
-bool detectRudderBindPlug() {
-  pinMode(PIN_SERVO_RUDDER, INPUT_PULLUP);
+// A bind plug connects D20/SDA to ground. Multiple startup samples avoid
+// treating a brief transient as a plug.
+bool detectBindPlug() {
+  pinMode(PIN_BIND_PLUG, INPUT_PULLUP);
   uint8_t lowSamples = 0;
   const uint8_t sampleCount = 8;
   for (uint8_t i = 0; i < sampleCount; ++i) {
-    if (digitalRead(PIN_SERVO_RUDDER) == LOW) lowSamples++;
+    if (digitalRead(PIN_BIND_PLUG) == LOW) lowSamples++;
     delay(2);
   }
   return lowSamples == sampleCount;
@@ -414,9 +412,9 @@ void setup() {
   // Pressing the button connects it to ground, making it read LOW.
   const bool bindButtonHeld = (digitalRead(PIN_BIND_BTN) == LOW);
 
-  // Detect the optional rudder-port bind plug before any servo output is
-  // configured. This result remains latched until the receiver restarts.
-  bindPlugBoot = detectRudderBindPlug();
+  // Detect the optional D20/SDA bind plug. This result remains latched until
+  // the receiver restarts.
+  bindPlugBoot = detectBindPlug();
   bindMode = bindButtonHeld || bindPlugBoot;
 
   // Load the bind code saved from an earlier bind operation.
@@ -426,11 +424,11 @@ void setup() {
   pinMode(PIN_SERVO_THROTTLE, OUTPUT);
   pinMode(PIN_SERVO_AILERON, OUTPUT);
   pinMode(PIN_SERVO_ELEVATOR, OUTPUT);
-  if (!bindPlugBoot) pinMode(PIN_SERVO_RUDDER, OUTPUT);
+  pinMode(PIN_SERVO_RUDDER, OUTPUT);
   digitalWrite(PIN_SERVO_THROTTLE, LOW);
   digitalWrite(PIN_SERVO_AILERON, LOW);
   digitalWrite(PIN_SERVO_ELEVATOR, LOW);
-  if (!bindPlugBoot) digitalWrite(PIN_SERVO_RUDDER, LOW);
+  digitalWrite(PIN_SERVO_RUDDER, LOW);
 
   // Ensure the ESC sees RC_MIN from the very first pulse.
   cur_t  = RC_MIN;
@@ -483,7 +481,7 @@ void setup() {
     Serial.print("Stored bind code: ");
     Serial.println((g_bind.magic == BIND_MAGIC) ? g_bind.bindCode : 0);
     if (bindMode) Serial.println("Bind Mode Active");
-    if (bindPlugBoot) Serial.println("Rudder bind plug detected; restart required after bind");
+    if (bindPlugBoot) Serial.println("D20/SDA bind plug detected; restart required after bind");
   }
 }
 
@@ -618,8 +616,8 @@ void loop() {
     // ---------- Arming + staged failsafe ----------
     if (bindRestartRequired) {
       // A bind plug was present at boot. Keep every output safe and require a
-      // full restart before normal packets can arm the receiver. A3 remains an
-      // input, so the grounded plug is never driven by the MCU.
+      // full restart before normal packets can arm the receiver. D20/SDA
+      // remains an input, so the grounded plug is never driven by the MCU.
       setSafeDesired();
       disarmAndLock();
       ledState = LED_LOCKED;
