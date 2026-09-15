@@ -972,22 +972,9 @@ void loop() {
 
   uint16_t thr, ail, ele, rud;
   if (gModelLoaded) {
-    // Normal path: tx_config.cpp applies model settings, including endpoints,
-    // rates, expo, subtrim, and reverse.
-    // Channel order: 0:RUD,1:AIL,2:ELE,3:THR (matches ControlPacket)
-    float mixedRud = xRud;
-    if (gModel.reserved[1] & 0x01) {
-      int8_t mixPercent = (int8_t)gModel.reserved[2];
-      mixPercent = constrain(mixPercent, -100, 100);
-      // Follow the configured aileron direction, then add the requested
-      // fraction of aileron travel to the physical rudder-stick command.
-      float mixSource = (gModel.reserved[0] & (1 << 1)) ? -xAil : xAil;
-      mixedRud = constrain(xRud + mixSource * ((float)mixPercent / 100.0f), -1.0f, 1.0f);
-    }
-    rud = TXCF::channelToUs(mixedRud, 0, gModel, highRates);
-    ail = TXCF::channelToUs(xAil, 1, gModel, highRates);
-    ele = TXCF::channelToUs(xEle, 2, gModel, highRates);
-    thr = TXCF::channelToUs(xThr, 3, gModel, highRates);
+    uint16_t outputs[4];
+    TXCF::controlsToUs(xRud, xAil, xEle, xThr, gModel, highRates, outputs);
+    rud = outputs[0]; ail = outputs[1]; ele = outputs[2]; thr = outputs[3];
   } else {
     // Fallback mapping (no FRAM model)
     // This makes the transmitter still basically usable if FRAM/model data is

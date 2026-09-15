@@ -42,6 +42,8 @@ typedef struct __attribute__((packed)) {
     // reserved[0] bits: bit0..bit3 => channel reverse flags (1 = reversed)
     // reserved[1] bit0: aileron-to-rudder mix enabled
     // reserved[2]: signed aileron-to-rudder mix percentage (-100..100)
+    // reserved[3]: aircraft type: 0=conventional, 1=V-tail, 2=elevons
+    // reserved[4] bit0: reverse V-tail rudder input before surface mixing
     uint8_t  reserved[6];
   uint16_t crc16;           // CCITT over first 58 bytes
 } txcf_model_v1_t;
@@ -72,6 +74,10 @@ inline float applyExpo(float x, int8_t expoPct) {
 // Map normalized stick [-1..1] to microseconds, applying rates/expo/subtrim/endpoints
 int16_t  channelToUs(float stickNorm, int ch,
                      const txcf_model_v1_t &m, bool highRates);
+
+// Control order is rudder, aileron, elevator, throttle.
+void controlsToUs(float rud, float ail, float ele, float thr,
+                  const txcf_model_v1_t &m, bool highRates, uint16_t out[4]);
 
 // ---------- Raw active-storage access for USB Config Mode ----------
 bool     rawRead(uint16_t addr, uint8_t* data, size_t len);
