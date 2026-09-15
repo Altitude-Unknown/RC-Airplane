@@ -2,11 +2,27 @@
 
 Living manual for the Altitude Unknown RC transmitter, receiver, and configurator GUI.
 
-Last updated: 2026-09-01
+Last updated: 2026-09-14
+
+This manual describes production release `transmitter-gui-v2026.09.14`.
+[Download the configurator and matching firmware](https://github.com/Altitude-Unknown/RC-Airplane/releases/tag/transmitter-gui-v2026.09.14).
+V-tail controls have passed the pilot's bench and flight tests. Elevon mixing
+has automated tests but has not yet been tested on an airplane.
+
+## Contents
+
+- [System Overview](#system-overview)
+- [Hardware Targets](#hardware-targets)
+- [Transmitter](#transmitter)
+- [Aircraft Type And Control Mixing](#aircraft-type-and-control-mixing)
+- [Receiver](#receiver)
+- [Desktop Transmitter Configurator](#desktop-transmitter-configurator)
+- [Troubleshooting](#troubleshooting)
+- [Known Good Fallback Points](#known-good-fallback-points)
 
 ## System Overview
 
-The RC airplane system has three main pieces:
+The RC airplane system contains these components:
 
 - **Transmitter V3 M0 firmware:** `PCB/TxV3/TxV3_Full_M0/TxV3_Full_M0.ino`
 - **Transmitter V3 buddy firmware:** `PCB/TxV3/TxV3_Buddy_ESP32/TxV3_Buddy_ESP32.ino`
@@ -17,24 +33,28 @@ The master transmitter sends LoRa control packets to the receiver. A student
 transmitter sends controls to the master over ESP-NOW; only the master M0 is
 allowed to initialize LoRa. The receiver drives throttle, aileron, elevator,
 and rudder outputs. Model setup data uses external FRAM when installed and the
-M0 internal-flash fallback otherwise. It can be edited with the desktop GUI or
-the transmitter OLED setup menu.
+M0 internal-flash fallback otherwise. The desktop GUI edits the complete model;
+the OLED setup menu edits reverse, rate, and expo for RUD, AIL, and ELE only.
 
 ## Hardware Targets
 
-Both Tx and Rx currently build for:
+Use the target that matches the processor:
 
-```text
-adafruit:samd:adafruit_feather_m0
-```
+| Processor / sketch | Arduino target |
+| --- | --- |
+| V3 M0, `PCB/TxV3/TxV3_Full_M0` | `adafruit:samd:adafruit_feather_m0_express` with the release USB identity flags |
+| V3 ESP32-C3, `PCB/TxV3/TxV3_Buddy_ESP32` | `esp32:esp32:esp32c3`, `CDCOnBoot=cdc` |
+| Receiver, `rx_firmware` | `adafruit:samd:adafruit_feather_m0` |
+| Legacy transmitter, `tx_firmware` | `adafruit:samd:adafruit_feather_m0` |
 
-Common upload command:
+The locally installed `AltitudeUnknown:samd:altitude_rc_tx_m0` definition is an
+alternative V3 M0 target. The release workflow uses the Adafruit Express target
+with explicit USB identity flags; see [Transmitter Firmware Flashing](#transmitter-firmware-flashing).
+Published V3 M0 images use `TxV3_Full_M0`, not the legacy transmitter sketch.
 
-```bash
-arduino-cli upload -p /dev/cu.usbmodem1101 --fqbn adafruit:samd:adafruit_feather_m0 "path/to/sketch"
-```
-
-Port names vary by computer and OS.
+Use `arduino-cli board list` to identify connected ports. Port names vary by
+computer and OS; do not assume `/dev/cu.usbmodem1101` always identifies the same
+board. The M0 and ESP USB connectors belong to different processors.
 
 ## PCB Schematics
 
@@ -43,6 +63,7 @@ Hardware schematic PDFs are kept in this repo for quick reference:
 | PCB | Schematic |
 | --- | --- |
 | Transmitter V2 | `Transmitter-V2-Schematic.pdf` |
+| Transmitter V3 | `Transmitter V3.pdf` |
 | Receiver V4 | `Receiver-V4-Schematic.pdf` |
 
 ## Transmitter
@@ -55,6 +76,7 @@ Hardware schematic PDFs are kept in this repo for quick reference:
 | LoRa IRQ | D3 | RFM95 interrupt |
 | LoRa RST | D4 | RFM95 reset |
 | Bind button | D9 | Hold at boot for bind mode |
+| AUX / trainer | D10 | Trainer handoff; hold alone at boot for Simulator mode |
 | ESC override / aileron-right trim | D5 | Hold at boot for ESC calibration override |
 | Throttle gimbal | A3 | Analog input |
 | Aileron gimbal | A1 | Analog input |
@@ -77,7 +99,7 @@ Hardware schematic PDFs are kept in this repo for quick reference:
 | Safety lock | Power up with throttle high | Sends nothing until reset with throttle low |
 | ESC calibration override | Power up with throttle high and hold D5 / aileron-right trim | Sends throttle immediately for intentional ESC calibration |
 | Bind mode | Hold D9 low at boot | Repeatedly sends bind packets |
-| USB config mode | Hold both D9 and D5 low at boot | No LoRa transmit; desktop GUI can read/write FRAM |
+| USB config mode | Hold both D9 and D5 low at boot | No LoRa transmit; desktop GUI can read/write model storage |
 | OLED setup mode | Hold both rudder trims at boot | No LoRa transmit; setup menu shown on OLED |
 | Simulator mode | Hold AUX/trainer by itself at boot | No LoRa or trainer forwarding; USB and BLE HID gamepads active |
 
@@ -95,7 +117,11 @@ If the LED fast-blinks after boot, the transmitter is in throttle safety lock. L
 
 Physical trims update the active model subtrim in the selected radio storage
 (external FRAM or internal flash) when a model is loaded. Rudder, aileron, and
-elevator have trims. Throttle has no trim.
+elevator have trims. Throttle has no trim. Each press-and-release changes the
+stored trim by 5 µs, limited to −500 through +500 µs. Holding a button does not
+repeat the trim. With mixed surfaces, trim follows the logical control axis as
+described in [Aircraft Type And Control Mixing](#aircraft-type-and-control-mixing).
+Without a loaded model, trims are temporary and reset at power-off.
 
 Trim pins:
 
@@ -121,17 +147,22 @@ Controls:
 | Elevator trims | Select setting: REVERSE, RATE, EXPO |
 | Aileron trims | Change selected value |
 
-Changes are saved to the active radio storage immediately.
+Changes are saved to the active radio storage immediately. Aircraft type,
+V-tail rudder-input reversal, endpoints, and aileron-to-rudder mixing are edited
+in the desktop configurator.
 
 ### Instructor / Student Operation
 
-The V3 radios use persistent roles stored by the local ESP32-C3. The intended
-assignment is:
+The V3 radios use persistent roles stored by the local ESP32-C3. The recorded
+assignment for the two project radios is:
 
 | ESP MAC | Role |
 | --- | --- |
 | `80:F1:B2:F0:1A:E8` | Instructor / Master |
 | `80:F1:B2:F0:1A:D0` | Student |
+
+Other radios have different MAC addresses; read the connected radio's identity
+in the configurator before assigning its role.
 
 Normal trainer operation:
 
@@ -139,7 +170,7 @@ Normal trainer operation:
 2. Power the master with throttle low.
 3. Press and release AUX on the master to grant student control.
 4. Press and release AUX again to take control back.
-5. Moving any master stick immediately takes control back.
+5. Moving a master stick sufficiently from its handoff position takes control back.
 6. Student link loss also returns authority to the master.
 
 The ESP requires a fresh M0 `FLIGHT` heartbeat before sending or forwarding
@@ -148,18 +179,21 @@ Simulator, or Setup mode.
 
 ### Aileron-to-Rudder Mixing
 
-Mixing is stored separately for every model. In the desktop GUI, enable **Mix
-aileron into rudder** and set **Rudder amount** from -100% to +100%.
+This setting is saved per model. Enable **Mix aileron into rudder** and set
+**Rudder amount** from −100% to +100%. Changing the sign reverses the added
+rudder contribution; it does not reverse the physical rudder stick.
 
-- Start around 20-30%.
-- Positive values mix rudder in the normal aileron direction.
-- Negative values reverse the mix direction.
-- Physical rudder input remains available and is added to the mix.
-- The combined command is clamped before rudder rate, expo, reverse, subtrim,
-  and endpoints are applied.
+The mix follows the configured AIL output reversal and is added to rudder
+stick input, then clamped before rudder rate and expo. Aircraft mixing follows.
+For V-tail, **Reverse rudder input** reverses both the rudder-stick and the
+aileron-to-rudder contributions. Therefore a sign that works for one model may
+need reversing on another. Judge the direction from the airplane's movement.
 
-Save the model to the radio, remove the propeller, and verify direction and
-combined full-stick travel before flight.
+For initial surface setup, leave this option off. Once elevator and rudder
+stick directions are correct, enable a small amount and check the direction.
+For example, changing −50% to +50% reverses coordinated rudder while retaining
+the established elevator and rudder-stick directions. Save and restart in
+flight mode after editing.
 
 ### Throttle Timer / Buzzer Alarm
 
@@ -182,11 +216,23 @@ Tx_Buzzer_Test/Tx_Buzzer_Test.ino
 
 ### Transmitter Firmware Flashing
 
-Compile the V3 M0:
+For routine updates, use the configurator's **Firmware Update** tab. For source
+builds, run from the repository root. The V3 M0 release command is:
 
 ```bash
-arduino-cli compile --fqbn AltitudeUnknown:samd:altitude_rc_tx_m0 "PCB/TxV3/TxV3_Full_M0"
+arduino-cli compile --output-dir firmware-build/samd \
+  --fqbn adafruit:samd:adafruit_feather_m0_express \
+  --build-property 'build.usb_product="Altitude RC TX M0"' \
+  --build-property 'build.usb_manufacturer="Altitude Unknown"' \
+  --build-property build.vid=0x03EB \
+  --build-property build.pid=0x2402 \
+  --build-property 'build.extra_flags=-D__SAMD21G18A__ -DARDUINO_SAMD_FEATHER_M0 -DARDUINO_SAMD_ZERO -DARM_MATH_CM0PLUS -DALTITUDE_RC_TX_M0 {build.usb_flags}' \
+  PCB/TxV3/TxV3_Full_M0
 ```
+
+The release workflow pins Adafruit SAMD core 1.7.10 and ESP32 core 3.3.10;
+its complete build/package steps are in
+[the release workflow](.github/workflows/transmitter-gui-release.yml).
 
 Compile the V3 ESP32-C3 with USB CDC enabled:
 
@@ -198,6 +244,74 @@ Both processors on both transmitters must run matching current firmware for
 single-cable role assignment and the mode interlock. ESP uploads retain the
 role in NVS. Export important models before M0 flashing when internal-flash
 storage is in use.
+
+## Aircraft Type And Control Mixing
+
+In the Models editor, select **Aircraft Type**, save the model, and make it the
+active model before restarting the transmitter in flight mode. Use configurator
+and transmitter M0 firmware from `transmitter-gui-v2026.09.14` or later. Older
+firmware ignores aircraft type; older configurators erase these new settings
+when saving a model. Restart an already-open older GUI after updating.
+The selection is saved per model and included in JSON exports. Existing models
+and older JSON files default to Conventional / T-tail.
+
+| Aircraft type | Receiver output connections | Mixing |
+| --- | --- | --- |
+| Conventional / T-tail | RUD: rudder; AIL: aileron; ELE: elevator | Separate controls |
+| V-tail (ruddervators) | RUD: first ruddervator; ELE: second ruddervator; AIL: aileron | RUD = elevator + rudder; ELE = elevator − rudder |
+| Flying wing (elevons) | AIL: first elevon; ELE: second elevon | AIL = elevator + aileron; ELE = elevator − aileron |
+
+These equations describe normalized commands before output reversal and travel
+mapping, not a universal left/right servo installation. Identify the receiver
+socket labels instead of relying on connector position.
+
+Throttle is unchanged. Flying wings retain an independent RUD output if needed.
+Each shaped axis is added at full weight; combined commands are clipped to the
+configured output travel. Rates and expo apply to the logical stick axes before
+mixing. **High Rates Active** overrides all four stored rates to 100%; expo
+remains active. For mixed surfaces, subtrim and physical trim follow those axes (500 µs
+is one normalized unit), so elevator trim moves both surfaces together.
+Reverse and endpoints apply to each physical output after mixing. Set servo
+neutral mechanically, then adjust endpoints to set individual output midpoint and travel. Unequal
+endpoint changes also move the midpoint; recheck both neutral and full travel.
+Optional aileron-to-rudder mixing is applied before aircraft mixing.
+
+With the motor disabled, verify both surfaces respond correctly to pitch and
+yaw/roll commands before flying. Servo installation determines the necessary
+output reversal and which surface uses the first versus second output. Check
+combined full-stick travel for binding as well as single-axis commands.
+
+### Correct elevator response but reversed V-tail rudder response
+
+Keep the servo connections and output reversal settings that give correct
+pitch movement. Enable **Reverse rudder input (V-tail only)** and save the model,
+then restart in flight mode. This reverses the yaw contribution (including yaw
+trim and optional aileron-to-rudder mix) without reversing pitch. It requires
+updated transmitter firmware and is ignored for other aircraft types.
+
+### First Setup And Direction Checks
+
+1. Disable motor power or remove the propeller. Export the existing model.
+2. Select the aircraft type and turn off aileron-to-rudder mixing initially.
+3. Connect V-tail servos to RUD and ELE, or elevons to AIL and ELE.
+4. Check neutral trim and endpoints; start with modest rates and travel.
+5. Move only the elevator stick. Set each participating output's **Reverse**
+   value so both surfaces produce the intended pitch response.
+6. For V-tail, move only the rudder stick. If yaw is backward but pitch is
+   correct, toggle **Reverse rudder input (V-tail only)**. Keep the connections
+   and output reversals that gave correct pitch. Cable swapping is not a
+   reliable substitute across different servo installations.
+7. For elevons, check roll separately. There is no independent roll-input
+   reversal option in this release; establish the appropriate output assignment
+   and reversals for the installation and repeat the pitch check.
+8. Save with **Save To Radio**, use **Set Active** if necessary, and restart in
+   flight mode. Repeat the checks after every change.
+9. If desired, enable aileron-to-rudder mixing and choose its sign from the
+   resulting yaw direction. Check combined full-stick travel for binding.
+
+V-tail rudder-input reversal also reverses the yaw-trim contribution, so recheck
+neutral trim after changing it. Neither that option nor aileron-to-rudder mix
+sign changes the elevator contribution.
 
 ## Receiver
 
@@ -280,7 +394,10 @@ button remains supported.
 
 ### Arming And Failsafe
 
-The receiver requires a fresh link and low throttle before arming.
+The receiver requires packets no older than 150 ms and commanded throttle at
+or below 1060 µs for 300 ms before normal arming. Control surfaces can still
+move while throttle is disarmed; the LED alone does not prove every output is
+working.
 
 Failsafe behavior:
 
@@ -288,9 +405,16 @@ Failsafe behavior:
   hold failsafe outputs.
 - Wrong bind code: reject the packet and remain in the existing failsafe/link
   state.
-- 0-1 seconds without packets: hold last surfaces, preserve staged motor behavior.
-- Around 1 second: throttle kill.
-- Around 3 seconds: surfaces neutralize.
+- While armed, up to 1 second without accepted packets: retain the last commands.
+- Between 1 and 1.2 seconds: show lost-link status while retaining outputs.
+- Beyond 1.2 seconds: disarm and force throttle to 1000 µs.
+- Beyond 3 seconds: command RUD, AIL, and ELE to 1500 µs.
+- Rearming requires fresh matching packets and low throttle again.
+
+The 1500 µs failsafe positions are fixed receiver values, not the model's
+trimmed neutrals or endpoint midpoints. Verify the resulting surface positions
+on mixed aircraft. These timings describe normal operation, not intentional
+ESC calibration override.
 
 The receiver directly outputs servo pulses in software. Avoid adding blocking code to the receiver loop.
 
@@ -331,12 +455,19 @@ Purpose:
 
 - Read and write model slots in external FRAM or M0 internal flash.
 - Edit model name, bind code, rates, expo, subtrim, endpoints, and reverse flags.
+- Select conventional, V-tail, or elevon mixing per model.
+- Reverse V-tail rudder input independently of elevator.
 - Configure per-model aileron-to-rudder mixing.
+- Download and flash released transmitter and receiver firmware.
 - Read and assign the V3 Instructor / Student role through the ESP USB port.
 - Set active model.
 - Import/export model JSON files.
 
 ### Running The GUI
+
+Packaged apps are available for macOS ARM64, Windows x64, and Raspberry Pi OS
+ARM64 from the release link above. The macOS package is signed and notarized.
+For source execution:
 
 Install dependencies:
 
@@ -357,10 +488,45 @@ python3 fram_gui_models.py
 2. Launch GUI.
 3. Select serial port.
 4. Click Connect.
-5. Use Load From Radio / Save To Radio.
+5. Select a model slot and click **Load From Radio**.
+6. Edit its fields; double-click channel names or table values to edit them.
+7. Click **Save To Radio**. This saves the selected slot but does not make it active.
+8. Click **Set Active** to choose the flight model. The active slot has a `*`.
+9. Disconnect and restart in normal flight mode to use the saved model.
 
 The connection status identifies the active storage backend as `fram` or
 `internal flash`.
+
+### Model Fields And Backups
+
+The table displays **Throttle, Aileron, Elevator, Rudder**. Internal channel
+numbers are **0=RUD, 1=AIL, 2=ELE, 3=THR**. Changing a channel name changes its
+label only; it does not remap a receiver output. Custom labels are stored on
+the computer and included in JSON exports.
+
+| Field | Meaning |
+| --- | --- |
+| Rate | 0–100% control-axis response; applies unless High Rates Active is checked |
+| Expo | −100–100%; positive values soften response around center |
+| Subtrim | −500–500 µs; mixed-axis behavior is described in the aircraft section |
+| Endpoints | Output minimum/maximum; use 1000–2000 µs with the production receiver and keep minimum below maximum |
+| Reverse | Reverses the output's control direction; for mixed surfaces it applies after mixing |
+| High Rates Active | Overrides all four rates to 100% |
+| DR Switch | Stored field; the production flight loop does not implement a physical dual-rate switch |
+| New Bind | Generates a new model bind code; save and rebind its receiver afterward |
+
+**Endpoint compatibility:** the GUI currently permits 800–2200 µs, but the
+production receiver accepts only 1000–2000 µs on every channel. If even one
+command is outside that receiver range, it rejects the entire packet. Keep
+all output endpoints within 1000–2000 µs for this release; a wider GUI range
+does not mean the receiver supports wider pulses.
+
+**Export Model (.json)** reads the saved radio slot, not unsaved editor values.
+Save first, then export each model you need to back up. **Import Model (.json)**
+writes directly into the selected slot, including its bind code; choose the
+slot carefully and load it afterward to inspect the result. Import does not
+select the active flight model. Older JSON files default to conventional
+with V-tail rudder-input reversal off.
 
 ### Updating transmitter or receiver firmware from the configurator
 
@@ -369,7 +535,9 @@ Open **Firmware Update** in **Altitude Unknown RC Configurator** and click
 latest release's firmware manifest and verifies each downloaded image with its
 published SHA-256 checksum. Choose **Transmitter — both processors** after a
 transmitter firmware/protocol change so the SAMD21 and ESP32-C3 remain
-compatible. Choose **Receiver** to update Receiver V4 directly.
+compatible. For the aircraft-mixing change from the matched 2026.09.01.5
+baseline, **Transmitter M0 only** is sufficient; the ESP32 and receiver do not
+perform the aircraft mix. Choose **Receiver** to update Receiver V4 directly.
 
 The updater supports Altitude Unknown Transmitter V3 and Receiver V4 hardware.
 It downloads these release assets automatically:
@@ -377,6 +545,7 @@ It downloads these release assets automatically:
 - `altitude-unknown-tx-v3-samd21.uf2` for the transmitter M0.
 - `altitude-unknown-tx-v3-esp32c3.bin` for the ESP32-C3.
 - `altitude-unknown-rx-v4-samd21.uf2` for the receiver M0.
+- `altitude-unknown-rx-v4-samd21.bin` for receiver BOSSA fallback.
 - `transmitter-firmware-manifest.json` containing the expected SHA-256 values.
 
 The official desktop builds include the ESP flashing tool and a trusted TLS CA
@@ -429,9 +598,9 @@ physical hardware: the unbound receiver rejected packets and stayed in
 failsafe, then stored bind code `9905` during an explicit bind and accepted
 matching packets afterward. Flight-control surface movement was confirmed.
 
-Release `transmitter-gui-v2026.09.01.2` adds the safe rudder-port bind-plug
-startup described above. It was validated with an actual bind and control check
-on the airplane before publication.
+The bind-plug pin was subsequently moved to **D20/SDA** in commit `6d8f184`,
+included in `transmitter-gui-v2026.09.14`. Follow the D20/SDA instructions in this
+manual for this release; do not use older rudder-port bind-plug instructions.
 
 Release `transmitter-gui-v2026.09.01.4` adds automatic support for newer
 receiver hardware with the `RCRXBOOT` UF2 bootloader while preserving the
@@ -448,6 +617,12 @@ packet match, update the transmitter M0 and receiver from the same release,
 rebind, and complete the full propeller-off control and failsafe test before
 flight. Physical testing confirmed the rudder trims and matched production
 Tx/Rx controls operate correctly after the `.5` update.
+
+Release `transmitter-gui-v2026.09.14` adds aircraft selection and independent
+V-tail rudder-input reversal to the configurator and transmitter firmware.
+The pilot confirmed V-tail operation on the bench and in flight. Elevon
+coverage is currently automated testing only. This release does not change
+the production over-air control packet format.
 
 ### Assigning Instructor or Student Role
 
@@ -496,6 +671,8 @@ Important commits/tags:
 | `rc-lag-flight-proven-2026-06-17` | Flight-proven low-lag RC control behavior |
 | `rc-trims-flight-proven-2026-06-17` | Flight-proven physical trims |
 | `675cd95` | Adds throttle timer buzzer warning |
+| `transmitter-gui-v2026.09.01.5` | Validated matched production Tx/Rx packet layout and rudder trim |
+| `transmitter-gui-v2026.09.14` | Aircraft-type GUI and firmware; V-tail bench/flight-tested, elevons awaiting hardware testing |
 
 ## Troubleshooting
 
@@ -517,7 +694,27 @@ Important commits/tags:
   the transmitter, and rebind the receiver.
 - Confirm transmitter is sending normal packets.
 - Check receiver LED state.
+- Keep all channel endpoints within 1000–2000 µs. An out-of-range command on
+  any channel causes the receiver to reject the entire packet.
 - Check servo output pins and power.
+
+### Only One Mixed Surface Moves
+
+- V-tail needs the RUD and ELE receiver sockets; elevons need AIL and ELE.
+- Confirm the aircraft type is saved in the active model and the M0 has current firmware.
+- Check both output endpoint ranges and the relevant axis rates/trims.
+- Move pitch and yaw/roll separately; simultaneous commands can cancel on one
+  output or reach its limit.
+- With power off, swap servos between sockets to determine whether the symptom
+  follows a servo or an output. Return to the known wiring afterward; this is
+  a diagnostic step, not a general direction correction.
+
+### V-tail Pitch Is Correct But Yaw Is Backward
+
+Toggle **Reverse rudder input (V-tail only)**, save, and restart in flight mode.
+Keep the wiring and output reversal settings that give correct pitch. Recheck
+trim. If only the aileron-to-rudder contribution is backward, change the sign
+of **Rudder amount** instead.
 
 ### Desktop GUI Cannot Connect
 
@@ -527,7 +724,9 @@ Important commits/tags:
 - Refresh serial ports.
 - Select the **Altitude RC TX M0** `/dev/cu.usbmodem...` port on macOS, not the
   separate ESP32-C3 port.
-- Replug USB or double-tap reset if the port is missing.
+- Replug a known data-capable USB cable if the port is missing. Double-tap
+  RESET enters the bootloader for recovery; it does not enter Config Mode.
+- Close other serial monitors or configurator instances using the same port.
 
 Seeing a serial device in the list does not prove Config Mode is active. The
 GUI connects only after the M0 configurator service answers its `PING` command.
@@ -566,39 +765,3 @@ Update this manual whenever:
 - Firmware warning behavior changes.
 - GUI fields or serial protocol change.
 - A new flight-proven fallback tag is created.
-
-## Aircraft type and control mixing
-
-In the Models editor, select **Aircraft Type**, save the model, and make it the
-active model before restarting the transmitter in flight mode. Install firmware
-that supports aircraft types; older firmware ignores this new setting.
-The selection is saved per model and included in JSON exports. Existing models
-and older JSON files default to Conventional / T-tail.
-
-| Aircraft type | Receiver output connections | Mixing |
-| --- | --- | --- |
-| Conventional / T-tail | RUD: rudder; AIL: aileron; ELE: elevator | Separate controls |
-| V-tail (ruddervators) | RUD: first ruddervator; ELE: second ruddervator; AIL: aileron | RUD = elevator + rudder; ELE = elevator − rudder |
-| Flying wing (elevons) | AIL: first elevon; ELE: second elevon | AIL = elevator + aileron; ELE = elevator − aileron |
-
-Throttle is unchanged. Flying wings retain an independent RUD output if needed.
-Each mixed axis has 100% contribution; combined commands are clipped to the
-configured output travel. Rates and expo apply to the logical stick axes before
-mixing. For mixed surfaces, subtrim and physical trim follow those axes (500 µs
-is one normalized unit), so elevator trim moves both surfaces together.
-Reverse and endpoints apply to each physical output after mixing. Set servo
-neutral mechanically, then use endpoints to center/limit individual surfaces.
-Optional aileron-to-rudder mixing is applied before aircraft mixing.
-
-With the motor disabled, verify both surfaces respond correctly to pitch and
-yaw/roll commands before flying. Servo installation determines the necessary
-output reversal and which surface uses the first versus second output. Check
-combined full-stick travel for binding as well as single-axis commands.
-
-### Correct elevator response but reversed V-tail rudder response
-
-Keep the servo connections and output reversal settings that give correct
-pitch movement. Enable **Reverse rudder input (V-tail only)** and save the model,
-then restart in flight mode. This reverses the yaw contribution (including yaw
-trim and optional aileron-to-rudder mix) without reversing pitch. It requires
-updated transmitter firmware and is ignored for other aircraft types.
