@@ -15,6 +15,15 @@ Positive values move rudder with aileron; negative values reverse the mix
 direction. Start around 20-30%, save the model to the radio, and verify both
 directions on the bench before flight.
 
+The Models editor now offers **Aircraft Type**: Conventional / T-tail,
+V-tail (ruddervators), or Flying wing (elevons). V-tail uses RUD + ELE outputs;
+elevons use AIL + ELE. **Reverse rudder input (V-tail only)** changes yaw
+without reversing pitch. Save the model and restart in flight mode.
+Install the updated configurator and transmitter M0 firmware together: older
+configurators do not preserve these settings. Existing models default to
+conventional. V-tail controls have passed the pilot's bench and flight tests;
+elevons have automated test coverage and await hardware validation.
+
 The **Firmware Update** tab checks the project's latest GitHub release and can
 update the V3 transmitter's SAMD21/M0, ESP32-C3, or both, and can update the V4
 receiver. Firmware images are SHA-256 verified before flashing. The transmitter

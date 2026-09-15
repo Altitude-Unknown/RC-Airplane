@@ -566,3 +566,39 @@ Update this manual whenever:
 - Firmware warning behavior changes.
 - GUI fields or serial protocol change.
 - A new flight-proven fallback tag is created.
+
+## Aircraft type and control mixing
+
+In the Models editor, select **Aircraft Type**, save the model, and make it the
+active model before restarting the transmitter in flight mode. Install firmware
+that supports aircraft types; older firmware ignores this new setting.
+The selection is saved per model and included in JSON exports. Existing models
+and older JSON files default to Conventional / T-tail.
+
+| Aircraft type | Receiver output connections | Mixing |
+| --- | --- | --- |
+| Conventional / T-tail | RUD: rudder; AIL: aileron; ELE: elevator | Separate controls |
+| V-tail (ruddervators) | RUD: first ruddervator; ELE: second ruddervator; AIL: aileron | RUD = elevator + rudder; ELE = elevator − rudder |
+| Flying wing (elevons) | AIL: first elevon; ELE: second elevon | AIL = elevator + aileron; ELE = elevator − aileron |
+
+Throttle is unchanged. Flying wings retain an independent RUD output if needed.
+Each mixed axis has 100% contribution; combined commands are clipped to the
+configured output travel. Rates and expo apply to the logical stick axes before
+mixing. For mixed surfaces, subtrim and physical trim follow those axes (500 µs
+is one normalized unit), so elevator trim moves both surfaces together.
+Reverse and endpoints apply to each physical output after mixing. Set servo
+neutral mechanically, then use endpoints to center/limit individual surfaces.
+Optional aileron-to-rudder mixing is applied before aircraft mixing.
+
+With the motor disabled, verify both surfaces respond correctly to pitch and
+yaw/roll commands before flying. Servo installation determines the necessary
+output reversal and which surface uses the first versus second output. Check
+combined full-stick travel for binding as well as single-axis commands.
+
+### Correct elevator response but reversed V-tail rudder response
+
+Keep the servo connections and output reversal settings that give correct
+pitch movement. Enable **Reverse rudder input (V-tail only)** and save the model,
+then restart in flight mode. This reverses the yaw contribution (including yaw
+trim and optional aileron-to-rudder mix) without reversing pitch. It requires
+updated transmitter firmware and is ignored for other aircraft types.

@@ -102,8 +102,12 @@ HDR_FMT = "<I H H H I 18s"   # 32 bytes header: 4+2+2+2+4+18
 MODEL_FMT_NOCRC = "<16s H 4b 4b B B 4h 8H 6s"  # 58 bytes
 MODEL_FMT       = MODEL_FMT_NOCRC + " H"       # +2 = 60
 
+AIRCRAFT_TYPES = ("Conventional / T-tail", "V-tail (ruddervators)", "Flying wing (elevons)")
+
 def validate_model_controls(model: dict) -> dict:
     """Clamp editable controls and reject endpoints that collapse a channel."""
+    if model.get("aircraft_type", 0) not in range(len(AIRCRAFT_TYPES)):
+        raise ValueError("Unsupported aircraft type")
     for i in range(4):
         model["rates"][i] = max(0, min(100, model["rates"][i]))
         model["expo"][i] = max(-100, min(100, model["expo"][i]))
@@ -419,6 +423,8 @@ class ModelsStore:
                 dr_switch=dr_switch, active_rates=active_rates,
                 subtrim=subtrim, endpoints=endpoints,
                 reverse=reverse,
+                aircraft_type=reserved[3] if reserved[3] < len(AIRCRAFT_TYPES) else 0,
+                vtail_rudder_reverse=bool(reserved[4] & 1),
                 ail_to_rud_mix_enabled=mix_enabled,
                 ail_to_rud_mix_percent=mix_percent,
                 crc_ok=(crc_stored == crc_calc))
@@ -459,7 +465,10 @@ class ModelsStore:
         mix_enabled = bool(model.get("ail_to_rud_mix_enabled", False))
         mix_percent = int(max(-100, min(100, model.get("ail_to_rud_mix_percent", 0))))
         mix_flags = 0x01 if mix_enabled else 0x00
-        reserved = bytes([rev_mask, mix_flags]) + struct.pack("b", mix_percent) + b"\x00"*3
+        aircraft_type = model.get("aircraft_type", 0)
+        if aircraft_type not in range(len(AIRCRAFT_TYPES)):
+            raise ValueError("Unsupported aircraft type")
+        reserved = bytes([rev_mask, mix_flags]) + struct.pack("b", mix_percent) + bytes([aircraft_type, int(bool(model.get("vtail_rudder_reverse", False))), 0])
 
         # Pack everything except the CRC first, because the CRC is calculated
         # over these first 58 bytes.
@@ -680,6 +689,8 @@ class App(tk.Tk):
 
         # Tk variables keep widget state synchronized with Python values.
         # For example, editing the Model Name entry changes self.name_var.
+        self.aircraft_type_var = tk.StringVar(value=AIRCRAFT_TYPES[0])
+        self.vtail_rudder_reverse_var = tk.BooleanVar(value=False)
         self.name_var = tk.StringVar()
         self.bind_var = tk.StringVar(value="0")
         self.bind_changed = False
@@ -705,6 +716,16 @@ class App(tk.Tk):
         ttk.Label(form, text="DR Switch", style="Panel.TLabel").grid(row=0, column=5, sticky='e')
         ttk.Entry(form, textvariable=self.dr_switch_var, width=6).grid(row=0, column=6, sticky='w', padx=6)
         ttk.Checkbutton(form, text="High Rates Active", variable=self.dr_active_var).grid(row=0, column=7, sticky='w', padx=6)
+
+        ttk.Label(form, text="Aircraft Type", style="Panel.TLabel").grid(row=1, column=0, sticky='e', pady=4)
+        ttk.Combobox(form, textvariable=self.aircraft_type_var, values=AIRCRAFT_TYPES,
+                     state="readonly", width=26).grid(row=1, column=1, columnspan=3, sticky='w', padx=6)
+        ttk.Label(form, text="V-tail: RUD + ELE outputs · Elevons: AIL + ELE outputs",
+                  style="Muted.TLabel").grid(row=2, column=0, columnspan=8, sticky='w', pady=4)
+
+        ttk.Checkbutton(form, text="Reverse rudder input (V-tail only)",
+                        variable=self.vtail_rudder_reverse_var).grid(
+                            row=3, column=0, columnspan=8, sticky='w', pady=4)
 
         mix_frame = ttk.LabelFrame(right, text="Control Mixing", padding=(12, 8))
         mix_frame.pack(fill='x', pady=(0, 6))
@@ -1534,6 +1555,8 @@ class App(tk.Tk):
 
     def populate_editor(self, m, slot=None):
         # Copy a model dictionary into the visible editor widgets.
+        self.aircraft_type_var.set(AIRCRAFT_TYPES[m.get("aircraft_type", 0)])
+        self.vtail_rudder_reverse_var.set(bool(m.get("vtail_rudder_reverse", False)))
         self.name_var.set(m["name"])
         self.bind_var.set(str(m["bind_code"]))
         self.bind_changed = False
@@ -1566,6 +1589,8 @@ class App(tk.Tk):
         # the inverse of populate_editor.
         model = dict(
             name=self.name_var.get().strip()[:16],
+            aircraft_type=AIRCRAFT_TYPES.index(self.aircraft_type_var.get()),
+            vtail_rudder_reverse=bool(self.vtail_rudder_reverse_var.get()),
             bind_code=int(self.bind_var.get() or "0"),
             dr_switch=int(self.dr_switch_var.get() or "0"),
             active_rates=bool(self.dr_active_var.get()),
