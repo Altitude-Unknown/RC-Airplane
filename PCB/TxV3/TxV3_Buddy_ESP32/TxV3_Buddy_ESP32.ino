@@ -332,7 +332,8 @@ static const char *roleName(Role value) {
 
 static void printStatus() {
   const uint32_t modeAge = samdModeAtMs ? millis() - samdModeAtMs : 0xFFFFFFFFUL;
-  Serial.printf("STATUS role=%s authority=%s mode=%s mode_age_ms=%lu mac=%s ble=%s ble_conn=%lu ble_disc=%lu ble_auth=%d ble_sub=%s sent=%lu received=%lu forwarded=%lu samd_lines=%lu role_replies=%lu\n", roleName(role), samdAuthority, samdMode,
+  Serial.printf("STATUS student_link=%s role=%s authority=%s mode=%s mode_age_ms=%lu mac=%s ble=%s ble_conn=%lu ble_disc=%lu ble_auth=%d ble_sub=%s sent=%lu received=%lu forwarded=%lu samd_lines=%lu role_replies=%lu\n",
+                role == ROLE_MASTER && receivedFrames && millis() - receivedStudentAtMs <= 250 ? "connected" : "disconnected", roleName(role), samdAuthority, samdMode,
                 static_cast<unsigned long>(modeAge),
                 WiFi.macAddress().c_str(), bleConnected ? "connected" : (bleHidStarted ? "advertising" : "off"),
                 static_cast<unsigned long>(bleConnectCount),

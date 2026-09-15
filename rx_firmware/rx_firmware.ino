@@ -1,3 +1,4 @@
+#include "aux_channels.h"
 /*
   ===========================================
   LoRa RC Receiver (Feather M0 / SAMD21) v6
@@ -78,6 +79,10 @@ const int PIN_SERVO_THROTTLE = A0;
 const int PIN_SERVO_AILERON  = A1;
 const int PIN_SERVO_ELEVATOR = A2;
 const int PIN_SERVO_RUDDER   = A3;
+// Additional servo signal headers: CH5=SCL, CH6=SDA (also bind-plug input).
+const int PIN_SERVO_CHANNEL5 = 21;
+const int PIN_SERVO_CHANNEL6 = 20;
+uint16_t channel5Us = 1000, channel6Us = 1000;
 
 // ------------------------------
 // Bind button
@@ -86,7 +91,7 @@ const int PIN_SERVO_RUDDER   = A3;
 // bind code. The bind code prevents this receiver from listening to the wrong
 // transmitter.
 const int PIN_BIND_BTN = 10;
-const int PIN_BIND_PLUG = 20; // Feather M0 D20 / SDA; unused by this firmware.
+const int PIN_BIND_PLUG = 20; // SDA/CH6: input at boot, output only without bind plug.
 
 // ------------------------------
 // RC pulse ranges
@@ -302,6 +307,8 @@ void writeServoFrame() {
   writePulse(PIN_SERVO_AILERON,  cur_a);
   writePulse(PIN_SERVO_ELEVATOR, cur_e);
   writePulse(PIN_SERVO_RUDDER, cur_r);
+  writePulse(PIN_SERVO_CHANNEL5, channel5Us);
+  if (!bindPlugBoot) writePulse(PIN_SERVO_CHANNEL6, channel6Us);
 }
 
 // A bind plug connects D20/SDA to ground. Multiple startup samples avoid
@@ -416,6 +423,13 @@ void setup() {
   // the receiver restarts.
   bindPlugBoot = detectBindPlug();
   bindMode = bindButtonHeld || bindPlugBoot;
+  pinMode(PIN_SERVO_CHANNEL5, OUTPUT);
+  digitalWrite(PIN_SERVO_CHANNEL5, LOW);
+  // Never drive a grounded bind plug: preserve input mode for the whole boot.
+  if (!bindPlugBoot) {
+    pinMode(PIN_SERVO_CHANNEL6, OUTPUT);
+    digitalWrite(PIN_SERVO_CHANNEL6, LOW);
+  }
 
   // Load the bind code saved from an earlier bind operation.
   g_bind = loadBind();
@@ -566,6 +580,8 @@ void loop() {
             // Copy the newest transmitter commands into the desired outputs.
             // The servo tick below will decide whether it is safe to actually
             // output them.
+            channel5Us = AuxChannels::pulse(pkt.aux_flags, AuxChannels::CH5);
+            channel6Us = AuxChannels::pulse(pkt.aux_flags, AuxChannels::CH6);
             des_r = pkt.ch_rud;
             des_a = pkt.ch_ail;
             des_e = pkt.ch_ele;
@@ -728,6 +744,12 @@ void loop() {
       setServoIfChanged(cur_a, filt_a);
       setServoIfChanged(cur_e, filt_e);
       setServoIfChanged(cur_r, filt_r);
+    }
+
+    // Auxiliary switches fail low promptly, independently of throttle arming.
+    // Bind mode and the initial no-packet state must never hold a high switch.
+    if (bindMode || bindRestartRequired || age > LINK_FRESH_MS || acceptedPackets == 0) {
+      channel5Us = channel6Us = 1000;
     }
 
     // Send the actual pulses and update the status LED once per servo frame.

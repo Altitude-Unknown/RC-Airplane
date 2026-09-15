@@ -44,6 +44,8 @@ typedef struct __attribute__((packed)) {
     // reserved[2]: signed aileron-to-rudder mix percentage (-100..100)
     // reserved[3]: aircraft type: 0=conventional, 1=V-tail, 2=elevons
     // reserved[4] bit0: reverse V-tail rudder input before surface mixing
+    // reserved[5]: D10 bits0..1 (0=trainer,1=momentary,2=toggle);
+    // D7 bits2..3 (0=disabled,1=momentary,2=toggle)
     uint8_t  reserved[6];
   uint16_t crc16;           // CCITT over first 58 bytes
 } txcf_model_v1_t;

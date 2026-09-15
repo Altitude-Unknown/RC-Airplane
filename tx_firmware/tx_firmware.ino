@@ -39,6 +39,7 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 #include "tx_config.h"
+#include "aux_channels.h"
 
 #ifdef TXV3_BUDDY_BUILD
 void txv3BuddyBegin();
@@ -319,7 +320,7 @@ static void processConfigLine(const String &line) {
   if (cmd == "INFO") {
     Serial.print("{\"mcu\":\"SAMD21G18\",\"fram_size\":");
     Serial.print(TXCF::framSize());
-    Serial.println(",\"proto\":\"1.0\",\"role\":\"TX\"}");
+    Serial.println(",\"proto\":\"1.0\",\"role\":\"TX\",\"button_channels\":true,\"radio_role\":\"MASTER\"}");
     return;
   }
   if (cmd == "RANGE") {
@@ -402,6 +403,7 @@ uint32_t nextBeepTransitionMs = 0;
 // endpoints, reverse flags, bind code, etc. gModelLoaded tells us whether FRAM
 // data was valid; if not, the transmitter falls back to simple direct mapping.
 txcf_model_v1_t gModel;
+AuxChannels::Button channel5Button, channel6Button;
 bool gModelLoaded = false;
 
 // Small record for each trim button. wasPressed tracks a full press-release
@@ -741,6 +743,8 @@ void setup() {
   pinMode(PIN_BIND_BTN,INPUT_PULLUP);
   pinMode(PIN_ESC_BTN, INPUT_PULLUP);
   setupTrimPins();
+  pinMode(7, INPUT_PULLUP);
+  pinMode(10, INPUT_PULLUP);
 
 #ifdef TXV3_BUDDY_BUILD
   txv3BuddyBegin();
@@ -946,6 +950,17 @@ void loop() {
   // and override 'highRates', optionally saving back to FRAM.
 
   updatePhysicalTrims();
+  uint8_t buttonConfig = gModelLoaded ? gModel.reserved[5] : 0;
+  uint8_t mode5 = AuxChannels::mode(buttonConfig, 0);
+  uint8_t mode6 = AuxChannels::mode(buttonConfig, 2);
+#ifdef TXV3_BUDDY_BUILD
+  txv3TrainerEnabled = (mode5 == 0);
+  // A student radio never repurposes its trainer button as an aircraft command.
+  if (txv3BuddyIsStudent()) mode5 = 0;
+#endif
+  uint8_t localAux = AuxChannels::encode(
+      channel5Button.update(digitalRead(10) == LOW, mode5, millis()),
+      channel6Button.update(digitalRead(7) == LOW, mode6, millis()));
 
   uint16_t thr, ail, ele, rud;
   if (gModelLoaded) {
@@ -991,7 +1006,7 @@ void loop() {
 #endif
 
 #ifdef TXV3_BUDDY_BUILD
-  uint8_t buddyAux = 0;
+  uint8_t buddyAux = localAux;
 #endif
 
   // Safety
@@ -1033,7 +1048,7 @@ void loop() {
   // flags contains the bind code plus an optional ESC calibration bit. seq is a
   // rolling counter that helps with debugging and packet-loss checks.
   pkt.flags = (uint16_t)( (g_bind.bindCode & 0x7FFF) | (escOverride ? 0x8000 : 0) ); // bit15 = ESC mode
-  pkt.aux_flags = 0;
+  pkt.aux_flags = localAux;
 #ifdef TXV3_BUDDY_BUILD
   pkt.aux_flags = buddyAux;
 #endif

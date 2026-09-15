@@ -104,10 +104,20 @@ MODEL_FMT       = MODEL_FMT_NOCRC + " H"       # +2 = 60
 
 AIRCRAFT_TYPES = ("Conventional / T-tail", "V-tail (ruddervators)", "Flying wing (elevons)")
 
+D10_FUNCTIONS = ("Trainer", "Channel 5 — Momentary", "Channel 5 — Toggle")
+D7_FUNCTIONS = ("Disabled", "Channel 6 — Momentary", "Channel 6 — Toggle")
+
+def button_config(model):
+    modes = (model.get("d10_function", 0), model.get("d7_function", 0))
+    if any(type(value) is not int or value not in (0, 1, 2) for value in modes):
+        raise ValueError("Button function must be 0, 1, or 2")
+    return modes[0] | (modes[1] << 2)
+
 def validate_model_controls(model: dict) -> dict:
     """Clamp editable controls and reject endpoints that collapse a channel."""
     if model.get("aircraft_type", 0) not in range(len(AIRCRAFT_TYPES)):
         raise ValueError("Unsupported aircraft type")
+    button_config(model)
     for i in range(4):
         model["rates"][i] = max(0, min(100, model["rates"][i]))
         model["expo"][i] = max(-100, min(100, model["expo"][i]))
@@ -425,6 +435,8 @@ class ModelsStore:
                 reverse=reverse,
                 aircraft_type=reserved[3] if reserved[3] < len(AIRCRAFT_TYPES) else 0,
                 vtail_rudder_reverse=bool(reserved[4] & 1),
+                d10_function=(reserved[5] & 3) if (reserved[5] & 3) < 3 else 0,
+                d7_function=((reserved[5] >> 2) & 3) if ((reserved[5] >> 2) & 3) < 3 else 0,
                 ail_to_rud_mix_enabled=mix_enabled,
                 ail_to_rud_mix_percent=mix_percent,
                 crc_ok=(crc_stored == crc_calc))
@@ -435,6 +447,13 @@ class ModelsStore:
         # string.
         name_bytes = model["name"].encode("utf-8")[:15] + b"\x00"
         name_bytes = name_bytes.ljust(16, b"\x00")
+
+        config = button_config(model)
+        info = getattr(self.w, "device_info", None)
+        if config and info is not None and not info.get("button_channels"):
+            raise ValueError("Update the transmitter M0 firmware before saving button channels.")
+        if model.get("d10_function", 0) and info and info.get("radio_role") == "STUDENT":
+            raise ValueError("Student radios reserve D10 for training. Select Trainer for D10.")
 
         # Clamp each setting to the same safe range the transmitter expects.
         # This prevents a bad GUI value or imported JSON file from writing
@@ -468,7 +487,7 @@ class ModelsStore:
         aircraft_type = model.get("aircraft_type", 0)
         if aircraft_type not in range(len(AIRCRAFT_TYPES)):
             raise ValueError("Unsupported aircraft type")
-        reserved = bytes([rev_mask, mix_flags]) + struct.pack("b", mix_percent) + bytes([aircraft_type, int(bool(model.get("vtail_rudder_reverse", False))), 0])
+        reserved = bytes([rev_mask, mix_flags]) + struct.pack("b", mix_percent) + bytes([aircraft_type, int(bool(model.get("vtail_rudder_reverse", False))), button_config(model)])
 
         # Pack everything except the CRC first, because the CRC is calculated
         # over these first 58 bytes.
@@ -669,8 +688,24 @@ class App(tk.Tk):
         self.tab_models = ttk.Frame(self.nb, padding=12, style="Panel.TFrame")
         self.nb.add(self.tab_models, text="Models")
 
+        # Keep the expanded model editor reachable on small Raspberry Pi displays.
+        self.models_canvas = tk.Canvas(self.tab_models, highlightthickness=0,
+                                      background=COLORS["panel"])
+        models_vscroll = ttk.Scrollbar(self.tab_models, orient="vertical", command=self.models_canvas.yview)
+        models_hscroll = ttk.Scrollbar(self.tab_models, orient="horizontal", command=self.models_canvas.xview)
+        self.models_canvas.configure(yscrollcommand=models_vscroll.set, xscrollcommand=models_hscroll.set)
+        self.models_canvas.grid(row=0, column=0, sticky="nsew")
+        models_vscroll.grid(row=0, column=1, sticky="ns")
+        models_hscroll.grid(row=1, column=0, sticky="ew")
+        self.tab_models.rowconfigure(0, weight=1)
+        self.tab_models.columnconfigure(0, weight=1)
+        models_body = ttk.Frame(self.models_canvas, style="Panel.TFrame")
+        self.models_canvas.create_window((0, 0), window=models_body, anchor="nw")
+        models_body.bind("<Configure>", lambda event: self.models_canvas.configure(
+            scrollregion=self.models_canvas.bbox("all")))
+
         # Left side: list of all FRAM model slots.
-        left = ttk.Frame(self.tab_models, style="Panel.TFrame"); left.pack(side='left', fill='y', padx=(0,14))
+        left = ttk.Frame(models_body, style="Panel.TFrame"); left.pack(side='left', fill='y', padx=(0,14))
         ttk.Label(left, text="Model Slots", style="Panel.TLabel", font=("Helvetica", 12, "bold")).pack(anchor='w', pady=(0, 6))
         self.models_list = tk.Listbox(left, width=34, height=27, relief="flat", highlightthickness=1,
                                       highlightbackground=COLORS["border"], selectbackground=COLORS["accent"],
@@ -684,11 +719,14 @@ class App(tk.Tk):
         ttk.Button(btns, text="Set Active", command=self.on_set_active).grid(row=0, column=3, padx=2)
 
         # Right side: editor for the selected model's values.
-        right = ttk.Frame(self.tab_models, style="Panel.TFrame"); right.pack(side='left', fill='both', expand=True)
+        right = ttk.Frame(models_body, style="Panel.TFrame"); right.pack(side='left', fill='both', expand=True)
         form = ttk.Frame(right, style="Panel.TFrame"); form.pack(fill='x', pady=(0, 10))
 
         # Tk variables keep widget state synchronized with Python values.
         # For example, editing the Model Name entry changes self.name_var.
+        self.d10_function_var = tk.StringVar(value=D10_FUNCTIONS[0])
+        self.d7_function_var = tk.StringVar(value=D7_FUNCTIONS[0])
+        self.button_status_var = tk.StringVar(value="D10 Trainer reserves the button for handoff. Channel 5 disables student control.")
         self.aircraft_type_var = tk.StringVar(value=AIRCRAFT_TYPES[0])
         self.vtail_rudder_reverse_var = tk.BooleanVar(value=False)
         self.name_var = tk.StringVar()
@@ -726,6 +764,20 @@ class App(tk.Tk):
         ttk.Checkbutton(form, text="Reverse rudder input (V-tail only)",
                         variable=self.vtail_rudder_reverse_var).grid(
                             row=3, column=0, columnspan=8, sticky='w', pady=4)
+
+        button_frame = ttk.LabelFrame(right, text="Button channels", padding=(12, 8))
+        button_frame.pack(fill='x', pady=(0, 6))
+        ttk.Label(button_frame, text="D10 / Trainer:").grid(row=0, column=0, sticky='w')
+        self.d10_function_combo = ttk.Combobox(button_frame, textvariable=self.d10_function_var,
+            values=D10_FUNCTIONS, state="readonly", width=25)
+        self.d10_function_combo.grid(row=0, column=1, padx=8)
+        ttk.Label(button_frame, text="D7 / Aux:").grid(row=0, column=2, sticky='w')
+        ttk.Combobox(button_frame, textvariable=self.d7_function_var,
+            values=D7_FUNCTIONS, state="readonly", width=25).grid(row=0, column=3, padx=8)
+        ttk.Label(button_frame, textvariable=self.button_status_var, wraplength=680).grid(
+            row=1, column=0, columnspan=4, sticky='w', pady=4)
+        ttk.Label(button_frame, text="Momentary: hold high, release low. Toggle: press to change. Starts low at power-up.",
+            wraplength=680).grid(row=2, column=0, columnspan=4, sticky='w')
 
         mix_frame = ttk.LabelFrame(right, text="Control Mixing", padding=(12, 8))
         mix_frame.pack(fill='x', pady=(0, 6))
@@ -1100,12 +1152,13 @@ class App(tk.Tk):
         details.pack(fill="x", pady=16)
         self.role_vars = {
             "mac": tk.StringVar(value="—"), "role": tk.StringVar(value="—"),
-            "mode": tk.StringVar(value="—"), "authority": tk.StringVar(value="—"),
+            "mode": tk.StringVar(value="—"), "student_link": tk.StringVar(value="—"),
+            "authority": tk.StringVar(value="—"),
             "link": tk.StringVar(value="—"),
         }
         labels = (("ESP MAC address", "mac"), ("Current role", "role"),
                   ("M0 operating mode", "mode"), ("Current authority", "authority"),
-                  ("Link counters", "link"))
+                  ("Student link (last read)", "student_link"), ("Link counters", "link"))
         for row_number, (caption, key) in enumerate(labels):
             ttk.Label(details, text=caption + ":", style="Panel.TLabel").grid(
                 row=row_number, column=0, sticky="e", padx=(0, 10), pady=4)
@@ -1294,7 +1347,18 @@ class App(tk.Tk):
             if samd_labels and self.firmware_samd_port_var.get() not in samd_labels:
                 self.firmware_samd_port_cmb.current(0)
 
+    def _update_button_role(self):
+        role = self.w.device_info.get("radio_role", "UNKNOWN")
+        student = role == "STUDENT"
+        self.d10_function_combo.config(state="disabled" if student else "readonly")
+        if student:
+            self.d10_function_var.set(D10_FUNCTIONS[0])
+            self.button_status_var.set("Student radio: D10 is reserved. The master controls aircraft Channels 5 and 6.")
+        else:
+            self.button_status_var.set("D10 Trainer reserves the button for handoff. Channel 5 disables student control.")
+
     def _show_role_status(self, status):
+        self.role_vars["student_link"].set(status.get("student_link", "Not reported by older firmware"))
         self.role_vars["mac"].set(status.get("mac", "—"))
         self.role_vars["role"].set(status.get("role", "—"))
         self.role_vars["mode"].set(status.get("mode", "Not reported by older firmware"))
@@ -1438,6 +1502,7 @@ class App(tk.Tk):
             self.connect_btn.config(text="Disconnect")
             backend = self.w.device_info.get("storage", "transmitter memory").replace("_", " ")
             self.status_lbl.config(text=f"Connected • {backend}")
+            self._update_button_role()
             self.refresh_model_list()
         except Exception as e:
             messagebox.showerror("Connect failed", str(e))
@@ -1555,6 +1620,9 @@ class App(tk.Tk):
 
     def populate_editor(self, m, slot=None):
         # Copy a model dictionary into the visible editor widgets.
+        self.d10_function_var.set(D10_FUNCTIONS[m.get("d10_function", 0)])
+        self.d7_function_var.set(D7_FUNCTIONS[m.get("d7_function", 0)])
+        self._update_button_role()
         self.aircraft_type_var.set(AIRCRAFT_TYPES[m.get("aircraft_type", 0)])
         self.vtail_rudder_reverse_var.set(bool(m.get("vtail_rudder_reverse", False)))
         self.name_var.set(m["name"])
@@ -1590,6 +1658,8 @@ class App(tk.Tk):
         model = dict(
             name=self.name_var.get().strip()[:16],
             aircraft_type=AIRCRAFT_TYPES.index(self.aircraft_type_var.get()),
+            d10_function=D10_FUNCTIONS.index(self.d10_function_var.get()),
+            d7_function=D7_FUNCTIONS.index(self.d7_function_var.get()),
             vtail_rudder_reverse=bool(self.vtail_rudder_reverse_var.get()),
             bind_code=int(self.bind_var.get() or "0"),
             dr_switch=int(self.dr_switch_var.get() or "0"),

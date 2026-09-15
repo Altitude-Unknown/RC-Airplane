@@ -1,3 +1,4 @@
+#include "aux_channels.h"
 /*
   Altitude Unknown Receiver V4 -> Pixhawk CRSF prototype
 
@@ -263,6 +264,8 @@ static void sendCrsfChannels() {
   channels[1] = rcMicrosecondsToCrsf(channelElevator);
   channels[2] = rcMicrosecondsToCrsf(channelThrottle);
   channels[3] = rcMicrosecondsToCrsf(channelRudder);
+  channels[4] = rcMicrosecondsToCrsf(AuxChannels::pulse(lastAuxFlags, AuxChannels::CH5));
+  channels[5] = rcMicrosecondsToCrsf(AuxChannels::pulse(lastAuxFlags, AuxChannels::CH6));
 
   uint8_t frame[CRSF_FRAME_SIZE];
   frame[0] = CRSF_ADDRESS_FLIGHT_CONTROLLER;
@@ -308,8 +311,8 @@ static void handleControlPacket(const uint8_t *buffer, uint8_t length, uint32_t 
   }
 
   const uint16_t packetBindCode = packet.flags & 0x7FFF;
-  if (bindStore.magic == BIND_MAGIC &&
-      bindStore.bindCode != 0 &&
+  if (bindStore.magic != BIND_MAGIC ||
+      bindStore.bindCode == 0 ||
       packetBindCode != bindStore.bindCode) {
     rejectedPackets++;
     return;

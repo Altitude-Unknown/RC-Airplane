@@ -28,6 +28,7 @@ static TxV3Channels txv3Master{1500,1500,1500,1000,0};
 static TxV3Channels txv3MasterAtGrant{1500,1500,1500,1000,0};
 static bool txv3StudentFresh=false,txv3StudentGranted=false,txv3AuxWasPressed=false;
 static bool txv3LastReportedGrant=true;
+static bool txv3TrainerEnabled=false;
 static uint32_t txv3StudentReceivedMs=0,txv3LastLocalMs=0;
 static uint32_t txv3LastAuthorityHeartbeatMs=0;
 static uint32_t txv3LastModeHeartbeatMs=0;
@@ -106,7 +107,8 @@ void txv3BuddyModeService(){
 }
 void txv3BuddyService(){
   txv3ReadUart(); if(txv3Role!=TXV3_MASTER)return;uint32_t now=millis();
-  bool pressed=digitalRead(TXV3_TRAINER_PIN)==LOW;if(pressed)txv3AuxWasPressed=true;
+  if (!txv3TrainerEnabled) { txv3StudentGranted=false; txv3AuxWasPressed=false; }
+  bool pressed=txv3TrainerEnabled && digitalRead(TXV3_TRAINER_PIN)==LOW;if(pressed)txv3AuxWasPressed=true;
   if(!pressed&&txv3AuxWasPressed){txv3AuxWasPressed=false;if(txv3StudentGranted)txv3StudentGranted=false;else if(txv3StudentFresh&&now-txv3StudentReceivedMs<=TXV3_STUDENT_TIMEOUT_MS){txv3StudentGranted=true;txv3MasterAtGrant=txv3Master;}}
   auto moved=[](uint16_t a,uint16_t b){return abs((int)a-(int)b)>=TXV3_MASTER_MOVE_US;};
   if(txv3StudentGranted&&(moved(txv3Master.rud,txv3MasterAtGrant.rud)||moved(txv3Master.ail,txv3MasterAtGrant.ail)||moved(txv3Master.ele,txv3MasterAtGrant.ele)||moved(txv3Master.thr,txv3MasterAtGrant.thr)))txv3StudentGranted=false;
@@ -119,5 +121,5 @@ void txv3BuddyPublishLocal(uint16_t rud,uint16_t ail,uint16_t ele,uint16_t thr,u
   uint32_t now=millis();if(now-txv3LastLocalMs<TXV3_LOCAL_INTERVAL_MS)return;txv3LastLocalMs=now;char out[96];snprintf(out,sizeof(out),"LOCAL %u %u %u %u %u %u\n",++txv3LocalSequence,rud,ail,ele,thr,aux);txv3Write(out);
 }
 bool txv3BuddySelectChannels(uint16_t &rud,uint16_t &ail,uint16_t &ele,uint16_t &thr,uint8_t &aux){
-  txv3Master={rud,ail,ele,thr,aux};txv3BuddyService();if(!txv3StudentGranted)return false;rud=txv3Student.rud;ail=txv3Student.ail;ele=txv3Student.ele;thr=txv3Student.thr;aux=txv3Student.aux;return true;
+  txv3Master={rud,ail,ele,thr,aux};txv3BuddyService();if(!txv3StudentGranted)return false;rud=txv3Student.rud;ail=txv3Student.ail;ele=txv3Student.ele;thr=txv3Student.thr;/* Master retains CH5/6 authority during handoff. */return true;
 }

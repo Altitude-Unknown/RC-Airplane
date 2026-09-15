@@ -16,7 +16,10 @@ CRSF frames over the Receiver V4 UART header. The first four channels are:
 3. Throttle
 4. Rudder / yaw
 
-Channels 5 through 16 are initially centered.
+Channels 5 and 6 decode the transmitter's on/off button channels: 1000 or
+2000 µs equivalents. Unmarked legacy packets produce low on both channels.
+Channels 7 through 16 remain centered. See [button-channel setup](../BUTTON_CHANNELS.md).
+The receiver must be explicitly bound before accepting control packets.
 
 ## Receiver V4 UART
 
@@ -73,7 +76,7 @@ available, the following remain required:
 
 1. Confirm `Serial5` output on the Receiver V4 header with a logic analyzer.
 2. Confirm 416666-baud timing and CRSF frame CRC/packing.
-3. Confirm ArduPilot detects all four channels in Radio Calibration.
+3. Confirm ArduPilot detects all six channels in Radio Calibration.
 4. Confirm channel order, endpoints, centers, and direction.
 5. Remove transmitter power and confirm ArduPilot reports RC failsafe after the
    receiver's 300 ms frame timeout.

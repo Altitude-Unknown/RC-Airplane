@@ -9,6 +9,13 @@ This manual describes production release `transmitter-gui-v2026.09.14`.
 V-tail controls have passed the pilot's bench and flight tests. Elevon mixing
 has automated tests but has not yet been tested on an airplane.
 
+## Unreleased Button-Channel Update
+
+The next firmware/configurator update adds D10/Channel 5 and D7/Channel 6
+momentary or toggle control, per-model trainer assignment, D21/SCL and D20/SDA
+receiver outputs, and CRSF channel mapping. This is not part of the 2026.09.14
+release described below. See [button-channel setup and bench checks](BUTTON_CHANNELS.md).
+
 ## Contents
 
 - [System Overview](#system-overview)
