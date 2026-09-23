@@ -1,30 +1,21 @@
-Slow stick movements now produce finer receiver servo commands: aileron,
-elevator, and rudder accept 1 µs changes instead of accumulating changes into
-steps of at least 3 µs. No additional filtering delay is introduced.
+All configurator tabs now have vertical and horizontal scrollbars so controls
+remain reachable in smaller windows and with enlarged display text. Models,
+Instructor / Student, and Firmware Update share the same scrolling behavior.
 
-Only the receiver needs updating for this improvement. Transmitter firmware,
-packet compatibility, throttle handling, arming/failsafe logic, model settings,
-trims, rates, expo, and reversing are unchanged. The receiver image also includes
-the USB STATUS diagnostic used to check radio health and binding.
+- Mouse wheel scrolls vertically; Shift+wheel scrolls horizontally.
+- Keyboard navigation brings focused controls into view.
+- The serial connection row also scrolls in narrow windows.
+- Startup window dimensions adapt to the screen, with a smaller minimum size.
 
-Validation: receiver compilation and 27 automated tests passed, including
-single-microsecond surface sweeps and exhaustive throttle-output comparisons.
-The receiver was flashed and verified; the pilot's bench test reported visibly
-smoother surface motion. This change has not yet been flight-tested. Existing
-servo timing irregularities are documented in CONTROL_SMOOTHNESS_REVIEW.md and
-are not changed in this release.
+Install the updated configurator app. No transmitter or receiver firmware
+update is needed for this change. Firmware sources are unchanged from
+2026.09.22; firmware assets remain included for the existing updater.
 
-Flashing may clear the receiver bind; it did on the tested board. Rebind if
-needed, then check directions, travel, trims, arming, and link-loss failsafe
-with the propeller removed before flight.
+Validation: 20 tests passed, including live macOS Tk layout checks down to
+480×320 and enlarged-text/scaling checks. The Windows package is built by CI;
+interactive Windows display-scaling validation remains outstanding.
 
-Includes configurator apps for macOS ARM64, Windows x64, and Raspberry Pi
-ARM64; transmitter M0/ESP32 firmware; receiver firmware; and SHA-256 manifest.
-
-This release also carries the previously committed configurable CH5/CH6 button
-assignments, which were not in release 2026.09.14. Those optional features have
-automated test coverage but still await dedicated hardware validation. Existing
-models retain trainer/disabled defaults. To use button assignments, update the
-configurator and corresponding transmitter firmware together; older GUI
-versions do not preserve the assignments. See BUTTON_CHANNELS.md. This is
-separate from the receiver-only smoothness update.
+Includes macOS ARM64, Windows x64, and Raspberry Pi ARM64 apps, plus the
+existing firmware and SHA-256 manifest. The previous receiver smoothness
+improvement is retained. Optional CH5/CH6 button assignments still await
+dedicated hardware validation; see BUTTON_CHANNELS.md.

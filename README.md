@@ -2,6 +2,11 @@
 
 This repository contains a Tkinter-based desktop GUI to manage transmitter models over USB serial. The radio automatically uses external FRAM when installed or the SAMD21's internal-flash fallback when FRAM is absent. The main script is `fram_gui_models.py`.
 
+Every tab has vertical and horizontal scrollbars for small windows and enlarged
+display text. Use the mouse wheel to scroll vertically, Shift+wheel to scroll
+horizontally, or drag the scrollbars. Keyboard Tab navigation brings focused
+controls into view. The serial connection row also scrolls in narrow windows.
+
 For V3 buddy-box radios, the **Instructor / Student** tab can also read and set
 the persistent role through the transmitter's separate ESP32-C3 USB port. With
 current M0 and ESP firmware, only the ESP cable is needed: the M0 reports its

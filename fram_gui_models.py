@@ -567,6 +567,92 @@ class ChannelLabelStore:
             del self.labels[str(slot)]
             self.save()
 
+class ScrollableTab(ttk.Frame):
+    """Two-axis viewport; keep the form's natural size instead of clipping it."""
+
+    def __init__(self, parent, padding=12):
+        super().__init__(parent, style="Panel.TFrame")
+        self.canvas = tk.Canvas(self, background=COLORS["panel"],
+                                highlightthickness=0, width=1, height=1,
+                                xscrollincrement=1, yscrollincrement=1)
+        self.vertical = ttk.Scrollbar(self, orient="vertical", command=self.canvas.yview)
+        self.horizontal = ttk.Scrollbar(self, orient="horizontal", command=self.canvas.xview)
+        self.canvas.configure(xscrollcommand=self.horizontal.set,
+                              yscrollcommand=self.vertical.set)
+        self.canvas.grid(row=0, column=0, sticky="nsew")
+        self.vertical.grid(row=0, column=1, sticky="ns")
+        self.horizontal.grid(row=1, column=0, sticky="ew")
+        self.rowconfigure(0, weight=1)
+        self.columnconfigure(0, weight=1)
+        self.content = ttk.Frame(self.canvas, padding=padding, style="Panel.TFrame")
+        self.window = self.canvas.create_window(0, 0, window=self.content, anchor="nw")
+        self.canvas.bind("<Configure>", self._resize)
+        self.content.bind("<Configure>", self._resize)
+        # A per-tab tag runs before widget class bindings. No bind_all/unbind_all:
+        # wheel events cannot change a combobox value or affect another window.
+        self._tag = f"ScrollableTab:{self}"
+        for sequence in ("<MouseWheel>", "<Shift-MouseWheel>",
+                         "<Button-4>", "<Button-5>",
+                         "<Shift-Button-4>", "<Shift-Button-5>"):
+            self.bind_class(self._tag, sequence, self._wheel)
+        self.bind_class(self._tag, "<FocusIn>", self._focus)
+
+    def _resize(self, _event=None):
+        width = max(self.content.winfo_reqwidth(), self.canvas.winfo_width())
+        height = max(self.content.winfo_reqheight(), self.canvas.winfo_height())
+        self.canvas.itemconfigure(self.window, width=width, height=height)
+        self.canvas.configure(scrollregion=(0, 0, width, height))
+
+    def bind_content(self, widget=None):
+        widget = self if widget is None else widget
+        tags = widget.bindtags()
+        if self._tag not in tags:
+            widget.bindtags((tags[0], self._tag, *tags[1:]))
+        for child in widget.winfo_children():
+            self.bind_content(child)
+
+    def _wheel(self, event):
+        horizontal = bool(event.state & 0x1)
+        if getattr(event, "num", None) in (4, 5):
+            units = -1 if event.num == 4 else 1
+        else:
+            delta = event.delta
+            if not delta:
+                return "break"
+            # Windows uses multiples of 120; macOS delivers smaller deltas.
+            units = -int(delta / 120) if abs(delta) >= 120 else (-1 if delta > 0 else 1)
+        # Preserve useful nested list/table scrolling. At its edge, scroll the
+        # whole form so wheel users can still reach controls below the list.
+        widget = event.widget
+        if not horizontal and isinstance(widget, (tk.Listbox, ttk.Treeview, tk.Text)):
+            first, last = widget.yview()
+            if (units < 0 and first > 0) or (units > 0 and last < 1):
+                widget.yview_scroll(units, "units")
+                return "break"
+        view = self.canvas.xview_scroll if horizontal else self.canvas.yview_scroll
+        view(units * 20, "units")
+        return "break"
+
+    def _focus(self, event):
+        widget = event.widget
+        if widget in (self, self.canvas, self.vertical, self.horizontal, self.content):
+            return
+        self.update_idletasks()
+        # Coordinates relative to the complete content, independent of scroll.
+        x = widget.winfo_rootx() - self.content.winfo_rootx()
+        y = widget.winfo_rooty() - self.content.winfo_rooty()
+        for start, size, viewport, total, current, move in (
+            (x, widget.winfo_width(), self.canvas.winfo_width(),
+             self.content.winfo_width(), self.canvas.canvasx(0), self.canvas.xview_moveto),
+            (y, widget.winfo_height(), self.canvas.winfo_height(),
+             self.content.winfo_height(), self.canvas.canvasy(0), self.canvas.yview_moveto),
+        ):
+            if start < current or size > viewport:
+                move(max(0, start - 20) / total)
+            elif start + size > current + viewport:
+                move(min(start, start + size + 8 - viewport) / total)
+
+
 class App(tk.Tk):
     """
     Main Tkinter window.
@@ -581,8 +667,10 @@ class App(tk.Tk):
 
         # Basic window setup.
         self.title(APP_TITLE)
-        self.geometry("1120x760")
-        self.minsize(980, 650)
+        width = min(1120, max(480, self.winfo_screenwidth() - 80))
+        height = min(760, max(320, self.winfo_screenheight() - 120))
+        self.geometry(f"{width}x{height}")
+        self.minsize(480, 320)
         self.configure(bg=COLORS["bg"])
 
         # Create helper objects used by the UI callbacks.
@@ -669,8 +757,11 @@ class App(tk.Tk):
 
         # Serial connection controls. The user chooses a USB port, then connects
         # to the transmitter while it is in Config Mode.
-        top = ttk.Frame(self, padding=(14, 12), style="Panel.TFrame")
-        top.pack(fill='x', padx=14, pady=(14, 0))
+        self.connection_view = ScrollableTab(self, padding=(14, 12))
+        self.connection_view.pack(fill='x', padx=14, pady=(14, 0))
+        top = self.connection_view.content
+        top.bind("<Configure>", lambda _event: self.connection_view.canvas.configure(
+            height=top.winfo_reqheight()), add="+")
         ttk.Label(top, text="Serial Port:", style="Panel.TLabel").pack(side='left')
         self.port_var = tk.StringVar()
         self.port_cmb = ttk.Combobox(top, textvariable=self.port_var, width=30, state="readonly")
@@ -681,28 +772,14 @@ class App(tk.Tk):
         self.status_lbl = ttk.Label(header, text="Not connected", style="Status.TLabel")
         self.status_lbl.pack(side='right', padx=4)
 
-        # Notebook allows more tabs later. Right now it only contains Models.
+        # Each tab owns a two-axis viewport so controls remain reachable.
         self.nb = ttk.Notebook(self); self.nb.pack(fill='both', expand=True, padx=14, pady=14)
 
         # --- Models tab ---
-        self.tab_models = ttk.Frame(self.nb, padding=12, style="Panel.TFrame")
+        self.tab_models = ScrollableTab(self.nb, padding=12)
         self.nb.add(self.tab_models, text="Models")
-
-        # Keep the expanded model editor reachable on small Raspberry Pi displays.
-        self.models_canvas = tk.Canvas(self.tab_models, highlightthickness=0,
-                                      background=COLORS["panel"])
-        models_vscroll = ttk.Scrollbar(self.tab_models, orient="vertical", command=self.models_canvas.yview)
-        models_hscroll = ttk.Scrollbar(self.tab_models, orient="horizontal", command=self.models_canvas.xview)
-        self.models_canvas.configure(yscrollcommand=models_vscroll.set, xscrollcommand=models_hscroll.set)
-        self.models_canvas.grid(row=0, column=0, sticky="nsew")
-        models_vscroll.grid(row=0, column=1, sticky="ns")
-        models_hscroll.grid(row=1, column=0, sticky="ew")
-        self.tab_models.rowconfigure(0, weight=1)
-        self.tab_models.columnconfigure(0, weight=1)
-        models_body = ttk.Frame(self.models_canvas, style="Panel.TFrame")
-        self.models_canvas.create_window((0, 0), window=models_body, anchor="nw")
-        models_body.bind("<Configure>", lambda event: self.models_canvas.configure(
-            scrollregion=self.models_canvas.bbox("all")))
+        self.models_canvas = self.tab_models.canvas
+        models_body = self.tab_models.content
 
         # Left side: list of all FRAM model slots.
         left = ttk.Frame(models_body, style="Panel.TFrame"); left.pack(side='left', fill='y', padx=(0,14))
@@ -828,45 +905,14 @@ class App(tk.Tk):
 
         self._build_role_tab()
         self._build_firmware_tab()
+        for tab in (self.connection_view, self.tab_models, self.tab_roles, self.tab_firmware):
+            tab.bind_content()
 
     def _build_firmware_tab(self):
         """Build the guided SAMD21/ESP32-C3 firmware updater."""
-        self.tab_firmware = ttk.Frame(self.nb, style="Panel.TFrame")
+        self.tab_firmware = ScrollableTab(self.nb, padding=22)
         self.nb.add(self.tab_firmware, text="Firmware Update")
-
-        # This form is intentionally detailed, and can be taller than the usable
-        # window on laptops or displays with increased scaling.  Keep it in a
-        # canvas so every control, especially the flash button at the bottom,
-        # remains reachable.
-        firmware_canvas = tk.Canvas(
-            self.tab_firmware, background=COLORS["panel"], highlightthickness=0)
-        firmware_scrollbar = ttk.Scrollbar(
-            self.tab_firmware, orient="vertical", command=firmware_canvas.yview)
-        firmware_canvas.configure(yscrollcommand=firmware_scrollbar.set)
-        firmware_scrollbar.pack(side="right", fill="y")
-        firmware_canvas.pack(side="left", fill="both", expand=True)
-
-        content = ttk.Frame(firmware_canvas, padding=22, style="Panel.TFrame")
-        content_window = firmware_canvas.create_window(
-            (0, 0), window=content, anchor="nw")
-
-        def resize_firmware_content(event):
-            firmware_canvas.itemconfigure(content_window, width=event.width)
-
-        def update_firmware_scrollregion(_event=None):
-            firmware_canvas.configure(scrollregion=firmware_canvas.bbox("all"))
-
-        def scroll_firmware(event):
-            if event.delta:
-                firmware_canvas.yview_scroll(-1 if event.delta > 0 else 1, "units")
-            return "break"
-
-        firmware_canvas.bind("<Configure>", resize_firmware_content)
-        content.bind("<Configure>", update_firmware_scrollregion)
-        firmware_canvas.bind("<MouseWheel>", scroll_firmware)
-        content.bind("<MouseWheel>", scroll_firmware)
-        firmware_canvas.bind("<Button-4>", lambda _event: firmware_canvas.yview_scroll(-1, "units"))
-        firmware_canvas.bind("<Button-5>", lambda _event: firmware_canvas.yview_scroll(1, "units"))
+        content = self.tab_firmware.content
 
         ttk.Label(content, text="RC Firmware Update", style="Panel.TLabel",
                   font=("Helvetica", 16, "bold")).pack(anchor="w")
@@ -1124,19 +1170,20 @@ class App(tk.Tk):
 
     def _build_role_tab(self):
         """Build the guarded ESP32 instructor/student role controls."""
-        self.tab_roles = ttk.Frame(self.nb, padding=22, style="Panel.TFrame")
+        self.tab_roles = ScrollableTab(self.nb, padding=22)
         self.nb.add(self.tab_roles, text="Instructor / Student")
+        content = self.tab_roles.content
 
-        ttk.Label(self.tab_roles, text="Transmitter Role", style="Panel.TLabel",
+        ttk.Label(content, text="Transmitter Role", style="Panel.TLabel",
                   font=("Helvetica", 16, "bold")).pack(anchor="w")
         ttk.Label(
-            self.tab_roles,
+            content,
             text=("Connect the transmitter's ESP32-C3 USB port here. This is the small "
                   "ESP USB connector, not the M0 model-configurator connector."),
             style="Muted.TLabel", wraplength=820, justify="left"
         ).pack(anchor="w", pady=(5, 18))
 
-        connection = ttk.LabelFrame(self.tab_roles, text="ESP32-C3 connection", padding=14)
+        connection = ttk.LabelFrame(content, text="ESP32-C3 connection", padding=14)
         connection.pack(fill="x")
         row = ttk.Frame(connection, style="Panel.TFrame")
         row.pack(fill="x")
@@ -1148,7 +1195,7 @@ class App(tk.Tk):
         self.esp_connect_btn = ttk.Button(row, text="Connect", command=self.on_role_connect)
         self.esp_connect_btn.pack(side="left", padx=7)
 
-        details = ttk.LabelFrame(self.tab_roles, text="Detected transmitter", padding=14)
+        details = ttk.LabelFrame(content, text="Detected transmitter", padding=14)
         details.pack(fill="x", pady=16)
         self.role_vars = {
             "mac": tk.StringVar(value="—"), "role": tk.StringVar(value="—"),
@@ -1165,7 +1212,7 @@ class App(tk.Tk):
             ttk.Label(details, textvariable=self.role_vars[key], style="Panel.TLabel",
                       font=("Menlo", 11, "bold")).grid(row=row_number, column=1, sticky="w", pady=4)
 
-        actions = ttk.LabelFrame(self.tab_roles, text="Assign role", padding=14)
+        actions = ttk.LabelFrame(content, text="Assign role", padding=14)
         actions.pack(fill="x")
         self.role_safety_var = tk.StringVar(
             value="Connect to the ESP32-C3 to read its role before making changes.")
