@@ -206,6 +206,11 @@ jobs:
     needs: [build, firmware]
     runs-on: ubuntu-latest
     steps:
+      - name: Check out release notes
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
       - name: Download packages
         uses: actions/download-artifact@v4
         with:
@@ -228,17 +233,16 @@ jobs:
           RELEASE_TAG: ${{ steps.release_tag.outputs.tag }}
         shell: bash
         run: |
-          release_notes="Adds per-model aircraft selection for Conventional / T-tail, V-tail ruddervators, and flying-wing elevons, plus independent V-tail rudder-input reversal. Includes matching transmitter firmware. V-tail controls have been bench-tested and flight-tested by the pilot; elevon mixing has automated test coverage but has not yet been hardware- or flight-tested. Existing models default to conventional. Install the updated configurator and transmitter M0 firmware together; older configurators do not preserve these new settings. Includes macOS ARM64, Windows x64, and Raspberry Pi OS ARM64 apps, transmitter M0/ESP32 firmware, receiver firmware, and the checksum manifest. Export your models before updating and verify surface direction and travel with the motor disabled."
           if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release edit "$RELEASE_TAG" \
               --repo "$GITHUB_REPOSITORY" \
               --title "Altitude Unknown RC Configurator ${RELEASE_TAG#transmitter-gui-v}" \
-              --notes "$release_notes"
+              --notes-file RELEASE_NOTES.md
           else
             gh release create "$RELEASE_TAG" \
               --repo "$GITHUB_REPOSITORY" \
               --title "Altitude Unknown RC Configurator ${RELEASE_TAG#transmitter-gui-v}" \
-              --notes "$release_notes"
+              --notes-file RELEASE_NOTES.md
           fi
           gh release upload "$RELEASE_TAG" release-assets/* \
             --repo "$GITHUB_REPOSITORY" \

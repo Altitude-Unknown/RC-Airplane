@@ -104,8 +104,8 @@ const uint16_t RC_MAX = 2000;
 // Servos expect a new pulse about every 20 ms, which is 50 times per second.
 const uint32_t SERVO_PERIOD_MS = 20;
 
-// Ignore tiny one-or-two-microsecond changes so we do not constantly rewrite
-// outputs for changes too small to matter.
+// Retain the existing throttle deadband. Surfaces accept every microsecond;
+// suppressing 1–2 us changes made slow stick motion jump in 3 us steps.
 const uint16_t SERVO_DEADBAND_US = 2;
 
 // 1.0 means the receiver outputs the transmitter command immediately.
@@ -218,6 +218,7 @@ bool bindPlugBoot = false;
 bool bindRestartRequired = false;
 bool escMode = false;
 bool armed = false;
+bool radioInitialized = false;
 
 // Used to prove the throttle has been low long enough to arm.
 uint32_t thrLowSince = 0;
@@ -284,7 +285,7 @@ static inline void setSafeDesired() {
   des_r = RC_MID; des_a = RC_MID; des_e = RC_MID; des_t = RC_MIN;
 }
 
-// Only update the stored output value when the change is large enough to matter.
+// Preserve the existing throttle output behavior.
 static inline void setServoIfChanged(uint16_t &cur, uint16_t target) {
   if (abs((int)target - (int)cur) > SERVO_DEADBAND_US) {
     cur = target;
@@ -331,9 +332,34 @@ void disarmAndLock() {
   des_t = RC_MIN;
 }
 
-// The desktop configurator uses this exact command to request the installed
-// SAM-BA bootloader. Keeping the USB connection open lets the SAMD core finish
-// its normal reset sequence; all unrelated serial input is ignored.
+void printUsbStatus() {
+  Serial.print("STATUS radio=");
+  Serial.print(radioInitialized ? "OK" : "ERROR");
+  Serial.print(" bindMode=");
+  Serial.print(bindMode ? "yes" : "no");
+  Serial.print(" bindPlug=");
+  Serial.print(bindPlugBoot ? "yes" : "no");
+  Serial.print(" restartRequired=");
+  Serial.print(bindRestartRequired ? "yes" : "no");
+  Serial.print(" stored=");
+  Serial.print((g_bind.magic == BIND_MAGIC) ? g_bind.bindCode : 0);
+  Serial.print(" rx=");
+  Serial.print(rxPackets);
+  Serial.print(" accepted=");
+  Serial.print(acceptedPackets);
+  Serial.print(" rejected=");
+  Serial.print(rejectedPackets);
+  Serial.print(" pktBind=");
+  Serial.print(lastPktBind);
+  Serial.print(" rssi=");
+  Serial.print(lastRssi);
+  Serial.print(" armed=");
+  Serial.println(armed ? "yes" : "no");
+}
+
+// The desktop configurator uses BOOTLOADER to request the installed SAM-BA
+// bootloader. STATUS is read-only and provides on-demand bench diagnostics
+// without enabling continuous serial output in the flight loop.
 void serviceUsbBootloaderRequest() {
   static char command[16] = {0};
   static uint8_t length = 0;
@@ -342,7 +368,9 @@ void serviceUsbBootloaderRequest() {
     if (c == '\r') continue;
     if (c == '\n') {
       command[length] = '\0';
-      if (strcmp(command, "BOOTLOADER") == 0) {
+      if (strcmp(command, "STATUS") == 0) {
+        printUsbStatus();
+      } else if (strcmp(command, "BOOTLOADER") == 0) {
         setSafeDesired();
         disarmAndLock();
         cur_t = RC_MIN;
@@ -462,7 +490,8 @@ void setup() {
 
   // Reset and initialize the LoRa radio.
   hardResetRadio();
-  if (!rf95.init()) {
+  radioInitialized = rf95.init();
+  if (!radioInitialized) {
     // Radio hardware may be unavailable when the receiver is powered only for
     // a desktop firmware update. Keep the safe error blink, but continue to
     // accept the exact configurator bootloader command over USB.
@@ -733,18 +762,18 @@ void loop() {
     // throttle above RC_MIN.
     if (armed || escMode) {
       setServoIfChanged(cur_t, filt_t);
-      setServoIfChanged(cur_a, filt_a);
-      setServoIfChanged(cur_e, filt_e);
-      setServoIfChanged(cur_r, filt_r);
     } else {
       // Disarmed:
       // throttle hard low, surfaces follow staged desired values. After a long
       // failsafe, those desired values become centered.
       setServoIfChanged(cur_t, RC_MIN);
-      setServoIfChanged(cur_a, filt_a);
-      setServoIfChanged(cur_e, filt_e);
-      setServoIfChanged(cur_r, filt_r);
     }
+
+    // Preserve the full packet resolution on surfaces, including safe/trim
+    // targets. Pulses are emitted every frame anyway; this adds no delay.
+    cur_a = filt_a;
+    cur_e = filt_e;
+    cur_r = filt_r;
 
     // Auxiliary switches fail low promptly, independently of throttle arming.
     // Bind mode and the initial no-packet state must never hold a high switch.
