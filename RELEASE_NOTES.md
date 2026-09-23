@@ -20,3 +20,11 @@ with the propeller removed before flight.
 
 Includes configurator apps for macOS ARM64, Windows x64, and Raspberry Pi
 ARM64; transmitter M0/ESP32 firmware; receiver firmware; and SHA-256 manifest.
+
+This release also carries the previously committed configurable CH5/CH6 button
+assignments, which were not in release 2026.09.14. Those optional features have
+automated test coverage but still await dedicated hardware validation. Existing
+models retain trainer/disabled defaults. To use button assignments, update the
+configurator and corresponding transmitter firmware together; older GUI
+versions do not preserve the assignments. See BUTTON_CHANNELS.md. This is
+separate from the receiver-only smoothness update.
