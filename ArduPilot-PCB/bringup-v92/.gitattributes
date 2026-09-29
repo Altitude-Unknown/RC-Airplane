@@ -1,0 +1,6 @@
+# Generated firmware is reviewed through source definitions and hash manifests.
+*.bin binary
+*.hex binary
+*.apj binary
+# Preserve original tool output, including progress and whitespace formatting.
+*.log -whitespace

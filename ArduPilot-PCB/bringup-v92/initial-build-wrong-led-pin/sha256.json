@@ -1,0 +1,10 @@
+{
+  "arduplane.apj": "0337efae466c8650b3d8aabf9452f05bb7b725308a4459db4fdf9b3d02e3e184",
+  "arduplane_with_bl.hex": "0166fd15d910fdfc4c3aebe139d7650759583193ed160ce2e8df7c9409f43f66",
+  "BOREALISv92_bl.bin": "295309c13c499b336d6a81a41eab3465130c9eeae40bdad547eb20bc40392955",
+  "hwdef.dat": "d54edf16a4c6722aa310b92793a273d27b93fa8b9cdb5174089a9e761251cd23",
+  "hwdef-bl.dat": "28689309e739b524ea6972d51dff1af4aec394ddd5e09ab671bd1cfc65f1b70e",
+  "plane-build.log": "e2b8b3dc4992ad56fa8ee112ef22697521fc008d68a0fcf9e04357c02f98e028",
+  "upload.log": "e7087806ebdc5396143586e81359d4cb068a4f3ebd8ec06769af977a90bade7c",
+  "mavlink-check.json": "0421eef13eed0caa61d4a8de961d88e7622840e99390be7ea564ec06f202d4b0"
+}

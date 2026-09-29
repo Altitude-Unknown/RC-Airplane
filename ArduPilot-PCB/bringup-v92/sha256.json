@@ -1,0 +1,16 @@
+{
+  "arduplane.apj": "632f38f5a67b412acd7b29280f1f9ef6408135f77aafe5235045dd36007c4cdf",
+  "arduplane_with_bl.hex": "64214da4236a6402e4d15d96217e51722a50e1a1ae86818f42156443f36aeee2",
+  "arduplane_with_bl.bin": "acc0884844424ba2527a26c1ddb4c88e0f38aabf889a37c4144445060692058e",
+  "BOREALISv92_bl.bin": "f8509c06d59ff5b61ab32d477b180d936bea55fc2adc7908ff0b18cb4c673ed6",
+  "hwdef.dat": "5f90d160574eb0dfa386f672e31190af2d6fd1a62cf914efeb8b9fdfd478e47e",
+  "hwdef-bl.dat": "3038a4e27ff9b1f55f62091adafb38cba9ead16beea81340c1d4b65e60dc256a",
+  "plane-build.log": "92da3f90d42d75ef357a661e3bebdfc2fc0f784a4b75c952559b68e2999d0cbf",
+  "bootloader-build.log": "388a85ada8de5e664ce164f1dc1fe5362887eedd2ca95d633cd21a595f2263b3",
+  "upload.log": "09b31618c1719fa3181e94edaa8bd39ad622663aa375c0f397b50793f96c0130",
+  "readback.log": "dd80165c3b8593eaa6504e140896e09a40575750847bf0361f0b88909c5f837a",
+  "ledfix-flash-verification.json": "20d0776112a72658ef8f3234f32dc85ce21ebd82b43fe5bcce6c456d242a5015",
+  "ledfix-flash-readback.bin": "acc0884844424ba2527a26c1ddb4c88e0f38aabf889a37c4144445060692058e",
+  "mavlink-check.json": "ab43a1cf159b6a334d19b44e4659cbd616d5bc1b00cb5312319d907922e57313",
+  "read_mavlink.py": "d70149ba3e2d88968264d536a6eaacd2283e15bf5230ec86607d6066f05dac9c"
+}

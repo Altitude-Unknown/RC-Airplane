@@ -1,0 +1,7 @@
+{
+  "board_serial": "200364500000",
+  "start_address": "0x08000000",
+  "byte_count": 1443024,
+  "exact_match": true,
+  "sha256": "acc0884844424ba2527a26c1ddb4c88e0f38aabf889a37c4144445060692058e"
+}
