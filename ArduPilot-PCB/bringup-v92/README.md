@@ -60,6 +60,50 @@ Schematic: `../Arduplane-FC v92.pdf`.
   and only the expected missing-barometer configuration messages observed.
   QGroundControl was reopened after the diagnostic released the USB port.
 
+## Barometer installation check (2026-09-29)
+
+- User installed the MS5611. After power-up, the previous barometer error
+  disappeared. A direct MAVLink read reported `Config Error: INS: unable to
+  initialise driver`, consistent with the still-absent BMI088 IMU.
+- `BARO1_DEVID` is nonzero (`721162`, hex `0x000B010A`); the absolute-pressure
+  sensor is reported present and enabled. The MS5611 driver registers a
+  sensor only after its SPI calibration PROM read and CRC check pass. This
+  confirms basic SPI communication and sensor recognition.
+- Absolute-pressure health remains false. All 43 `SCALED_PRESSURE` samples
+  obtained in the configuration-error loop had zero pressure and temperature.
+  ArduPilot stops normal startup at the missing IMU, before the regular
+  barometer update/calibration loop runs. These zeros do not establish a
+  barometer fault. A later bench-only image produced live pressure and
+  temperature readings; normal flight-stack calibration still awaits the
+  IMU's installation and successful initialization.
+- The read-only capture helper is `check_baro.py`; evidence JSON is in
+  `/tmp/borealis-baro-params.json` and `/tmp/borealis-baro-readings.json`
+  on the test laptop.
+
+## Next bench checks
+
+A separate bench-only ArduPlane variant read live barometer pressure and
+temperature and exercised all six bounded PWM outputs while the IMU was
+absent. Servo outputs 2–6 moved servos, and output 1 drove the connected
+ESC and propeller-free motor. The normal ArduPlane image was restored and
+verified after testing. See `bench/README.md` for the pin map, evidence,
+and safeguards.
+These checks verify the output hardware path. The restored diagnostic
+image deliberately configures the PWM pins as inputs; regular ArduPlane
+output control still needs a production hwdef after the IMU is installed
+and its orientation is verified.
+The Spektrum receiver pictured by the user appears to be an AR6210;
+its documented outputs are individual servo channels rather than a
+combined RC UART stream. Its BIND/DATA port is not a documented RC
+channel serial output.
+A bound FlySky FS-iA6B was then connected to USART6 via its i-BUS SERVO
+port. With `SERIAL2_PROTOCOL=23`, ArduPilot decoded 14 channel slots;
+the four primary channels changed with stick movement, and CH3 returned
+to 1006 us at low throttle. This confirms the serial receiver input path.
+The diagnostic image was restored after the test, and its `RC_CHANNELS`
+telemetry still showed the receiver connected. Normal flight-stack and
+failsafe behavior remain untested until the IMU is installed.
+
 ## Firmware source
 
 Local checkout: `../../../ardupilot` relative to this directory
@@ -110,8 +154,9 @@ an unverified placeholder and must be established before sensor use.
 - Investigate software-reboot USB behavior; physical power-cycle startup
   worked, while DFU leave and uploader reboot did not enumerate immediately.
 - Check remaining power rails/VCAP on hardware.
-- Sensor installation, orientation, calibration, I/O tests, and electrical
-  validation are still required; this is not flight-ready firmware.
+- IMU installation, sensor orientation and calibration, live barometer
+  measurements, I/O tests, and electrical validation are still required;
+  this is not flight-ready firmware.
 
 ## Recovery
 

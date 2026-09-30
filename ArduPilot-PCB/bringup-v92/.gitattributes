@@ -4,3 +4,5 @@
 *.apj binary
 # Preserve original tool output, including progress and whitespace formatting.
 *.log -whitespace
+# Keep source-diff context lines byte-for-byte for patch application.
+*.patch -whitespace
