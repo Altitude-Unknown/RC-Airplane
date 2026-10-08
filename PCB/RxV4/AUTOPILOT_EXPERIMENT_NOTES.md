@@ -1,5 +1,11 @@
 # Rx V4 Autopilot Experiment Notes
 
+Current implementation/setup: [experimental receiver README](../../rx_V4__firmware/README.md).
+The current 2026-10-07 build supersedes the historical rudder-trim mode
+commands, disabled-bailout setting, Wire-based sensor access, and Servo-library
+output described below. It remains experimental and separate from production
+receiver firmware.
+
 Date: 2026-06-30
 
 ## Goal
@@ -886,3 +892,89 @@ Required bench gates:
    large sustained step.
 6. Confirm any aileron/elevator stick movement gives immediate manual control.
 7. Confirm transmitter-off RF-loss behavior with the prop removed.
+
+## 2026-10-07 new Rx V4 bench upload
+
+BOM confirms U4 LSM6DSO32TR and U6 MS560702BA03-50. Corrected acceleration
+scale to 0.000122 g/LSB at CTRL1_XL=0x40 (+/-4 g); gyro remains 0.00875
+dps/LSB (+/-250 dps). Expected identity restricted to 0x6C, although this ID
+alone does not distinguish all family variants. Updated raw-sample regression
+fixture to 8192 counts/g; calibration still rejects out-of-range acceleration.
+Compile passed (62696 bytes); both test_autolevel suites passed, including ten
+state-machine scenarios and bounded bus checks. Uploaded and flash-verified.
+Live STATUS: radio=OK imu=yes who=6C accelG=0.985–0.993, armed=no,
+apMaster=OFF. stored=0: receiver needs rebinding. bias=no/neutral=no expected
+without accepted radio packets; calibration requires fresh link, low throttle,
+centered controls, and stationary IMU. Current board USB-only, no aircraft.
+Pressure passed separate diagnostic; altitude hold remains disabled.
+Old airframe offsets/correction signs still require verification on this airplane.
+Raw STATUS saved in PCB/RxV4/RxV4_Sensor_Diagnostic/autolevel-status-2026-10-07.txt.
+
+## 2026-10-07 failed airplane bench check — initial observation
+
+User reports all surfaces unresponsive and small twitches on every output,
+including a brief motor spin (prop removed). Aircraft battery disconnected;
+receiver returned to USB only. Do not treat this build as aircraft-test cleared.
+Live USB STATUS: radio=OK, stored=0, pktBind=7741, rx 204->432,
+accepted=0, all rejected, restartRequired=no, bindMode=no, armed=no,
+apMaster=OFF, IMU healthy (~0.99 g). Missing stored binding explains rejected
+control packets; binding procedure/persistence not yet diagnosed.
+Installed SAMD Servo implementation ends pulses in interrupt handlers.
+RadioHead RHSPIDriver masks interrupts around SPI transactions and RF95 handles
+packet FIFO reads inside its IRQ; EIC and Servo both use priority 0. Potential
+pulse stretching path exists even for rejected packets. Flash bind writes also
+occur with Servo active. Neither timing path has yet been measured; no claim
+that either caused the reported motor pulse. Need output waveform measurement
+and controlled binding/power-cycle verification. No new flash after report.
+
+Follow-up USB-only binding/calibration results: button-held Rx boot entered
+bindMode=yes. After Tx bind transmission, stored=7741. Normal restart preserved
+7741 and all packets were accepted, with zero rejected; missing initial binding
+is resolved. Moving board before bias completion left AHRS roll near 37 degrees
+when physically flat, blocking neutral capture. Stationary flat restart then
+reported bias=yes neutral=yes, roll 0.09–0.11 degrees, pitch -1.06 to -1.03,
+accelG 0.989–0.993; armed=yes, AP OFF reason aux-off, manual mode.
+This supports a pre-bias attitude initialization problem; no estimator fix yet.
+Old airframe target is still -10.19 roll / +11.60 pitch and must be updated for
+actual installation. Output twitch/motor pulse remains unmeasured/unresolved.
+At this point no further firmware had been flashed and aircraft power remained
+disconnected pending the output fix resolved below. Capture:
+RxV4_Sensor_Diagnostic/flat-restart-status-2026-10-07.txt.
+
+## 2026-10-07 issue resolution and final bench pass
+
+The investigation above was completed during the same bench session:
+
+- The transmitter's ESP32 role was `UNCONFIGURED`, intentionally forcing the
+  M0 into non-transmitting Config Mode. Assigning Instructor/Master restored
+  LoRa traffic. The receiver then stored bind code 7741 and accepted packets.
+- A four-position TAER connector offset briefly heated both sensor packages.
+  USB-only retest found LSM6DSO32 WHO_AM_I 0x6C, correct control-register
+  readback, stable 0.991–0.995 g acceleration, and stable gyro data. The MS5607
+  returned the exact pre-event PROM `112,40017,35608,24918,24469,33769,27465,35439`,
+  stored/calculated CRC4 15, 857.24–857.32 hPa, and a smooth 30.98–28.76 C
+  cooldown. No functional damage was found; accuracy and latent damage were not
+  independently certified.
+- The multi-axis twitch reproduced with the SAMD Servo library and disappeared
+  after restoring direct pulses with interrupts masked only while each output
+  pin is high. Manual response remained normal on all servos. This is strong
+  hardware evidence for the RadioHead/Servo interrupt interaction suspected
+  above, although pulse waveforms have not yet been captured on an instrument.
+- Calibration now begins one second after an accepted receiver-button press.
+  The LED flashes at 10 Hz during sampling and becomes solid after gyro bias,
+  installed level pose, and control neutral are ready. Hardware behavior matched
+  this sequence.
+- Trainer ON was observed live as `apMaster=ON reason=trainer-on mode=1`. A
+  previous no-response observation was the intentional 55-degree roll / 35-degree
+  pitch bailout after the airplane was rolled too far by hand.
+- Both automatic aileron and elevator corrections were backward in the current
+  installation. Both output signs were reversed without changing manual control.
+  Direction regression tests, the full host suite, compile, upload, and flash
+  verification passed. The user reports the final prop-removed bench test looks
+  correct.
+
+Current disposition: the visible twitch is resolved and the prop-removed bench
+test passes. This remains experimental receiver firmware. A controlled flight
+test at the user's normal test site is the next validation step; start with
+brief straight-and-level activations at safe altitude and abort to manual for
+wrong-way response, oscillation, or excessive correction.

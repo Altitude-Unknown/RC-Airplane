@@ -1,0 +1,65 @@
+0x6A G raw x/y/z: -8280, 414, 4176 | A raw x/y/z: -1098, -4105, 7239 | magnitude_g=0.5120
+0x6A G raw x/y/z: -1216, 2449, 4137 | A raw x/y/z: -1049, -5270, 5974 | magnitude_g=0.4901
+0x6A G raw x/y/z: -443, 3723, 893 | A raw x/y/z: -2322, -4916, 5914 | magnitude_g=0.4900
+0x6A G raw x/y/z: 12215, -21456, -10949 | A raw x/y/z: -983, -5917, 8290 | magnitude_g=0.6242
+IMU WHO_AM_I=0x6C
+BARO addr=76 PROM=112,40017,35608,24918,24469,33769,27465,35439, D1=5933082 D2=8974944
+BARO no ACK addr=77
+0x6A G raw x/y/z: 9070, -12939, -9675 | A raw x/y/z: 5901, -60, 5196 | magnitude_g=0.4796
+0x6A G raw x/y/z: 13077, -23610, -21026 | A raw x/y/z: 6216, 5131, -359 | magnitude_g=0.4922
+0x6A G raw x/y/z: 7016, 451, -5489 | A raw x/y/z: 2762, 8028, -4650 | magnitude_g=0.5905
+0x6A G raw x/y/z: 3861, 4429, 3425 | A raw x/y/z: 4025, 6883, -4941 | magnitude_g=0.5722
+0x6A G raw x/y/z: -4556, 3481, 2127 | A raw x/y/z: 4393, 6598, -2181 | magnitude_g=0.5015
+0x6A G raw x/y/z: 22892, 15771, -10131 | A raw x/y/z: 2461, 9467, 3311 | magnitude_g=0.6299
+0x6A G raw x/y/z: 3583, 1375, -1934 | A raw x/y/z: 4546, 4961, -1983 | magnitude_g=0.4279
+0x6A G raw x/y/z: -4403, -3184, 4182 | A raw x/y/z: 4322, 6636, -4575 | magnitude_g=0.5579
+IMU WHO_AM_I=0x6C
+BARO addr=76 PROM=112,40017,35608,24918,24469,33769,27465,35439, D1=5936842 D2=8948216
+BARO no ACK addr=77
+0x6A G raw x/y/z: -3938, -16172, -29434 | A raw x/y/z: -176, 7589, -2294 | magnitude_g=0.4837
+0x6A G raw x/y/z: 1408, -16972, -20257 | A raw x/y/z: -7035, 1946, 1087 | magnitude_g=0.4502
+0x6A G raw x/y/z: -5082, 16091, 1806 | A raw x/y/z: -7547, -106, -1475 | magnitude_g=0.4691
+0x6A G raw x/y/z: -9703, 18946, 26432 | A raw x/y/z: -3774, 3604, -6192 | magnitude_g=0.4940
+0x6A G raw x/y/z: -249, -10149, 18931 | A raw x/y/z: 2830, 1004, -8773 | magnitude_g=0.5656
+0x6A G raw x/y/z: -1424, -26268, -9021 | A raw x/y/z: -8251, 2141, -5692 | magnitude_g=0.6252
+0x6A G raw x/y/z: 873, 11608, 1415 | A raw x/y/z: -5436, 1787, -6245 | magnitude_g=0.5167
+0x6A G raw x/y/z: -3205, 15144, -468 | A raw x/y/z: -799, 1950, -8024 | magnitude_g=0.5061
+IMU WHO_AM_I=0x6C
+BARO addr=76 PROM=112,40017,35608,24918,24469,33769,27465,35439, D1=5939096 D2=8931200
+BARO no ACK addr=77
+0x6A G raw x/y/z: -1737, 23284, -315 | A raw x/y/z: 7659, 2378, -813 | magnitude_g=0.4917
+0x6A G raw x/y/z: -378, 4861, -1315 | A raw x/y/z: 6804, 2723, 3578 | magnitude_g=0.4975
+0x6A G raw x/y/z: -3663, -31768, 3280 | A raw x/y/z: 7511, 2575, -431 | magnitude_g=0.4851
+0x6A G raw x/y/z: -463, -22754, -138 | A raw x/y/z: 3009, 2348, -7742 | magnitude_g=0.5265
+0x6A G raw x/y/z: 230, -7552, -1775 | A raw x/y/z: -1060, 2429, -7793 | magnitude_g=0.5021
+0x6A G raw x/y/z: 91, 6111, -3568 | A raw x/y/z: -1940, 1970, -8257 | magnitude_g=0.5312
+0x6A G raw x/y/z: 1937, 32764, -2243 | A raw x/y/z: 3052, 1892, -7808 | magnitude_g=0.5242
+0x6A G raw x/y/z: 987, 14819, 1762 | A raw x/y/z: 7564, 1392, -2381 | magnitude_g=0.4911
+IMU WHO_AM_I=0x6C
+BARO addr=76 PROM=112,40017,35608,24918,24469,33769,27465,35439, D1=5940312 D2=8920968
+BARO no ACK addr=77
+0x6A G raw x/y/z: -3506, -26222, 6732 | A raw x/y/z: 7362, -369, -2911 | magnitude_g=0.4834
+0x6A G raw x/y/z: -951, -26425, 2072 | A raw x/y/z: 1905, -857, -8224 | magnitude_g=0.5176
+0x6A G raw x/y/z: -1004, -5361, 480 | A raw x/y/z: -2852, -202, -7627 | magnitude_g=0.4969
+0x6A G raw x/y/z: -966, 3311, 1930 | A raw x/y/z: -2852, 297, -7317 | magnitude_g=0.4794
+0x6A G raw x/y/z: -1703, -402, 2207 | A raw x/y/z: -2128, 784, -7769 | magnitude_g=0.4937
+0x6A G raw x/y/z: 2715, 32611, -4089 | A raw x/y/z: 3344, 1103, -7275 | magnitude_g=0.4930
+0x6A G raw x/y/z: 1006, 12758, 1557 | A raw x/y/z: 7888, 797, -1322 | magnitude_g=0.4903
+0x6A G raw x/y/z: -663, -3773, 1076 | A raw x/y/z: 7883, 252, -1810 | magnitude_g=0.4936
+IMU WHO_AM_I=0x6C
+BARO addr=76 PROM=112,40017,35608,24918,24469,33769,27465,35439, D1=5941578 D2=8912082
+BARO no ACK addr=77
+0x6A G raw x/y/z: 585, -14835, 894 | A raw x/y/z: 5121, -647, -6034 | magnitude_g=0.4844
+0x6A G raw x/y/z: -852, -25571, 1015 | A raw x/y/z: -62, -632, -8155 | magnitude_g=0.4990
+0x6A G raw x/y/z: -103, 8798, -1668 | A raw x/y/z: -484, -566, -8269 | magnitude_g=0.5065
+0x6A G raw x/y/z: 863, 14324, -1335 | A raw x/y/z: 4071, -436, -6740 | magnitude_g=0.4811
+0x6A G raw x/y/z: 2686, 17148, 105 | A raw x/y/z: 6949, -560, -3720 | magnitude_g=0.4820
+0x6A G raw x/y/z: 509, 6214, 1188 | A raw x/y/z: 8025, -995, -422 | magnitude_g=0.4939
+0x6A G raw x/y/z: 360, -1499, 265 | A raw x/y/z: 7812, -1383, -1092 | magnitude_g=0.4885
+0x6A G raw x/y/z: -424, -8608, 325 | A raw x/y/z: 6597, -1649, -4482 | magnitude_g=0.4968
+IMU WHO_AM_I=0x6C
+BARO addr=76 PROM=112,40017,35608,24918,24469,33769,27465,35439, D1=5942372 D2=8904362
+BARO no ACK addr=77
+0x6A G raw x/y/z: -73, -10743, 210 | A raw x/y/z: 4036, -1572, -6581 | magnitude_g=0.4806
+0x6A G raw x/y/z: -719, -11269, 492 | A raw x/y/z: -294, -1332, -8322 | magnitude_g=0.5144
+0x6A G raw x/y/z: -1825, -173, 4956 | A raw x/y/z: -1380, -703, -8196 | magnitude_g=0.5088
