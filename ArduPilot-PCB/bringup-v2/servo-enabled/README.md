@@ -1,5 +1,16 @@
 # V2 servo-enabled ArduPlane — 2026-10-09
 
+Current installed image includes [live sensor-health LEDs](health-leds/README.md)
+and the physical ARM-button action. Installed/flash-verified 2026-10-10;
+user confirmed IMU L4 and pressure L5 illuminate. Earlier images below are
+retained for continuity.
+
+Physical ARM button update prepared on 2026-10-10:
+[firmware and operating instructions](arm-button/README.md). This separate
+image adds a checked two-second hold on PC10; installed and flash-verified
+2026-10-10. Physical button validation remains pending. Earlier artifacts
+below are retained.
+
 Reusable setup: [new-board checklist](NEW_BOARD_SETUP.md) and
 [GPS-free training parameter preset](training-no-gps.parm). The preset is
 partial; calibration, failsafe configuration and hardware import validation

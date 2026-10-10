@@ -1,0 +1,44 @@
+{
+  "installed": true,
+  "port": "/dev/cu.usbmodem1101",
+  "board_id": 65092,
+  "flash_verification": "passed",
+  "parameters_read_back": 869,
+  "configuration_changes": {},
+  "startup_parameter_changes": {
+    "STAT_BOOTCNT": [
+      31.0,
+      32.0
+    ],
+    "INS_GYROFFS_Y": [
+      -0.001907447585836053,
+      -0.00362913915887475
+    ],
+    "STAT_RUNTIME": [
+      6725.0,
+      6756.0
+    ],
+    "INS_GYROFFS_Z": [
+      -0.0013574773911386728,
+      -0.003093081060796976
+    ],
+    "BARO1_GND_PRESS": [
+      84151.2109375,
+      84116.40625
+    ],
+    "INS_GYROFFS_X": [
+      0.0193166583776474,
+      0.015507007017731667
+    ],
+    "INS_GYR1_CALTEMP": [
+      21.3359375,
+      27.26171875
+    ]
+  },
+  "remained_disarmed": true,
+  "physical_button_test": "user confirmed arm/disarm and motor operation; lockout tests pending",
+  "prearm_messages": [
+    "PreArm: Waiting for RC"
+  ],
+  "led_indication": "user reports only power LED visible; unresolved"
+}

@@ -1,0 +1,44 @@
+{
+  "date": "2026-10-10",
+  "board": "BOREALISv2Servo",
+  "board_id": 65092,
+  "build": "passed",
+  "flash_used_bytes": 1331048,
+  "apj_matches_bin": true,
+  "pin_mapping_verified": true,
+  "flashed": true,
+  "physical_led_observation": "User confirmed L4 IMU and L5 pressure LEDs both illuminated",
+  "files": {
+    "README.md": "d03360b86090463661dfdca402a052084451466db3a81ad8ab59497955637344",
+    "arduplane.apj": "ef8c9b7aafd09ffd8910aec1c5c675c4ef3b87b466ffa136835c635f8f307a78",
+    "arduplane.bin": "762a97f0e97668c1071fff2b80af2968314cf30d80796d65781d5fd7a0352b9a",
+    "build.log": "18d6e2cb90ba66a2c826935dc37b419e82d2302c70171ccfafbd8314cca56920",
+    "firmware.patch": "1f14e23552824e560cccb40c9c042669bcba9a50ae3e27b115cec6a6149478a4",
+    "generated-hwdef.h": "3a2e94ac88ae7695db45cd28386f72189208193fa231a6b202059e5108cd59b9",
+    "parameters-after.json": "0f9f4cfc0996ba6aaeedc4a795cdb84c31c61f6ad148e95f04a5b99c6eb50a9c",
+    "parameters-before.json": "ed62577e1bd8940bab17f82bbd4f60c492a974bc6e8153065dca2038b4f1b399",
+    "source/ArduPlane/Plane.cpp": "b6e2985534d1ebe42a4f7196844da2b1d6c6317224fb3a21ea4882b0bebf49ee",
+    "source/ArduPlane/Plane.h": "8826632332287bbcdcb46d9cd5700fd2322cb34418d7f4b2baf4895571365f48",
+    "source/ArduPlane/board_arm_button.h": "b02df04d716ca375656d9a24b51d95aff9a65f083c9e5da37b6b9c649889d3bc",
+    "source/ArduPlane/radio.cpp": "48450d79da0177a3b1f7a77048fe5f5355c5cf0da2691cf095fb246e5da53e15",
+    "source/libraries/AP_HAL_ChibiOS/hwdef/BOREALISv2Servo/hwdef.dat": "0e3694fc4d3914f9b905ef8fb6fa64ec2d35c1d8a8ac369e58fe3ae37de57569",
+    "upload.log": "fe3931beaf49244d1e0db9f26f7172049102bc06a5eb65e3347c24f9958a2518"
+  },
+  "flash_verification": "passed",
+  "parameters_read_back": 869,
+  "configuration_changes": {},
+  "post_reboot_sensor_health": {
+    "gyro": true,
+    "accelerometer": true,
+    "barometer": true,
+    "compass": false,
+    "gps": false
+  },
+  "disarmed": true,
+  "remaining_tests": [
+    "GPS/compass healthy indications when installed",
+    "sensor-failure LED transitions"
+  ],
+  "source_commit": "15bb8cb80f5ac8ed031c1bce0ffeb14607f3d7c8",
+  "embedded_version_base": "d276581b"
+}

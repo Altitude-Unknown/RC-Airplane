@@ -1,0 +1,205 @@
+diff --git a/ArduPlane/Plane.cpp b/ArduPlane/Plane.cpp
+index 7f142b4..0734834 100644
+--- a/ArduPlane/Plane.cpp
++++ b/ArduPlane/Plane.cpp
+@@ -67,6 +67,9 @@ const AP_Scheduler::Task Plane::scheduler_tasks[] = {
+     FAST_TASK(set_servos),
+     SCHED_TASK(read_radio,             50,    100,   6),
+     SCHED_TASK(check_short_rc_failsafe,   50,    100,   9),
++#ifdef HAL_BOARD_ARM_BUTTON_PIN
++    SCHED_TASK(update_board_arm_button,  50,    200,  10),
++#endif
+     SCHED_TASK(update_speed_height,    50,    200,  12),
+     SCHED_TASK(update_throttle_hover, 100,     90,  24),
+     SCHED_TASK_CLASS(RC_Channels,     (RC_Channels*)&plane.g2.rc_channels, read_mode_switch,           7,    100, 27),
+@@ -144,6 +147,9 @@ const AP_Scheduler::Task Plane::scheduler_tasks[] = {
+ #if AP_QUICKTUNE_ENABLED
+     SCHED_TASK(update_quicktune, 40, 100, 163),
+ #endif
++#ifdef HAL_BOARD_IMU_LED_PIN
++    SCHED_TASK(update_board_health_leds, 5, 100, 164),
++#endif
+ };
+ 
+ void Plane::get_scheduler_tasks(const AP_Scheduler::Task *&tasks,
+@@ -359,6 +365,28 @@ void Plane::afs_fs_check(void)
+ extern AP_IOMCU iomcu;
+ #endif
+ 
++#ifdef HAL_BOARD_IMU_LED_PIN
++void Plane::update_board_health_leds()
++{
++    bool imu_healthy = false;
++#if AP_INERTIALSENSOR_ENABLED
++    imu_healthy = ins.healthy();
++#endif
++    bool gps_fixed = false;
++#if AP_GPS_ENABLED
++    gps_fixed = gps.is_healthy() && gps.status() >= AP_GPS::GPS_OK_FIX_3D;
++#endif
++    bool compass_healthy = false;
++#if AP_COMPASS_ENABLED
++    compass_healthy = compass.available() && compass.get_count() > 0 && compass.healthy();
++#endif
++    hal.gpio->write(HAL_BOARD_IMU_LED_PIN, imu_healthy);
++    hal.gpio->write(HAL_BOARD_BARO_LED_PIN, barometer.healthy());
++    hal.gpio->write(HAL_BOARD_GPS_LED_PIN, gps_fixed);
++    hal.gpio->write(HAL_BOARD_MAG_LED_PIN, compass_healthy);
++}
++#endif
++
+ void Plane::one_second_loop()
+ {
+     // make it possible to change control channel ordering at runtime
+diff --git a/ArduPlane/Plane.h b/ArduPlane/Plane.h
+index 567f170..7bb09b0 100644
+--- a/ArduPlane/Plane.h
++++ b/ArduPlane/Plane.h
+@@ -1093,6 +1093,9 @@ private:
+     void afs_fs_check(void);
+ #endif
+     void one_second_loop(void);
++#ifdef HAL_BOARD_IMU_LED_PIN
++    void update_board_health_leds();
++#endif
+     void three_hz_loop(void);
+ #if AP_AIRSPEED_AUTOCAL_ENABLE
+     void airspeed_ratio_update(void);
+@@ -1125,6 +1128,9 @@ private:
+     void init_rc_out_main();
+     void init_rc_out_aux();
+     void read_radio();
++#ifdef HAL_BOARD_ARM_BUTTON_PIN
++    void update_board_arm_button();
++#endif
+     int16_t rudder_input(void);
+     void control_failsafe();
+     void trim_radio();
+diff --git a/ArduPlane/radio.cpp b/ArduPlane/radio.cpp
+index 20ac87d..13e8508 100644
+--- a/ArduPlane/radio.cpp
++++ b/ArduPlane/radio.cpp
+@@ -1,4 +1,7 @@
+ #include "Plane.h"
++#ifdef HAL_BOARD_ARM_BUTTON_PIN
++#include "board_arm_button.h"
++#endif
+ 
+ //Function that will read the radio data, limit servos and trigger a failsafe
+ // ----------------------------------------------------------------------------
+@@ -116,6 +119,28 @@ void Plane::init_rc_out_aux()
+     SRV_Channels::setup_failsafe_trim_all_non_motors();
+ }
+ 
++#ifdef HAL_BOARD_ARM_BUTTON_PIN
++void Plane::update_board_arm_button()
++{
++    static BoardArmButton board_button;
++    const uint32_t now_ms = AP_HAL::millis();
++    const bool pressed = hal.gpio->read(HAL_BOARD_ARM_BUTTON_PIN) == 0;
++    // Check actual RC health, since failsafe handling can set control_in to zero.
++    const bool allowed = rc().has_valid_input() && !rc_failsafe_active() &&
++        uint32_t(now_ms - rc().last_input_ms()) <= 300 &&
++        channel_throttle->get_control_in() == 0 && !is_flying() &&
++        (control_mode == &mode_manual || control_mode == &mode_fbwa);
++    if (!board_button.update(now_ms, pressed, allowed)) {
++        return;
++    }
++    if (arming.is_armed()) {
++        arming.disarm(AP_Arming::Method::AUXSWITCH);
++    } else {
++        arming.arm(AP_Arming::Method::AUXSWITCH);
++    }
++}
++#endif
++
+ void Plane::read_radio()
+ {
+     if (!rc().read_input()) {
+diff --git a/libraries/AP_HAL_ChibiOS/hwdef/BOREALISv2Servo/hwdef.dat b/libraries/AP_HAL_ChibiOS/hwdef/BOREALISv2Servo/hwdef.dat
+index 9e6e9a9..264d39a 100644
+--- a/libraries/AP_HAL_ChibiOS/hwdef/BOREALISv2Servo/hwdef.dat
++++ b/libraries/AP_HAL_ChibiOS/hwdef/BOREALISv2Servo/hwdef.dat
+@@ -46,17 +46,22 @@ I2C_ORDER I2C1
+ PB8 I2C1_SCL I2C1
+ PB9 I2C1_SDA I2C1
+ 
+-# Active-high status LED L3. Other health LEDs stay off for now.
++# Active-high status LED L3 and four live sensor-health indicators.
+ PC12 LED OUTPUT LOW GPIO(90) # BLINK, MCU pin 80
+ define AP_NOTIFY_GPIO_LED_1_ENABLED 1
+ define AP_NOTIFY_GPIO_LED_1_PIN 90
+ define HAL_GPIO_LED_ON 1
+-PB15 IMU_LED OUTPUT LOW
+-PB14 BARO_LED OUTPUT LOW
+-PB13 GPS_LED OUTPUT LOW
+-PB12 MAG_LED OUTPUT LOW
++PB15 IMU_LED OUTPUT LOW GPIO(93)
++PB14 BARO_LED OUTPUT LOW GPIO(94)
++PB13 GPS_LED OUTPUT LOW GPIO(95)
++PB12 MAG_LED OUTPUT LOW GPIO(96)
++define HAL_BOARD_IMU_LED_PIN 93
++define HAL_BOARD_BARO_LED_PIN 94
++define HAL_BOARD_GPS_LED_PIN 95
++define HAL_BOARD_MAG_LED_PIN 96
+ PC11 BUZZER_TEST OUTPUT LOW GPIO(91)
+-PC10 ARMING_BUTTON INPUT PULLUP # MCU pin 78; no arming action configured
++PC10 ARMING_BUTTON INPUT PULLUP GPIO(92) # MCU pin 78; active-low momentary button
++define HAL_BOARD_ARM_BUTTON_PIN 92
+ 
+ # Normal ArduPlane outputs; no RC bench pass-through or arming overrides.
+ PE14 TIM1_CH4 TIM1 PWM(1) GPIO(50) # throttle
+diff --git a/ArduPlane/board_arm_button.h b/ArduPlane/board_arm_button.h
+new file mode 100644
+index 0000000..81938b4
+--- /dev/null
++++ b/ArduPlane/board_arm_button.h
+@@ -0,0 +1,48 @@
++#pragma once
++
++#include <stdint.h>
++
++// A momentary board button must be released after boot, rejection or action.
++class BoardArmButton {
++public:
++    bool update(uint32_t now_ms, bool pressed, bool allowed)
++    {
++        if (!pressed) {
++            holding = false;
++            if (!releasing) {
++                releasing = true;
++                release_ms = now_ms;
++            }
++            if (uint32_t(now_ms - release_ms) >= 100) {
++                waiting_release = false;
++            }
++            return false;
++        }
++        releasing = false;
++        if (waiting_release) {
++            return false;
++        }
++        if (!allowed) {
++            holding = false;
++            waiting_release = true;
++            return false;
++        }
++        if (!holding) {
++            holding = true;
++            press_ms = now_ms;
++        }
++        if (uint32_t(now_ms - press_ms) < 2000) {
++            return false;
++        }
++        waiting_release = true;
++        holding = false;
++        return true;
++    }
++
++private:
++    bool waiting_release = true;
++    bool releasing = false;
++    bool holding = false;
++    uint32_t release_ms = 0;
++    uint32_t press_ms = 0;
++};
