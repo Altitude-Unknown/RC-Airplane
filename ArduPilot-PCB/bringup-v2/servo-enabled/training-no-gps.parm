@@ -1,0 +1,22 @@
+# BOREALISv2Servo training baseline, 2026-10-10.
+# For current LSM6DSO32 ROTATION_NONE firmware and pictured mounting:
+# components up, ARM-button edge toward nose, servo-connector edge toward tail.
+# Non-inverted SBUS requires the matching BOREALIS firmware and receiver bridge.
+# No GPS, compass, airspeed sensor or onboard log storage installed.
+# This is a partial parameter preset, not a complete flight-ready configuration.
+# Calibrate each board/radio; configure and test failsafes separately.
+AHRS_ORIENTATION 14
+AHRS_EKF_TYPE 0
+GPS1_TYPE 0
+COMPASS_ENABLE 0
+ARSPD_TYPE 0
+ARSPD_USE 0
+LOG_BACKEND_TYPE 0
+ARMING_SKIPCHK 8
+SERIAL2_PROTOCOL 23
+SERVO1_FUNCTION 70
+SERVO2_FUNCTION 4
+SERVO3_FUNCTION 19
+SERVO4_FUNCTION 21
+SERVO5_FUNCTION 0
+SERVO6_FUNCTION 0

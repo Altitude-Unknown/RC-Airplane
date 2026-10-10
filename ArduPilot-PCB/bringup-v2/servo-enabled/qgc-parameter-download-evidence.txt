@@ -1,0 +1,6 @@
+QGroundControl 5.1 diagnostic log excerpt, 2026-10-10
+Successful parameter load after restarting QGC; no firmware or cache changes.
+
+     3.505 "V:1" Initial load complete - FactSystem.ParameterManager - (ParameterManager::_checkInitialLoadComplete:1331)
+     3.506 _parametersReady true - Vehicle.Vehicle - (Vehicle::_parametersReady:1664)
+     3.507 ParameterManager::_ftpDownloadComplete : Parsed! - FactSystem.ParameterManager - (ParameterManager::_ftpDownloadComplete:543)

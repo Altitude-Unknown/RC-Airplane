@@ -1,5 +1,51 @@
 # V2 servo-enabled ArduPlane — 2026-10-09
 
+Reusable setup: [new-board checklist](NEW_BOARD_SETUP.md) and
+[GPS-free training parameter preset](training-no-gps.parm). The preset is
+partial; calibration, failsafe configuration and hardware import validation
+remain required.
+
+## 2026-10-10 GPS-free training configuration
+
+User confirmed the reported errors cleared after setting AHRS_EKF_TYPE=0
+(DCM attitude estimator) and ARMING_SKIPCHK=8 (skip GPS lock only), with
+GPS1_TYPE=0 for absent GPS. Subsequent independent parameter download confirmed
+all three values and AHRS_ORIENTATION=14 and ARSPD_TYPE=0. All 869 advertised
+parameters downloaded with no missing indices; QGC's download also completed
+after restart. See NEW_BOARD_SETUP.md and parameter-download-diagnostic.json.
+No airspeed sensor is installed; advised baseline is ARSPD_TYPE=0 and
+ARSPD_USE=0. These settings preserve later hardware expansion. Restore EKF3
+and all arming checks when configuring GPS missions. GPS-free failsafe setup
+remains pending: earlier receiver-loss testing selected RTL.
+
+## 2026-10-10 in-airplane bench test: mounting orientation confirmed
+
+For the user's pictured mounting (components facing up, ARM-button edge
+toward the nose, servo-connector edge toward the tail), the confirmed setting
+is **AHRS_ORIENTATION=14 (Yaw270Roll180)** with the current firmware's
+LSM6DSO32 sensor definition using ROTATION_NONE.
+
+- User confirmed the transmitter trainer button switches between Manual and
+  FBWA, and Manual provides control of all airplane functions.
+- Initial mounting produced abrupt roll indication and full aileron correction
+  in either direction, while pitch responded smoothly. Physically flipping
+  the PCB upside down and rotating it 90 degrees restored sensible response,
+  identifying an orientation mismatch.
+- AHRS_ORIENTATION=10 (Yaw90Roll180) produced smooth but reversed corrections.
+  In a nose-high, right-bank pose, the user's MAVLink Inspector screenshot
+  showed roll=-0.6801097393 rad (about -39 degrees) and
+  pitch=-0.5236927271 rad (about -30 degrees), confirming both attitude signs
+  were reversed.
+- After changing to AHRS_ORIENTATION=14, user reported: "That fixed it, the
+  control surfaces respond correctly." No servo reversal or code change was
+  needed for this finding. This is user-reported physical bench validation;
+  no independent telemetry capture after the change was obtained.
+
+Six-position accelerometer calibration and level calibration after selecting
+the final orientation remain unconfirmed. This finding validates the mounting
+correction and reported surface response, not flight readiness or experimental
+IMU timing. Earlier bring-up results below describe the 2026-10-09 state.
+
 Current installed target: BOREALISv2Servo, board ID 65092. Custom
 experimental LSM6DSO32 driver from the successful sensor build retained.
 Six standard PWM channels now replace the diagnostic inputs/pull-downs.
