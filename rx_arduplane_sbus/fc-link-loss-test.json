@@ -1,0 +1,28 @@
+{
+  "health_transitions": [
+    {
+      "seconds": 0.0,
+      "healthy": true
+    },
+    {
+      "seconds": 0.081,
+      "healthy": false
+    },
+    {
+      "seconds": 8.581,
+      "healthy": true
+    }
+  ],
+  "messages": [
+    "Throttle failsafe on",
+    "RC Short Failsafe On",
+    "RC Long Failsafe On: switched to RTL",
+    "Throttle failsafe off",
+    "RC Long Failsafe Cleared",
+    "PreArm: 3D Accel calibration needed",
+    "PreArm: Compass 1 not healthy",
+    "PreArm: AHRS: waiting for home",
+    "PreArm: Logging failed",
+    "PreArm: RTL mode not armable"
+  ]
+}

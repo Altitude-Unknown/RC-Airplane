@@ -1,0 +1,7 @@
+# Match the labeled V2 connectors; AUX functions are user configurable.
+SERVO1_FUNCTION 70
+SERVO2_FUNCTION 4
+SERVO3_FUNCTION 19
+SERVO4_FUNCTION 21
+SERVO5_FUNCTION 0
+SERVO6_FUNCTION 0

@@ -1,0 +1,49 @@
+{
+  "date": "2026-10-09",
+  "firmware_bytes": 1312352,
+  "firmware_sha256": "d95cbb9f619008ace4d7a048aa86f523ed36180e627e08492da1b525e5148f83",
+  "upload_method": "ArduPilot bootloader",
+  "upload_exit_code": 0,
+  "bootloader_crc_verification_passed": true,
+  "speaker": "User confirmed two beeps",
+  "imu_status": "Initialization failed",
+  "imu_spi_pins": {
+    "SCK": "PD3 (MCU pin 83)",
+    "MISO": "PC2_C (MCU pin 17)",
+    "MOSI": "PC3_C (MCU pin 18)",
+    "CS": "PD5 (MCU pin 86)"
+  },
+  "imu_hardware_spi_clock_hz": 100000,
+  "imu_hardware_spi_id": "0x80 (all 8 reads)",
+  "imu_expected_id": "0x6c",
+  "imu_ctrl1_ctrl2_ctrl3": [
+    "0x00",
+    "0x00",
+    "0x00"
+  ],
+  "stm32_syscfg_pmcr": "0x03000000 (PC2/PC3 switches closed)",
+  "imu_gpio_spi_id": {
+    "mode0": "0x00",
+    "mode3": "0x00",
+    "miso_pullup": "0xff",
+    "miso_pulldown": "0x00"
+  },
+  "inference": "MISO appears undriven; supply-side C2/C24 pads measure 3.28 V per user. Check IC supply-pad continuity, SDO/CS continuity and assembly/orientation.",
+  "pressure_samples": 88,
+  "pressure_hpa_min_mean_max": [
+    841.044189453125,
+    841.0833781849254,
+    841.1423950195312
+  ],
+  "temperature_c_min_mean_max": [
+    26.16,
+    26.209431818181816,
+    26.22
+  ],
+  "board_disarmed": true,
+  "flight_ready": false,
+  "user_measured_imu_supplies_v": {
+    "C2_VDD": 3.28,
+    "C24_VDDIO": 3.28
+  }
+}

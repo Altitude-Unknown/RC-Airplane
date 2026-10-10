@@ -1,0 +1,45 @@
+{
+  "date": "2026-10-09",
+  "board": "BOREALISv2Servo",
+  "upload_exit_code": 0,
+  "bootloader_crc_verification_passed": true,
+  "channel_functions": {
+    "SERVO1_FUNCTION": 70.0,
+    "SERVO2_FUNCTION": 4.0,
+    "SERVO3_FUNCTION": 19.0,
+    "SERVO4_FUNCTION": 21.0,
+    "SERVO5_FUNCTION": 0.0,
+    "SERVO6_FUNCTION": 0.0
+  },
+  "pwm_channels_configured": 6,
+  "servo_output_telemetry_samples": 119,
+  "latest_servo_output_telemetry": {
+    "mavpackettype": "SERVO_OUTPUT_RAW",
+    "time_usec": 46202227,
+    "port": 0,
+    "servo1_raw": 1100,
+    "servo2_raw": 1500,
+    "servo3_raw": 1500,
+    "servo4_raw": 1500,
+    "servo5_raw": 0,
+    "servo6_raw": 0,
+    "servo7_raw": 0,
+    "servo8_raw": 0,
+    "servo9_raw": 0,
+    "servo10_raw": 0,
+    "servo11_raw": 0,
+    "servo12_raw": 0,
+    "servo13_raw": 0,
+    "servo14_raw": 0,
+    "servo15_raw": 0,
+    "servo16_raw": 0
+  },
+  "sensor_health_all_samples": {
+    "gyro": true,
+    "accelerometer": true,
+    "barometer": true
+  },
+  "board_disarmed": true,
+  "physical_servo_test": "Not performed: user reports nothing connected",
+  "flight_ready": false
+}

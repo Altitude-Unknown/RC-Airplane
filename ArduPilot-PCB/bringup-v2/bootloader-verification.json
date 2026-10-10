@@ -1,0 +1,10 @@
+{
+  "date": "2026-10-09",
+  "usb_dfu_serial": "200364500000",
+  "backup_bytes": 2097152,
+  "backup_blank": true,
+  "backup_sha256": "4bda3a28f4ffe603c0ec1258c0034d65a1a0d35ab7bd523a834608adabf03cc5",
+  "bootloader_bytes": 18564,
+  "bootloader_sha256": "f8509c06d59ff5b61ab32d477b180d936bea55fc2adc7908ff0b18cb4c673ed6",
+  "bootloader_exact_match": true
+}

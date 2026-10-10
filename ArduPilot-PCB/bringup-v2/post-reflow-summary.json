@@ -1,0 +1,91 @@
+{
+  "date": "2026-10-09",
+  "port": "/dev/cu.usbmodem101",
+  "after": "User reflowed IMU solder, cleaned PCB and allowed it to dry/cool",
+  "status_text": [],
+  "imu_samples": 190,
+  "acceleration_g_min_mean_max": [
+    1.0160851342284267,
+    1.0252756444202922,
+    1.0281264513667567
+  ],
+  "gyro_rad_s_min_max": {
+    "x": [
+      -0.002,
+      0.0
+    ],
+    "y": [
+      -0.01,
+      0.015
+    ],
+    "z": [
+      -0.001,
+      0.0
+    ]
+  },
+  "sensor_health_all_samples": {
+    "gyro": true,
+    "accelerometer": true,
+    "barometer": true
+  },
+  "parameters": {
+    "INS_ACC_ID": 15729170.0,
+    "INS_GYR_ID": 15729170.0,
+    "BARO1_DEVID": 721162.0
+  },
+  "pressure_hpa_min_mean_max": [
+    840.8256225585938,
+    840.856978567023,
+    840.8907470703125
+  ],
+  "baro_temperature_c_min_max": [
+    22.41,
+    22.73
+  ],
+  "board_disarmed": true,
+  "flight_ready": false,
+  "motion_test": {
+    "samples": 440,
+    "gyro_degrees_per_second_min_max": {
+      "x": [
+        -198.3006928947779,
+        267.34210720804214
+      ],
+      "y": [
+        -151.60463259161583,
+        157.39150632243712
+      ],
+      "z": [
+        -67.95279450251563,
+        28.246819299949586
+      ]
+    },
+    "acceleration_g_min_max": {
+      "x": [
+        -0.861,
+        0.905
+      ],
+      "y": [
+        -0.898,
+        0.868
+      ],
+      "z": [
+        0.368,
+        1.151
+      ]
+    },
+    "sensor_health_all_samples": {
+      "gyro": true,
+      "accelerometer": true,
+      "barometer": true
+    },
+    "status_text": [
+      "PreArm: 3D Accel calibration needed",
+      "PreArm: Compass 1 not healthy",
+      "PreArm: AHRS: waiting for home",
+      "PreArm: Logging failed",
+      "PreArm: Waiting for RC"
+    ],
+    "board_disarmed": true
+  }
+}

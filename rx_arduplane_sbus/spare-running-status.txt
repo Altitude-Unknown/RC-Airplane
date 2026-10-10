@@ -1,0 +1,2 @@
+hostElapsed=0.018s STATUS firmware=rx-sbus-v2-bindplug tx=PB22 baud=100000 format=8E2 inverted=no bind=7741 bindMode=0 bindPlug=0 restartRequired=0 accepted=408 frames=673
+hostElapsed=1.024s SBUS link=fresh accepted=410 rejected=0 malformed=0 frames=678 seq=14351 rssi=-39 channels(a/e/t/r)=1568,1421,1004,1466 aux=0x80

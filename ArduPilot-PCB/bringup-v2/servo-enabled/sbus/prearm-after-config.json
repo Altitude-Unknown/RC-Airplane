@@ -1,0 +1,18 @@
+{
+  "messages": [
+    "PreArm: 3D Accel calibration needed",
+    "PreArm: AHRS: waiting for home",
+    "PreArm: Waiting for RC"
+  ],
+  "acks": [
+    {
+      "mavpackettype": "COMMAND_ACK",
+      "command": 401,
+      "result": 0,
+      "progress": 0,
+      "result_param2": 0,
+      "target_system": 255,
+      "target_component": 0
+    }
+  ]
+}

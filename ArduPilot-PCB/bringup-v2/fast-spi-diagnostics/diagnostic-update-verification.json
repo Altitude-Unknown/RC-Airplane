@@ -1,0 +1,7 @@
+{
+  "date": "2026-10-09",
+  "method": "ArduPilot bootloader programming and CRC verification",
+  "uploader_exit_code": 0,
+  "application_bytes": 1311444,
+  "sha256": "54a3f40c86917f4d72ebab176071f2847944b7b7ce63bf390ee19ca0b45a44ae"
+}
