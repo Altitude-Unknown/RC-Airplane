@@ -304,6 +304,8 @@ static String bytesToHex(const uint8_t *buf, size_t n) {
   for (size_t i=0;i<n;i++){ s += hex[(buf[i]>>4)&0xF]; s += hex[buf[i]&0xF]; }
   return s;
 }
+static void processBuzzerCommand(const String &command);
+
 static void processConfigLine(const String &line) {
   // Each command is one line of text ending in '\n'.
   // Examples:
@@ -316,13 +318,19 @@ static void processConfigLine(const String &line) {
   cmd.toUpperCase();
 
   if (cmd == "PING") { Serial.println("PONG"); return; }
+  if (cmd == "BEEP") {
+    String argument = sp < 0 ? "" : line.substring(sp + 1);
+    argument.trim(); argument.toUpperCase();
+    processBuzzerCommand(argument);
+    return;
+  }
 
   if (cmd == "INFO") {
     Serial.print("{\"mcu\":\"SAMD21G18\",\"fram_size\":");
     Serial.print(TXCF::framSize());
     Serial.print(",\"storage\":\"");
     Serial.print(TXCF::storageName());
-    Serial.print("\",\"proto\":\"1.1\",\"role\":\"TX\",\"button_channels\":true,\"mode_rates\":true,\"radio_role\":\"");
+    Serial.print("\",\"proto\":\"1.1\",\"role\":\"TX\",\"button_channels\":true,\"mode_rates\":true,\"buzzer_test\":true,\"radio_role\":\"");
 #ifdef TXV3_BUDDY_BUILD
     Serial.print(txv3BuddyIsStudent() ? "STUDENT" : (txv3Role == TXV3_MASTER ? "MASTER" : "UNCONFIGURED"));
 #else
@@ -591,6 +599,42 @@ void updateThrottleTimer(uint16_t throttleUs, uint32_t now) {
   }
 
   nextThrottleAlarmMs += REPEAT_THROTTLE_ALARM_MS;
+}
+
+// Called only by the Config Mode command parser, where LoRa transmit is off.
+// Use the flight alarm's actual patterns/player without changing its timer.
+static void processBuzzerCommand(const String &command) {
+  if (command == "STATUS") {
+    Serial.print("{\"pin\":"); Serial.print(PIN_BUZZER);
+    Serial.print(",\"active\":"); Serial.print(buzzerActive() ? "true" : "false");
+    Serial.print(",\"throttle_run_ms\":"); Serial.print(throttleRunMs);
+    Serial.print(",\"first_alarm_ms\":"); Serial.print(FIRST_THROTTLE_ALARM_MS);
+    Serial.print(",\"repeat_ms\":"); Serial.print(REPEAT_THROTTLE_ALARM_MS);
+    Serial.print(",\"threshold_us\":"); Serial.print(THROTTLE_TIMER_ON_US);
+    Serial.println(",\"low_battery_alarm\":false}");
+    return;
+  }
+  if (command == "STOP") {
+    noTone(PIN_BUZZER);
+    activeBeepPattern = nullptr;
+    activeBeepCount = activeBeepIndex = 0;
+    activeBeepToneOn = false;
+    nextBeepTransitionMs = 0;
+    Serial.println("OK BEEP STOP");
+    return;
+  }
+  if (command != "FIVE_MIN" && command != "ONE_MIN") {
+    Serial.println("ERR BEEP: use FIVE_MIN, ONE_MIN, STATUS or STOP");
+    return;
+  }
+  if (buzzerActive()) { Serial.println("BUSY BEEP"); return; }
+  if (command == "FIVE_MIN") {
+    startBuzzerPattern(FIVE_MIN_PATTERN, sizeof(FIVE_MIN_PATTERN) / sizeof(FIVE_MIN_PATTERN[0]), millis());
+    Serial.println("OK BEEP FIVE_MIN");
+  } else {
+    startBuzzerPattern(ONE_MIN_PATTERN, sizeof(ONE_MIN_PATTERN) / sizeof(ONE_MIN_PATTERN[0]), millis());
+    Serial.println("OK BEEP ONE_MIN");
+  }
 }
 
 bool menuButtonEvent(uint8_t button, uint32_t now) {

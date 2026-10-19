@@ -222,6 +222,50 @@ Behavior:
 - The 5-minute alarm pattern is different from the 1-minute reminder pattern.
 - Buzzer logic is non-blocking and does not use `delay()` in the flight loop.
 
+The timer is based on commanded throttle above 1080 us, not measured flight
+time or battery voltage. It pauses at idle and resets each TX power-up.
+It is already present in the mode-linked-rate firmware; it was not removed
+by that update. Normal radio operation on the master runs the timer; USB
+Config/Simulator, setup, bind and Student-only operation do not count it.
+
+The current V3 M0 flight firmware does not implement a low-battery voltage
+alarm. The timer is a separate reminder, and receiver battery telemetry is
+not available. A TX battery alarm would need verified voltage sensing and
+thresholds before being implemented.
+
+#### Test the buzzer without waiting five minutes
+
+The 2026-10-18 buzzer-test firmware adds a bounded USB Config Mode test using
+the actual flight warning patterns on the PCB's D11 buzzer driver. It retains
+the working mode-linked rates and does not change stored models or timer
+thresholds. The older D0 loudness-test sketch is not the original PCB buzzer
+connection and should not be used for this assembled transmitter.
+
+1. Power off the aircraft and close other apps using the TX serial port.
+2. Restart the USB-connected transmitter while holding Bind plus aileron-right
+   trim, then release both to enter Config Mode. This mode does not transmit
+   LoRa controls.
+3. Open the configurator, connect to the TX M0, and select **Speaker Test**.
+   Play the five-minute alarm or one-minute reminder; **Stop sound** ends playback
+   early. Older firmware without test support requires a TX firmware update.
+   Alternatively, run `python3 tools/test_tx_buzzer.py` with the GUI disconnected.
+   Confirm audibility by listening; command acceptance alone does not prove sound.
+4. Restart the transmitter normally with throttle down before radio use.
+
+For maintenance, Config Mode also accepts `BEEP FIVE_MIN`, `BEEP ONE_MIN`,
+`BEEP STATUS` and `BEEP STOP`. The test reuses the non-blocking player and
+does not advance the flight timer or write model storage. `BEEP STATUS` shows
+pin 11, first alarm 300000 ms, repeat 60000 ms, and throttle threshold 1080 us.
+
+If the test completes but there is no sound, check the V3 buzzer supply path
+with battery and USB disconnected. R19 is the series resistor between +3V3
+and the buzzer; an unpopulated R19 leaves that path open. The build notes
+specify a 100-ohm resistor. On 2026-10-18 the current transmitter was confirmed
+to have R19 missing, explaining the silent test despite battery power being
+on. Fit the resistor and repeat the audible test before relying on reminders;
+audible operation was confirmed on 2026-10-19 after fitting 100 ohms.
+The user also verified both patterns through the new GUI Speaker Test tab.
+
 Standalone buzzer test sketch:
 
 ```text

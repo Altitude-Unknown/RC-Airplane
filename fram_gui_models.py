@@ -236,6 +236,21 @@ class SerialWorker:
         self.send_line("PING")
         return self.read_line() == "PONG"
 
+    def test_speaker(self, pattern):
+        """Play bounded Config Mode sounds without changing models or timers."""
+        if pattern not in ("FIVE_MIN", "ONE_MIN", "STOP"):
+            raise ValueError("Unknown speaker test")
+        if not self.ser:
+            raise RuntimeError("Connect the transmitter M0 in USB Config Mode first.")
+        if not self.device_info.get("buzzer_test"):
+            raise RuntimeError("This TX firmware does not support speaker tests. Update its firmware first.")
+        if not self.verify_config_mode():
+            raise RuntimeError("TX is not responding in USB Config Mode. Reconnect before testing.")
+        self.send_line("BEEP " + pattern)
+        response = self.read_line()
+        if response != "OK BEEP " + pattern:
+            raise RuntimeError(response or "No response to speaker test")
+
     # --- Protocol: READ/WRITE ---
     def cmd_read(self, addr: int, length: int) -> bytes:
         # Ask the transmitter for raw persistent-storage bytes.
@@ -923,8 +938,38 @@ class App(tk.Tk):
 
         self._build_role_tab()
         self._build_firmware_tab()
-        for tab in (self.connection_view, self.tab_models, self.tab_roles, self.tab_firmware):
+        self._build_speaker_tab()
+        for tab in (self.connection_view, self.tab_models, self.tab_roles, self.tab_firmware, self.tab_speaker):
             tab.bind_content()
+
+    def _build_speaker_tab(self):
+        self.tab_speaker = ScrollableTab(self.nb, padding=22)
+        self.nb.add(self.tab_speaker, text="Speaker Test")
+        content = self.tab_speaker.content
+        ttk.Label(content, text="Transmitter speaker test", style="Panel.TLabel",
+                  font=("Helvetica", 16, "bold")).pack(anchor="w")
+        ttk.Label(content, text="Keep the aircraft powered off. Connect the transmitter M0 in USB Config Mode using Connect above.\n"
+                  "Tests play the flight alarm sounds without changing model settings or the flight timer.\n"
+                  "Listen to confirm the speaker works; command acceptance cannot confirm audible sound.",
+                  style="Panel.TLabel", wraplength=640).pack(anchor="w", pady=12)
+        for label, pattern in (("Play five-minute alarm (~6 seconds)", "FIVE_MIN"),
+                               ("Play one-minute reminder (~2 seconds)", "ONE_MIN"),
+                               ("Stop sound", "STOP")):
+            ttk.Button(content, text=label, command=lambda p=pattern: self.on_speaker_test(p)).pack(anchor="w", pady=5)
+        self.speaker_status = tk.StringVar(value="Ready. Requires TX firmware with speaker-test support.")
+        ttk.Label(content, textvariable=self.speaker_status, style="Panel.TLabel",
+                  wraplength=640).pack(anchor="w", pady=12)
+
+    def on_speaker_test(self, pattern):
+        try:
+            if self.firmware_busy:
+                raise RuntimeError("Wait for the firmware operation to finish before testing.")
+            self.w.test_speaker(pattern)
+            self.speaker_status.set("Stop command accepted." if pattern == "STOP" else
+                                    "Playback command accepted. Listen for the sound; it stops automatically.")
+        except Exception as exc:
+            self.speaker_status.set(str(exc))
+            messagebox.showerror("Speaker test", str(exc))
 
     def _build_firmware_tab(self):
         """Build the guided SAMD21/ESP32-C3 firmware updater."""
