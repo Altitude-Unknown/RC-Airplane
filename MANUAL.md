@@ -2,12 +2,14 @@
 
 Living manual for the Altitude Unknown RC transmitter, receiver, and configurator GUI.
 
-Last updated: 2026-09-14
+Last updated: 2026-10-18
 
 This manual describes production release `transmitter-gui-v2026.09.14`.
 [Download the configurator and matching firmware](https://github.com/Altitude-Unknown/RC-Airplane/releases/tag/transmitter-gui-v2026.09.14).
 V-tail controls have passed the pilot's bench and flight tests. Elevon mixing
 has automated tests but has not yet been tested on an airplane.
+The separate BOREALIS V2 ArduPlane section below describes the custom FC setup;
+it does not change the production receiver's operating instructions.
 
 ## Unreleased Button-Channel Update
 
@@ -15,6 +17,8 @@ The next firmware/configurator update adds D10/Channel 5 and D7/Channel 6
 momentary or toggle control, per-model trainer assignment, D21/SCL and D20/SDA
 receiver outputs, and CRSF channel mapping. This is not part of the 2026.09.14
 release described below. See [button-channel setup and bench checks](BUTTON_CHANNELS.md).
+The 2026-10-18 source update also adds optional CH5 mode-linked surface rates;
+use the updated V3 M0 firmware and source configurator for this feature.
 
 ## Contents
 
@@ -24,6 +28,7 @@ release described below. See [button-channel setup and bench checks](BUTTON_CHAN
 - [Aircraft Type And Control Mixing](#aircraft-type-and-control-mixing)
 - [Receiver](#receiver)
 - [Desktop Transmitter Configurator](#desktop-transmitter-configurator)
+- [BOREALIS V2 ArduPlane Operation](#borealis-v2-arduplane-operation)
 - [Troubleshooting](#troubleshooting)
 - [Known Good Fallback Points](#known-good-fallback-points)
 
@@ -129,6 +134,8 @@ stored trim by 5 µs, limited to −500 through +500 µs. Holding a button does 
 repeat the trim. With mixed surfaces, trim follows the logical control axis as
 described in [Aircraft Type And Control Mixing](#aircraft-type-and-control-mixing).
 Without a loaded model, trims are temporary and reset at power-off.
+When this radio drives an ArduPlane FC, changing these trims also changes the
+FC's received input centers; follow [the ArduPlane trim procedure](#aircraft-trim-and-fbwa).
 
 Trim pins:
 
@@ -681,7 +688,181 @@ Important commits/tags:
 | `transmitter-gui-v2026.09.01.5` | Validated matched production Tx/Rx packet layout and rudder trim |
 | `transmitter-gui-v2026.09.14` | Aircraft-type GUI and firmware; V-tail bench/flight-tested, elevons awaiting hardware testing |
 
+## BOREALIS V2 ArduPlane Operation
+
+These instructions apply to the custom BOREALISv2Servo flight controller with
+the non-inverted SBUS receiver bridge, not the direct-servo receiver described
+above. Use the matching [new-board setup checklist](ArduPilot-PCB/bringup-v2/servo-enabled/NEW_BOARD_SETUP.md)
+and [GPS-free training preset](ArduPilot-PCB/bringup-v2/servo-enabled/training-no-gps.parm).
+Calibrations, failsafes, servo directions and travel remain aircraft-specific.
+
+### Arming With Flight Trims
+
+The training preset now includes `RC_OPTIONS 96`:
+
+- Bit 5 / value 32 retains the requirement for throttle at idle when arming.
+- Bit 6 / value 64 skips the neutral-roll/pitch/yaw check when arming, so a
+  transmitter trim adjustment does not itself prevent arming. Deliberately
+  deflected surface-control sticks are also allowed by this setting.
+
+In QGroundControl, open Parameters, search for **RC_OPTIONS**, and edit it
+while disarmed with the propeller removed. Keep **Arming check throttle for 0
+input** checked and check **Skip the arming check for neutral Roll/Pitch/Yaw
+sticks**. For this profile, these are the only selected bits; confirm the value
+is **96** and click **Save**. Reconnect/read back the parameter to verify it.
+Review any existing extra bits before replacing settings on a different aircraft.
+
+This setting does not save trims, recalibrate the radio, or change FBWA's
+interpretation of stick commands. Other configured arming checks still apply.
+The PCB button requires fresh healthy RC, idle throttle, on-ground eligibility
+and MANUAL or FBWA throughout a two-second hold. Release the button after each
+attempt; it must also be released after startup. Hold again at idle on the
+ground to disarm. L3 is solid when armed and normally slow-blinks when disarmed
+and ready; failsafe patterns can take priority. Working control surfaces or lit
+IMU/barometer health LEDs alone do not prove arming will pass.
+
+Successful physical-button arming, user-reported motor response and button
+disarming were verified on 2026-10-18 after restoring matched TX/FC centers.
+That test used `RC_OPTIONS=32`. The updated profile's value 96 still needs
+saved-parameter readback and propeller-off hardware verification.
+
+### Radio Calibration And Lower MANUAL Rates
+
+1. Remove the propeller and isolate motor power for calibration. Back up the
+   transmitter model and FC parameters. Use the intended neutral baseline;
+   zeroing an already-calibrated radio's subtrims alone changes its relationship
+   to the FC's saved centers.
+2. Set aileron, elevator and rudder to 100% rates. In this transmitter,
+   **High Rates Active** overrides all four channel rates, including throttle;
+   check throttle configuration before and after changing it. Calibrate full
+   stick travel, then finish with surface sticks centered and throttle down.
+3. Save the full-range FC calibration. Lower surface rates, such as 50%, may
+   then be used in MANUAL without recalibrating. Preserve the centers,
+   reversals and endpoint settings used for calibration; keep throttle's rate
+   at its intended full range.
+4. Check direction, neutral, useful surface travel and mode changes with the
+   propeller removed. Lower rates send smaller pilot commands within the saved
+   range; reaching the full calibrated endpoints is not required for arming.
+
+In FBWA, full calibrated roll/pitch input permits the full configured bank and
+pitch command range. Reduced transmitter rates reduce that requested range,
+not the FC's corrective servo authority. Expo can soften center-stick response
+without reducing full-stick input. Set servo-output limits for the aircraft's
+required safe travel rather than using them as a MANUAL-only rate adjustment.
+
+Rates are selected in the saved model. The optional 2026-10-18 source update
+can use the same AUX/CH5 button for both mode selection and surface rates:
+
+1. Install the updated V3 M0 firmware and use the updated source configurator.
+   Back up the model first and keep the aircraft powered off while editing.
+2. Keep D10 assigned to **Channel 5 — Toggle** for the current MANUAL/FBWA setup.
+3. Under **Button channels → Mode-linked rates**, select **FBWA at CH5 low** or
+   **FBWA at CH5 high**, matching the actual FC mode mapping. Check it on the
+   connected FC; the earlier backup mapped low to FBWA and high to MANUAL,
+   but the pilot has not confirmed that the current mapping is unchanged.
+4. Save the model and restart normally with throttle down. The FBWA position
+   now uses full rudder/aileron/elevator rates; the MANUAL position restores
+   the selected rates. If High Rates Active is already on, MANUAL remains at
+   full rates too. Throttle, expo, trims, endpoints and reversals are preserved.
+5. With the propeller removed, verify FC mode and surface input range in both
+   positions, including idle throttle and centered-stick values. CH5 starts
+   low on power-up. Switching with an off-center stick changes its command.
+
+This option is off for existing models until enabled. It follows the radio's
+CH5 state and receives no actual FC mode feedback; failsafes or another mode
+source can change the FC mode independently. It does not change trim profiles.
+The stored **DR Switch** field remains unused. The broken CH6 button on the old
+prototype is not needed. Older GUIs erase the new setting when saving models.
+See [button-channel notes](BUTTON_CHANNELS.md#ch5-mode-linked-surface-rates--2026-10-18-source-update).
+
+The Research model on the old TX was updated and enabled on 2026-10-18 using
+the saved CH5 low=FBWA/high=MANUAL mapping. Its MANUAL rates are aileron 30%,
+elevator 80%, rudder 50%; FBWA uses 100% on those axes. All saved controls and
+other models were verified preserved. The pilot subsequently reported a good
+bench test, with similar-looking surface deflection in FBWA and MANUAL.
+No numerical FC input ranges were captured during that test. Post-update
+flight testing is still pending to confirm improved FBWA handling; the three
+successful flights below preceded this rate update. The updated local macOS
+app is in artifacts/mode-rates-2026-10-18/gui/; use it when editing this model
+so the new setting is retained. It can also be built from the committed GUI
+source and existing PyInstaller spec; app bundles are kept local.
+
+If FBWA turns are too wide, check transmitter rates before raising FC angle
+limits. With matched calibration, a 30% roll input requests about 13.5 degrees
+when the bank limit is 45 degrees. This is an illustration; actual requested
+angles depend on calibration, trim, High Rates Active and other limiters.
+Check RC input and NAV_CONTROLLER_OUTPUT requested bank/pitch with the
+propeller removed. Ground tests can encounter speed-based bank limiting and
+do not establish airborne limits. If the FC requests adequate bank but the
+airplane fails to reach it in flight, investigate tracking rather than simply
+increasing the limit. Full input in FBWA and reduced input in MANUAL can use
+the optional mode-linked rates described above; verify them on hardware first.
+
+Three successful flights were reported on 2026-10-18: smooth FBWA autolevel,
+working MANUAL control and successful repeated mode switching. Remaining
+feedback was limited FBWA maneuverability with aileron 30% and elevator 80%.
+See [flight-test notes](memory/2026-10-18-v2-flight-tests.md) for the evidence
+and unconfirmed flight settings.
+
+### Aircraft Trim And FBWA
+
+In MANUAL, transmitter flight trims offset surface commands. In FBWA, roll and
+pitch input requests attitude: an unsaved roll-trim change can request a bank,
+and pitch trim can request a different nose attitude. The FC cannot identify
+trim-button input separately from stick movement. FBWA holds attitude, not
+altitude. Rudder remains a manual input plus configured coordination/mixing.
+
+Prefer establishing the aircraft's basic trim through linkages and FC
+`SERVOx_TRIM` output settings. ArduPlane also supports auxiliary function
+**155, TRIM RC/SERVO Save**: in MANUAL it saves the present surface outputs
+and the corresponding roll, pitch and yaw RC input centers. Thus a released
+stick at the trimmed transmitter setting becomes the new recognized neutral,
+while retaining the surface correction. This built-in function requires no
+transmitter or FC code change and no GPS.
+
+If using trim-save, assign it to a separate unused RC channel, not a control
+axis or flight-mode channel. Keep sticks released at the intended trimmed
+centers; the current firmware rejects invalid RC, non-MANUAL operation, large
+roll/pitch inputs or excessive rotation. Bench-verify the function and saved
+input/output values before flight use. It is not yet assigned or hardware
+validated on this installation. After saving, leave the transmitter trims at
+the saved positions; zeroing them changes the inputs again. Further trim
+changes need another deliberate save before they become the new FBWA neutral.
+Do not automatically run trim-save on every mode-button press.
+
+For the current BOREALIS installation, the planned separate trim-save control
+is **D7 / Aux -> Channel 6, Momentary** in the transmitter model, with
+**RC6_OPTION=155** in ArduPlane. Keep Channel 5 for MANUAL/FBWA selection.
+The latest saved FC backup has FLTMODE_CH=5 and RC6_OPTION=0, but CH6 button
+movement was not yet verified. With the propeller removed, first verify CH6
+reads about1000 us released and2000 us held, and that the mode channel does
+not change. Then assign155 and bench-check the save with sticks released in
+MANUAL. This mapping is proposed, not yet applied or hardware validated.
+The pilot subsequently confirmed this old transmitter's D7 connection was
+removed during PCB repair. Its CH6 button is unavailable until the hardware
+is repaired or the transmitter is replaced; the assignment alone cannot fix it.
+
+`SERVO_AUTO_TRIM` is another built-in option for suitable installations, but
+requires adequate ground-speed and airspeed estimates. Do not assume it will
+operate in this GPS-free training configuration. `RC_OPTIONS=96` only addresses
+arming; it does not substitute for either trim method.
+
+References: [radio calibration](https://ardupilot.org/plane/docs/common-radio-control-calibration.html),
+[RC options](https://ardupilot.org/plane/docs/common-rc-options.html),
+[FBWA](https://ardupilot.org/plane/docs/fbwa-mode.html),
+[trim-save auxiliary function](https://ardupilot.org/plane/docs/common-auxiliary-functions.html),
+and [automatic servo trim](https://ardupilot.org/plane/docs/auto-trim.html).
+
 ## Troubleshooting
+
+### BOREALIS V2 Control Surfaces Work But Motor Will Not Arm
+
+Read QGroundControl's latest arming message and check the actual flight mode.
+On 2026-10-18, `Arm: Roll (RC1) is not neutral` identified a radio-center mismatch;
+after a link interruption, `PreArm: RTL mode not armable` identified the need
+to reselect MANUAL/FBWA. Apply the documented RC_OPTIONS policy and verify
+healthy RC and idle throttle rather than changing firmware or guessing from
+sensor LEDs. See [BOREALIS V2 ArduPlane Operation](#borealis-v2-arduplane-operation).
 
 ### Transmitter Does Not Send
 

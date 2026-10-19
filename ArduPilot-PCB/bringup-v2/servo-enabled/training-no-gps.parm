@@ -1,4 +1,4 @@
-# BOREALISv2Servo training baseline, 2026-10-10.
+# BOREALISv2Servo training baseline, updated 2026-10-18.
 # For current LSM6DSO32 ROTATION_NONE firmware and pictured mounting:
 # components up, ARM-button edge toward nose, servo-connector edge toward tail.
 # Non-inverted SBUS requires the matching BOREALIS firmware and receiver bridge.
@@ -13,6 +13,9 @@ ARSPD_TYPE 0
 ARSPD_USE 0
 LOG_BACKEND_TYPE 0
 ARMING_SKIPCHK 8
+# Bit 5 (32): require idle throttle when arming.
+# Bit 6 (64): allow non-neutral roll/pitch/yaw inputs when arming, including trims.
+RC_OPTIONS 96
 SERIAL2_PROTOCOL 23
 SERVO1_FUNCTION 70
 SERVO2_FUNCTION 4

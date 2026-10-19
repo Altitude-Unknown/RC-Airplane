@@ -5,6 +5,46 @@ is deferred until a receiver exposing the new signals is available. Not flashed
 or published.
 This feature is not in release `transmitter-gui-v2026.09.14`.
 
+## CH5 mode-linked surface rates — 2026-10-18 source update
+
+The updated V3 M0 firmware and source configurator add an opt-in per-model
+**Mode-linked rates** selector under **Button channels**. Select whether FBWA
+corresponds to CH5 low or CH5 high, after checking the actual FC mode mapping.
+That CH5 position uses 100% rudder, aileron and elevator rates; the other
+position restores the model's selected rates and High Rates Active setting.
+The override preserves throttle, expo, trims, reversals and endpoints. There
+are no model-storage writes when the mode button is pressed.
+
+Existing models default to Off. D10 must be assigned to Channel 5 (normally
+Toggle for MANUAL/FBWA); the option is unavailable for Student radios or D10
+Trainer assignment. CH6 is independent and need not work. The option follows
+the transmitted CH5 position, not FC telemetry: an FC failsafe or another mode
+source can select a different mode without changing the radio's rate profile.
+CH5 starts low at reset, so the selected low-position rate profile also applies
+at startup. USB simulator mode follows the same mapping for bench checks.
+
+Use the updated source GUI and matching M0 firmware together. The GUI refuses
+to enable the feature on firmware without the `mode_rates` capability. Older
+GUIs clear this new setting when saving a model. The ESP and receiver packet
+layouts are unchanged; neither requires an update for this feature.
+
+Storage: model reserved[5] bits 4..5 encode 0=off, 1=full surfaces at CH5 low,
+2=full surfaces at CH5 high. Value3 leaves rates unchanged. The model remains
+60 bytes within its 64-byte slot and the existing CRC covers these bits.
+
+Before flight, back up the radio model and FC parameters, remove the propeller,
+and verify the actual mode and received surface ranges in both button positions.
+Confirm throttle and centered-stick values remain unchanged. Switching while
+a surface stick is deflected changes the command magnitude. FC mode-switch
+processing and existing transmitter smoothing can produce a brief transition;
+the radio cannot confirm that the FC accepted the mode. Full FBWA rates still
+respect the configured FC attitude limits and any additional limiting.
+
+The pilot reported a successful post-installation bench test on 2026-10-18:
+surface deflections in FBWA and MANUAL looked close to the same. This is a
+qualitative bench result; no numerical FC ranges or post-update flight results
+have been captured. Flight testing to confirm handling improvement is pending.
+
 ## Configurator
 
 Load the model in **Models**, then choose the **Button channels** settings:

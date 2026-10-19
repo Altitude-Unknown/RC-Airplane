@@ -7,10 +7,18 @@ preset for the current BOREALISv2Servo firmware, LSM6DSO32 driver with
 ROTATION_NONE, and non-inverted SBUS receiver bridge. Mount the PCB components
 up, ARM-button edge toward the nose, servo-connector edge toward the tail.
 Use this preset only on matching boards and firmware.
+For operator instructions covering QGroundControl's RC_OPTIONS checkboxes,
+rates and trim saving, see the [system manual](../../../MANUAL.md#borealis-v2-arduplane-operation).
 
 The preset configures GPS-free DCM stabilization, no compass or airspeed
 sensor, no onboard logging backend, SBUS input, and TAER servo outputs.
-ARMING_SKIPCHK=8 skips GPS lock only; all other arming checks remain enabled.
+ARMING_SKIPCHK=8 skips GPS lock only. RC_OPTIONS=96 keeps the idle-throttle
+arming check (bit 5) and allows non-neutral roll/pitch/yaw inputs (bit 6), so
+transmitter flight-trim changes do not prevent arming. This also permits arming
+with those sticks deliberately deflected; it does not save a new RC neutral or
+servo trim. Other configured arming checks remain in effect. The custom PCB
+button still requires a two-second hold, fresh healthy RC, idle throttle,
+on-ground detection and Manual/FBWA mode.
 It preserves the ability to add GPS, compass, logging and airspeed hardware
 later. No calibration values, radio endpoints, gains, servo reversals, mode
 assignments or failsafe settings are copied between aircraft.
@@ -28,7 +36,14 @@ assignments or failsafe settings are copied between aircraft.
 3. Check IMU and barometer health. Perform six-position accelerometer
    calibration, then level calibration with the airplane properly leveled.
    Let gyro calibration complete while stationary at startup.
-4. Perform radio calibration with full stick travel. Confirm throttle low,
+4. Select 100% transmitter rates on aileron, elevator and rudder, then perform
+   radio calibration with full stick travel and the intended neutral baseline.
+   After saving, lower rates may be selected for Manual without recalibrating;
+   preserve the same centers and endpoint settings. Use full calibrated travel
+   in FBWA to retain its full attitude-command range. Changing rates manually
+   needs no firmware change; automatic rate selection requires the optional
+   2026-10-18 V3 M0 mode-linked-rate update and matching GUI, with the CH5
+   polarity checked against the actual FC mode mapping. Confirm throttle low,
    stick centers, channel order, mode-switch channels and receiver recovery.
    Earlier testing left full roll endpoints and CH6 unresolved; check these
    explicitly on each installation.
@@ -48,6 +63,13 @@ assignments or failsafe settings are copied between aircraft.
    radio range and remaining pre-arm checks. Resolve incomplete parameter
    downloads. Validate the experimental IMU timing and complete aircraft
    tuning/flight validation before student use.
+9. With the propeller removed, verify saved RC_OPTIONS=96 after reboot. Check
+   that a small surface-trim change no longer blocks physical-button arming
+   with idle throttle in Manual/FBWA, and verify button disarming. Starting
+   disarmed, confirm arming is still rejected with throttle above idle, then
+   return throttle fully down. Perform physical arming
+   tests only with the propeller removed. The revised profile has not yet been
+   imported or its RC_OPTIONS=96 behavior validated on hardware.
 
 ## Confirmed bench findings, 2026-10-10
 

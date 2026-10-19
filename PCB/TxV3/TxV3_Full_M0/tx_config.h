@@ -45,7 +45,8 @@ typedef struct __attribute__((packed)) {
     // reserved[3]: aircraft type: 0=conventional, 1=V-tail, 2=elevons
     // reserved[4] bit0: reverse V-tail rudder input before surface mixing
     // reserved[5]: D10 bits0..1 (0=trainer,1=momentary,2=toggle);
-    // D7 bits2..3 (0=disabled,1=momentary,2=toggle)
+    // D7 bits2..3 (0=disabled,1=momentary,2=toggle);
+    // CH5 surface rates bits4..5 (0=off,1=full at low,2=full at high)
     uint8_t  reserved[6];
   uint16_t crc16;           // CCITT over first 58 bytes
 } txcf_model_v1_t;
@@ -80,6 +81,11 @@ int16_t  channelToUs(float stickNorm, int ch,
 // Control order is rudder, aileron, elevator, throttle.
 void controlsToUs(float rud, float ail, float ele, float thr,
                   const txcf_model_v1_t &m, bool highRates, uint16_t out[4]);
+
+// Apply a temporary surface-rate override without changing throttle or storage.
+void controlsToUsForMode(float rud, float ail, float ele, float thr,
+                        const txcf_model_v1_t &m, bool highRates,
+                        bool fullSurfaceRates, uint16_t out[4]);
 
 // ---------- Raw active-storage access for USB Config Mode ----------
 bool     rawRead(uint16_t addr, uint8_t* data, size_t len);

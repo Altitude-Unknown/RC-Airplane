@@ -221,6 +221,18 @@ void controlsToUs(float rud, float ail, float ele, float thr,
   }
 }
 
+void controlsToUsForMode(float rud, float ail, float ele, float thr,
+                        const txcf_model_v1_t &m, bool highRates,
+                        bool fullSurfaceRates, uint16_t out[4]) {
+  if (!fullSurfaceRates) {
+    controlsToUs(rud, ail, ele, thr, m, highRates, out);
+    return;
+  }
+  txcf_model_v1_t rateModel = m;
+  for (int ch = 0; ch < 3; ++ch) rateModel.rates_pct[ch] = 100;
+  controlsToUs(rud, ail, ele, thr, rateModel, highRates, out);
+}
+
 // ---------- Raw active-storage access used by USB Config Mode ----------
 bool rawRead(uint16_t addr, uint8_t* data, size_t len)  { return storageRead(addr, data, len); }
 bool rawWrite(uint16_t addr, const uint8_t* data, size_t len) { return storageWrite(addr, data, len); }

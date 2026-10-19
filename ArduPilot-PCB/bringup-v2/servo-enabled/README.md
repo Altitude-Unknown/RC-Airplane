@@ -8,13 +8,31 @@ retained for continuity.
 Physical ARM button update prepared on 2026-10-10:
 [firmware and operating instructions](arm-button/README.md). This separate
 image adds a checked two-second hold on PC10; installed and flash-verified
-2026-10-10. Physical button validation remains pending. Earlier artifacts
+2026-10-10. Physical button arming and disarming were verified on 2026-10-18,
+with motor operation confirmed by the user; see the linked instructions.
+Earlier artifacts
 below are retained.
 
 Reusable setup: [new-board checklist](NEW_BOARD_SETUP.md) and
 [GPS-free training parameter preset](training-no-gps.parm). The preset is
 partial; calibration, failsafe configuration and hardware import validation
 remain required.
+
+## Three successful flights reported 2026-10-18
+
+The pilot reports three successful flights with the custom FC, TX and RX:
+smooth FBWA autolevel, satisfactory MANUAL control and repeated mode changes
+without reported issues. Remaining feedback is overly wide turns and limited
+pitch/roll command in FBWA. Flight aileron rate was 30%; elevator was 80%.
+Reduced TX rates are a leading explanation for limited commanded attitude;
+active high-rate state, current FC limits and requested angles need checking
+before raising limits or changing gains. See [flight-test notes](../../../memory/2026-10-18-v2-flight-tests.md).
+These are pilot-reported results; no flight logs were independently reviewed.
+
+A later CH5-linked TX surface-rate update was installed to address limited
+FBWA command range while retaining the selected MANUAL rates. The pilot reports
+its bench test looks good and surface deflections in both modes look similar.
+Flight testing of the rate update is pending. See [mode-rate notes](../../../memory/2026-10-18-mode-rates.md).
 
 ## 2026-10-10 GPS-free training configuration
 

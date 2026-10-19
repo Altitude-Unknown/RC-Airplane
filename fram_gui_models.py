@@ -106,12 +106,19 @@ AIRCRAFT_TYPES = ("Conventional / T-tail", "V-tail (ruddervators)", "Flying wing
 
 D10_FUNCTIONS = ("Trainer", "Channel 5 — Momentary", "Channel 5 — Toggle")
 D7_FUNCTIONS = ("Disabled", "Channel 6 — Momentary", "Channel 6 — Toggle")
+CH5_RATE_MODES = ("Off — use selected rates", "FBWA at CH5 low — full surface rates",
+                  "FBWA at CH5 high — full surface rates")
 
 def button_config(model):
     modes = (model.get("d10_function", 0), model.get("d7_function", 0))
     if any(type(value) is not int or value not in (0, 1, 2) for value in modes):
         raise ValueError("Button function must be 0, 1, or 2")
-    return modes[0] | (modes[1] << 2)
+    rate_mode = model.get("ch5_rate_mode", 0)
+    if type(rate_mode) is not int or rate_mode not in (0, 1, 2):
+        raise ValueError("CH5 rate mode must be 0, 1, or 2")
+    if rate_mode and modes[0] == 0:
+        raise ValueError("Mode-linked rates require D10 assigned to Channel 5, not Trainer.")
+    return modes[0] | (modes[1] << 2) | (rate_mode << 4)
 
 def validate_model_controls(model: dict) -> dict:
     """Clamp editable controls and reject endpoints that collapse a channel."""
@@ -437,6 +444,7 @@ class ModelsStore:
                 vtail_rudder_reverse=bool(reserved[4] & 1),
                 d10_function=(reserved[5] & 3) if (reserved[5] & 3) < 3 else 0,
                 d7_function=((reserved[5] >> 2) & 3) if ((reserved[5] >> 2) & 3) < 3 else 0,
+                ch5_rate_mode=((reserved[5] >> 4) & 3) if ((reserved[5] >> 4) & 3) < 3 else 0,
                 ail_to_rud_mix_enabled=mix_enabled,
                 ail_to_rud_mix_percent=mix_percent,
                 crc_ok=(crc_stored == crc_calc))
@@ -452,6 +460,8 @@ class ModelsStore:
         info = getattr(self.w, "device_info", None)
         if config and info is not None and not info.get("button_channels"):
             raise ValueError("Update the transmitter M0 firmware before saving button channels.")
+        if model.get("ch5_rate_mode", 0) and info is not None and not info.get("mode_rates"):
+            raise ValueError("Update the transmitter M0 firmware before saving mode-linked rates.")
         if model.get("d10_function", 0) and info and info.get("radio_role") == "STUDENT":
             raise ValueError("Student radios reserve D10 for training. Select Trainer for D10.")
 
@@ -803,6 +813,7 @@ class App(tk.Tk):
         # For example, editing the Model Name entry changes self.name_var.
         self.d10_function_var = tk.StringVar(value=D10_FUNCTIONS[0])
         self.d7_function_var = tk.StringVar(value=D7_FUNCTIONS[0])
+        self.ch5_rate_mode_var = tk.StringVar(value=CH5_RATE_MODES[0])
         self.button_status_var = tk.StringVar(value="D10 Trainer reserves the button for handoff. Channel 5 disables student control.")
         self.aircraft_type_var = tk.StringVar(value=AIRCRAFT_TYPES[0])
         self.vtail_rudder_reverse_var = tk.BooleanVar(value=False)
@@ -855,6 +866,13 @@ class App(tk.Tk):
             row=1, column=0, columnspan=4, sticky='w', pady=4)
         ttk.Label(button_frame, text="Momentary: hold high, release low. Toggle: press to change. Starts low at power-up.",
             wraplength=680).grid(row=2, column=0, columnspan=4, sticky='w')
+        ttk.Label(button_frame, text="Mode-linked rates:").grid(row=3, column=0, sticky='w', pady=4)
+        self.ch5_rate_mode_combo = ttk.Combobox(button_frame, textvariable=self.ch5_rate_mode_var,
+            values=CH5_RATE_MODES, state="readonly", width=43)
+        self.ch5_rate_mode_combo.grid(row=3, column=1, columnspan=3, sticky='w', padx=8)
+        ttk.Label(button_frame, text="Other CH5 position restores selected rates. Throttle, trims and expo stay unchanged. "
+            "Match low/high to the FC mode settings; this radio does not receive FC mode feedback.",
+            wraplength=680).grid(row=4, column=0, columnspan=4, sticky='w')
 
         mix_frame = ttk.LabelFrame(right, text="Control Mixing", padding=(12, 8))
         mix_frame.pack(fill='x', pady=(0, 6))
@@ -1398,8 +1416,10 @@ class App(tk.Tk):
         role = self.w.device_info.get("radio_role", "UNKNOWN")
         student = role == "STUDENT"
         self.d10_function_combo.config(state="disabled" if student else "readonly")
+        self.ch5_rate_mode_combo.config(state="disabled" if student else "readonly")
         if student:
             self.d10_function_var.set(D10_FUNCTIONS[0])
+            self.ch5_rate_mode_var.set(CH5_RATE_MODES[0])
             self.button_status_var.set("Student radio: D10 is reserved. The master controls aircraft Channels 5 and 6.")
         else:
             self.button_status_var.set("D10 Trainer reserves the button for handoff. Channel 5 disables student control.")
@@ -1669,6 +1689,7 @@ class App(tk.Tk):
         # Copy a model dictionary into the visible editor widgets.
         self.d10_function_var.set(D10_FUNCTIONS[m.get("d10_function", 0)])
         self.d7_function_var.set(D7_FUNCTIONS[m.get("d7_function", 0)])
+        self.ch5_rate_mode_var.set(CH5_RATE_MODES[m.get("ch5_rate_mode", 0)])
         self._update_button_role()
         self.aircraft_type_var.set(AIRCRAFT_TYPES[m.get("aircraft_type", 0)])
         self.vtail_rudder_reverse_var.set(bool(m.get("vtail_rudder_reverse", False)))
@@ -1707,6 +1728,7 @@ class App(tk.Tk):
             aircraft_type=AIRCRAFT_TYPES.index(self.aircraft_type_var.get()),
             d10_function=D10_FUNCTIONS.index(self.d10_function_var.get()),
             d7_function=D7_FUNCTIONS.index(self.d7_function_var.get()),
+            ch5_rate_mode=CH5_RATE_MODES.index(self.ch5_rate_mode_var.get()),
             vtail_rudder_reverse=bool(self.vtail_rudder_reverse_var.get()),
             bind_code=int(self.bind_var.get() or "0"),
             dr_switch=int(self.dr_switch_var.get() or "0"),

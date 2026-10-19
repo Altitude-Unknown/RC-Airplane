@@ -40,6 +40,7 @@
 #include <Adafruit_SSD1306.h>
 #include "tx_config.h"
 #include "aux_channels.h"
+#include "mode_rates.h"
 
 #ifdef TXV3_BUDDY_BUILD
 void txv3BuddyBegin();
@@ -321,7 +322,7 @@ static void processConfigLine(const String &line) {
     Serial.print(TXCF::framSize());
     Serial.print(",\"storage\":\"");
     Serial.print(TXCF::storageName());
-    Serial.print("\",\"proto\":\"1.1\",\"role\":\"TX\",\"button_channels\":true,\"radio_role\":\"");
+    Serial.print("\",\"proto\":\"1.1\",\"role\":\"TX\",\"button_channels\":true,\"mode_rates\":true,\"radio_role\":\"");
 #ifdef TXV3_BUDDY_BUILD
     Serial.print(txv3BuddyIsStudent() ? "STUDENT" : (txv3Role == TXV3_MASTER ? "MASTER" : "UNCONFIGURED"));
 #else
@@ -974,28 +975,31 @@ void loop() {
   float xEle = adcToNorm(rawEle, calEle, false);
   float xRud = adcToNorm(rawRud, calRud, false);
 
-  // High/Low rates source:
-  // For now, high/low rates come from the active model setting in FRAM.
+  // The model remains the selected MANUAL rate profile. The CH5 override below
+  // affects only surfaces; it never changes this stored selection or throttle.
   bool highRates = (gModelLoaded && gModel.active_rates == 1);
-  // TODO: If you want a physical switch to toggle DR, read it here
-  // and override 'highRates', optionally saving back to FRAM.
 
   updatePhysicalTrims();
   uint8_t buttonConfig = gModelLoaded ? gModel.reserved[5] : 0;
   uint8_t mode5 = AuxChannels::mode(buttonConfig, 0);
   uint8_t mode6 = AuxChannels::mode(buttonConfig, 2);
+  bool student = false;
 #ifdef TXV3_BUDDY_BUILD
   // A student radio never repurposes its trainer button as an aircraft command.
-  if (txv3BuddyIsStudent()) mode5 = 0;
+  student = txv3BuddyIsStudent();
+  if (student) mode5 = 0;
 #endif
   uint8_t localAux = AuxChannels::encode(
       channel5Button.update(digitalRead(10) == LOW, mode5, millis()),
       channel6Button.update(digitalRead(7) == LOW, mode6, millis()));
+  // Use the same debounced CH5 state that is placed in this control packet.
+  const bool fullSurfaceRates = ModeRates::fullSurfaces(buttonConfig, localAux, student);
 
   uint16_t thr, ail, ele, rud;
   if (gModelLoaded) {
     uint16_t outputs[4];
-    TXCF::controlsToUs(xRud, xAil, xEle, xThr, gModel, highRates, outputs);
+    TXCF::controlsToUsForMode(xRud, xAil, xEle, xThr, gModel, highRates,
+                              fullSurfaceRates, outputs);
     rud = outputs[0]; ail = outputs[1]; ele = outputs[2]; thr = outputs[3];
   } else {
     // Fallback mapping (no FRAM model)
