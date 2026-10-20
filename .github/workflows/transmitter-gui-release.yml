@@ -15,7 +15,26 @@ permissions:
   contents: write
 
 jobs:
+  validate:
+    name: Verify model preservation and flight controls
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-tk g++
+          python -m pip install -r requirements.txt
+      - name: Check mode-linked rates, model codecs, buttons, alarms and updater
+        run: python -m unittest test_mode_rates test_gui_model_codec test_gui_aircraft_codec test_button_channels test_temp_bind_trim test_tx_buzzer test_firmware_updater
+
   build:
+    needs: validate
     name: Build ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
     strategy:
@@ -147,6 +166,7 @@ jobs:
           if-no-files-found: error
 
   firmware:
+    needs: validate
     name: Build RC firmware
     runs-on: ubuntu-latest
     steps:

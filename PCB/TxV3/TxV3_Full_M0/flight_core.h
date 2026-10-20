@@ -42,6 +42,15 @@
 #include "aux_channels.h"
 #include "mode_rates.h"
 
+// Opt-in only for the temporary V3 image, never the standard release build.
+#ifndef TXV3_TEMP_BIND_TRIM_SAVE
+#define TXV3_TEMP_BIND_TRIM_SAVE 0
+#endif
+#if TXV3_TEMP_BIND_TRIM_SAVE && defined(TXV3_BUDDY_BUILD)
+#include "temp_bind_trim.h"
+TempBindTrim::Button temporaryBindTrim;
+#endif
+
 #ifdef TXV3_BUDDY_BUILD
 void txv3BuddyBegin();
 void txv3BuddyService();
@@ -77,7 +86,9 @@ RH_RF95 rf95(RFM95_CS, RFM95_INT);
 #ifndef LED_BUILTIN
   #define LED_BUILTIN 13
 #endif
-// These buttons are only checked during boot. Holding different combinations
+// Boot combinations select operating modes. The temporary V3 trim-save build
+// also reads Bind during normal operation; see temp_bind_trim.h.
+// Holding different combinations
 // chooses a different operating mode before normal control packets start.
 #define PIN_BIND_BTN 9   // Bind Mode (hold at boot)
 #define PIN_ESC_BTN  5   // ESC Calibration Override (shared with aileron-right trim at boot)
@@ -328,6 +339,9 @@ static void processConfigLine(const String &line) {
   if (cmd == "INFO") {
     Serial.print("{\"mcu\":\"SAMD21G18\",\"fram_size\":");
     Serial.print(TXCF::framSize());
+#if TXV3_TEMP_BIND_TRIM_SAVE && defined(TXV3_BUDDY_BUILD)
+    Serial.print(",\"temp_bind_trim_save\":true,\"trim_save_channel\":6,\"trim_save_hold_ms\":2000,\"trim_save_pulse_ms\":500");
+#endif
     Serial.print(",\"storage\":\"");
     Serial.print(TXCF::storageName());
     Serial.print("\",\"proto\":\"1.1\",\"role\":\"TX\",\"button_channels\":true,\"mode_rates\":true,\"buzzer_test\":true,\"radio_role\":\"");
@@ -1036,6 +1050,17 @@ void loop() {
   uint8_t localAux = AuxChannels::encode(
       channel5Button.update(digitalRead(10) == LOW, mode5, millis()),
       channel6Button.update(digitalRead(7) == LOW, mode6, millis()));
+#if TXV3_TEMP_BIND_TRIM_SAVE && defined(TXV3_BUDDY_BUILD)
+  // TEMPORARY: Bind drives CH6 only with this model's known CH5 mapping:
+  // low=FBWA, high=MANUAL. Require toggle CH5; this does not change the
+  // independently selected surface-rate profile. Never enable for trainer/student,
+  // simulator or throttle-lock operation. Boot Bind/Config branches stay intact.
+  const bool trimPermitted = !student && !simulatorMode && !txLocked &&
+      mode5 == 2 &&
+      (localAux & AuxChannels::CH5);
+  localAux = AuxChannels::encode((localAux & AuxChannels::CH5) != 0,
+      temporaryBindTrim.update(digitalRead(PIN_BIND_BTN) == LOW, trimPermitted, loopNow));
+#endif
   // Use the same debounced CH5 state that is placed in this control packet.
   const bool fullSurfaceRates = ModeRates::fullSurfaces(buttonConfig, localAux, student);
 

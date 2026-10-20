@@ -256,6 +256,19 @@ bytes, so its size and CRC layout remain compatible. Legacy models load with
 mixing disabled. The GUI provides an enable control and a signed -100% to +100%
 amount; negative values reverse the mix direction.
 
+### Buzzer inspection — 2026-10-18
+
+The current transmitter completed both firmware sound-test patterns but made
+no sound with its battery connected and power switch on. The user confirmed
+R19 is missing. In `Transmitter V3.pdf`, R19 is in series from +3V3 to LS2,
+with Q1 switching the buzzer's ground side from D11/PA16. Missing R19 leaves
+the buzzer supply path open, matching the original bring-up omission above.
+With battery and USB disconnected, fit the specified 100-ohm series resistor,
+then repeat the Config Mode sound test documented in `MANUAL.md`. On
+2026-10-19 the user fitted 100 ohms and confirmed both patterns were audible,
+including through the GUI Speaker Test tab. The five-minute throttle timer and
+subsequent one-minute reminders remain implemented in the flight firmware.
+
 ### Prototype 2 final button repair
 
 After applying the switch trace repairs to Prototype 2, elevator up/down,
@@ -295,3 +308,17 @@ The board will remain completely unpowered overnight to dry. The next session
 should retry native USB enumeration, forced USB download mode, and the UART ROM
 query in that order. If all three still fail, replace the ESP32-C3 module and
 repeat the safe ESP and M0-to-ESP diagnostics.
+
+### ESP32 power repair and temporary test controls — 2026-10-19
+
+User found a cold solder joint on the ESP32 power pin, reflowed it with flux
+and an iron, then washed/dried the board. The intermittent dark-D13 startup
+has not recurred so far; reliability remains provisional pending continued
+testing. Simulator startup bypasses the M0's ESP role wait, consistent with
+the earlier symptom difference. The power repair does not establish the cause
+of the flight incident; a missing/unscrewed RX antenna was separately found.
+
+See `../../memory/2026-10-19-evening-checkpoint.md` for the latest verified
+settings. FBWA full surface rates are a permanent preservation requirement.
+The V3-only opt-in Bind hold/CH6 trim-save workaround is TEMPORARY and must
+be removed when TX V4 is ready, without removing full-rate support.

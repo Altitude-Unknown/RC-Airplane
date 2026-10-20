@@ -93,3 +93,21 @@ Commit scope includes this session's TX rate feature, tests, profile/operating
 documentation and diagnostic/deployment evidence; unrelated RX stabilization,
 V92 work and local packaged GUI/build intermediates are excluded. No push
 requested. Commit identity can be obtained from git history after completion.
+
+## FBWA full-rate override RESTORED later 2026-10-19
+User explicitly requested restoring full rates. Original TX Config Mode INFO
+confirmed temporary Bind feature still installed. Backed up current full FRAM,
+changed only active Research slot0 rate-selector bits and CRC (storage offsets
+313,314,315), then compared all 32768 bytes to expected image. CRC valid; every
+other byte unchanged. CH5 low=FBWA now full RUD/AIL/ELE rates100%, CH5 high=
+MANUAL retains selected50/30/80%; throttle remains100%. No firmware flash or
+FC parameter changes. Verified current subtrims at this time were
+[-50,0,-140,0] in RUD/AIL/ELE/THR order, NOT the earlier all-zero bench snapshot;
+preserved exactly, with no inference about when/why user changed them.
+Model memory backup/verification in artifacts/restore-fbwa-rates-2026-10-19/.
+Rate selector was already0 before temporary Bind installation and entire memory
+matched after that flash; cause of clearing not established. Older GUI can
+clear unsupported field; use current configurator and preserve mode-linked
+rate selection when saving model. Left TX in Config Mode; normal reboot with
+throttle down required for radio operation. Storage readback verified; no new
+live FC full-stick/end-to-end measurement performed during restoration.
