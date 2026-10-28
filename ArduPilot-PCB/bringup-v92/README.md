@@ -103,6 +103,11 @@ to 1006 us at low throttle. This confirms the serial receiver input path.
 The diagnostic image was restored after the test, and its `RC_CHANNELS`
 telemetry still showed the receiver connected. Normal flight-stack and
 failsafe behavior remain untested until the IMU is installed.
+A separate, unflashed TAER pass-through bench image is prepared for the
+next lab session. It allows bounded transmitter control of THROTTLE,
+AILERON, ELEVATOR, and RUDDER only; AUX1 and AUX2 remain disabled because
+the transmitter's CH5 and CH6 did not change in the input captures. See
+`bench/TAER-README.md` for the limits and test procedure.
 
 ## Firmware source
 
