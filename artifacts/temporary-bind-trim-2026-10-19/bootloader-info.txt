@@ -1,0 +1,3 @@
+UF2 Bootloader v4.0.0 SFHWRO
+Model: RC Airplane TX M0
+Board-ID: SAMD21G18A-Altitude-RC-TX-M0-v0

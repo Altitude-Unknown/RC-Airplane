@@ -1,0 +1,8 @@
+{
+  "temporary": true,
+  "remove_when": "TX V4 ready",
+  "build_define": "TXV3_TEMP_BIND_TRIM_SAVE=1",
+  "uf2_sha256": "40d177dd1625ef6d68b88b77be17da8cc6dddf5f2363df613c00ef068c39146c",
+  "bin_sha256": "0043a1ef6c988b6ad5a5a0921d449b7b1baf36750ef7b87b693b43c3f8feb113",
+  "program_bytes": 71336
+}

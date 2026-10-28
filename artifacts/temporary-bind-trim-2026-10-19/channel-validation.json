@@ -1,0 +1,23 @@
+{
+  "pulses": [
+    {
+      "start_s": 41.58,
+      "duration_s": 0.501
+    },
+    {
+      "start_s": 51.22,
+      "duration_s": 0.5
+    }
+  ],
+  "fbwa_ch6_always_low": true,
+  "final_ch6": 1000,
+  "sample_count": 1242,
+  "no_trim_complete_messages": true,
+  "fbwa_low_channel_samples": 649,
+  "confirmed_fbwa_ch6_low": true,
+  "confirmed_fbwa_duration_s": 19.36,
+  "confirmed_fbwa_samples": 388,
+  "RC6_OPTION_restored": 155,
+  "model_memory_identical": true,
+  "trim_parameters_unchanged": true
+}

@@ -1,0 +1,9 @@
+{
+  "serial": "89CB5B3050304C59502E3120FF101E44",
+  "port": "/dev/cu.usbmodem11301",
+  "bootloader": "UF2 Bootloader v4.0.0 SFHWRO\nModel: RC Airplane TX M0\nBoard-ID: SAMD21G18A-Altitude-RC-TX-M0-v0\n",
+  "firmware_backup_sha256": "7c20947e0dce1363c77516412ce374a01f4331852fe073618e76a969f5a03160",
+  "firmware_backup_bytes": 524288,
+  "candidate_sha256": "40d177dd1625ef6d68b88b77be17da8cc6dddf5f2363df613c00ef068c39146c",
+  "write_completed": true
+}
