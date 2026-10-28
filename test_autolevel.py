@@ -13,6 +13,7 @@ class AutolevelTests(unittest.TestCase):
         source = re.sub(r'^\s*#include.*$', '', source, flags=re.M)
         harness = (ROOT/'tests/autolevel_host.cpp').read_text()
         commands = (ROOT/'rx_V4__firmware/autolevel_commands.h').read_text().replace('#pragma once', '')
+        control = (ROOT/'rx_V4__firmware/attitude_control.h').read_text().replace('#pragma once', '')
         scenarios = r'''
 void send(uint16_t bind=42,uint16_t throttle=1000,uint8_t aux=0x80,bool esc=false,
           uint16_t surface=1500) {
@@ -56,7 +57,7 @@ int main(int argc,char**argv){
   send(42,1800);assert(!armed && cur_t==1000);
   arm();assert(!apState.pilotAutolevelEnabled);
  }else if(test=="buttons"){
-  armed=true;imu.ready=imu.gyroBiasReady=true;imu.lastSampleMs=testNow;
+  armed=true;imu.ready=imu.healthy=imu.attitudeInitialized=imu.gyroBiasReady=true;imu.lastSampleMs=testNow;
   apState.neutralCaptured=true;
   handleAutolevelAuxCommand(0x90,testNow);assert(!apState.pilotAutolevelEnabled);
   handleAutolevelAuxCommand(0x80,testNow);
@@ -74,25 +75,18 @@ int main(int argc,char**argv){
  }else if(test=="pulses"){
   cur_t=1000;cur_a=1234;cur_e=1567;cur_r=2000;emittedPulses.clear();
   writeServoFrame();
-  assert(interruptsEnabled && pulseHighPin==-1 && emittedPulses.size()==4);
-  assert(emittedPulses[0]==std::make_pair(PIN_SERVO_THROTTLE,1000u));
-  assert(emittedPulses[1]==std::make_pair(PIN_SERVO_AILERON,1234u));
-  assert(emittedPulses[2]==std::make_pair(PIN_SERVO_ELEVATOR,1567u));
-  assert(emittedPulses[3]==std::make_pair(PIN_SERVO_RUDDER,2000u));
-  assert(digitalPinValues[PIN_SERVO_THROTTLE]==LOW);
-  assert(digitalPinValues[PIN_SERVO_AILERON]==LOW);
-  assert(digitalPinValues[PIN_SERVO_ELEVATOR]==LOW);
-  assert(digitalPinValues[PIN_SERVO_RUDDER]==LOW);
+  assert(interruptsEnabled && TimerServos::outputs[0]==1000);
+  assert(TimerServos::outputs[1]==1234 && TimerServos::outputs[2]==1567 && TimerServos::outputs[3]==2000);
  }else if(test=="directions"){
   armed=true;acceptedPackets=1;apState.neutralCaptured=true;
   apState.neutralAileronUs=apState.neutralElevatorUs=1500;
   apState.sticksReleased=true;apState.pilotAutolevelEnabled=true;
-  imu.ready=imu.gyroBiasReady=imu.attitudeInitialized=true;
+  imu.ready=imu.healthy=imu.gyroBiasReady=imu.attitudeInitialized=true;imu.lastSampleMs=testNow;
   imu.rollDeg=apConfig.airframeLevelRollDeg+10;
   imu.pitchDeg=apConfig.airframeLevelPitchDeg+10;
   imu.gyroRollDps=imu.gyroPitchDps=0;
   apConfig.autolevelRampMs=0;
-  updateAutopilotState(testNow,0);
+  for(int i=0;i<50;i++){testNow+=10;imu.lastSampleMs=testNow;updateAutopilotState(testNow,0);}
   assert(apState.mode==AP_MODE_LEVEL_HOLD);
   assert(apState.targetAileronCorrectionUs>0);
   assert(apState.targetElevatorCorrectionUs<0);
@@ -130,7 +124,7 @@ int main(int argc,char**argv){
   assert(!calibrationStartPending && calibrationRequested && !imu.gyroBiasReady);
   testNow-=testNow%100;updateLed();assert(digitalPinValues[13]==HIGH);
   testNow+=50;updateLed();assert(digitalPinValues[13]==LOW);
-  calibrationRequested=false;ledState=LED_ARMED;updateLed();
+  calibrationRequested=false;apState.neutralCaptured=true;imu.healthy=true;ledState=LED_ARMED;updateLed();
   assert(digitalPinValues[13]==HIGH); // Completed calibration returns to solid.
   testNow+=50;serviceCalibrationButton(testNow);
   assert(!calibrationRequested && !calibrationStartPending); // Held button never retriggers.
@@ -139,29 +133,33 @@ int main(int argc,char**argv){
   serviceCalibrationButton(testNow);assert(!calibrationRequested);
  }else if(test=="override"){
   armed=true;acceptedPackets=1;apState.neutralCaptured=true;
-  imu.ready=imu.gyroBiasReady=imu.attitudeInitialized=true;
+  imu.ready=imu.healthy=imu.gyroBiasReady=imu.attitudeInitialized=true;imu.lastSampleMs=testNow;
   imu.rollDeg=apConfig.airframeLevelRollDeg;
   imu.pitchDeg=apConfig.airframeLevelPitchDeg;
   setPilotAutolevelEnabled(true,"test");
-  updateAutopilotState(testNow,0);testNow+=120;updateAutopilotState(testNow,0);
+  updateAutopilotState(testNow,0);testNow+=120;imu.lastSampleMs=testNow;updateAutopilotState(testNow,0);
   assert(apState.mode==AP_MODE_LEVEL_HOLD);
   manual_a=1600;updateAutopilotState(testNow,0);applyManualOrAutopilotDesired();
-  assert(apState.mode==AP_MODE_MANUAL && des_a==1600 && apState.rollRateIntegrator==0);
+  assert(apState.mode==AP_MODE_LEVEL_HOLD && apState.commandedRollDeg>0 && apState.rollRateIntegrator==0);
   manual_a=1500;apState.launchThrottleSeen=true;apState.launchThrottleSeenMs=testNow-6000;
   imu.rollDeg=apConfig.airframeLevelRollDeg+60;
-  updateAutopilotState(testNow,0);testNow+=120;updateAutopilotState(testNow,0);
+  updateAutopilotState(testNow,0);testNow+=120;imu.lastSampleMs=testNow;updateAutopilotState(testNow,0);
   assert(!apState.pilotAutolevelEnabled && apState.mode==AP_MODE_MANUAL);
- }else {assert(false);}
+ }else {assert(extraScenario(test));}
 }
 '''
         with tempfile.TemporaryDirectory() as folder:
             cpp = Path(folder)/'autolevel.cpp'
             exe = Path(folder)/'autolevel'
-            cpp.write_text(harness+'\n'+commands+'\n'+source+'\n'+scenarios)
+            extra = (ROOT/'tests/fbwa_scenarios.cpp').read_text()
+            cpp.write_text(harness+'\n'+commands+'\n'+control+'\n'+source+'\n'+extra+'\n'+scenarios)
             subprocess.run(['c++','-std=c++11','-O2',str(cpp),'-o',str(exe)],check=True)
-            for scenario in ('binding','esc','boot','failsafe','buttons','surfaces','pulses','directions','imu','override','bindplug','accelscale','calbutton'):
+            for scenario in ('binding','esc','boot','failsafe','buttons','surfaces','pulses','directions','imu','override','bindplug','accelscale','calbutton','fbwa_commands','noise_and_damping',
+                             'ground_integral','antiwindup','invalid_numbers','sample_health',
+                             'estimator_rejection','calibration_motion','mount_transform',
+                             'failsafe_mixed','timing_fault','rate_dt'):
                 with self.subTest(scenario=scenario):
-                    subprocess.run([str(exe),scenario],check=True)
+                    subprocess.run([str(exe),scenario],check=True,timeout=5)
 
 
 class BoundedBusTests(unittest.TestCase):

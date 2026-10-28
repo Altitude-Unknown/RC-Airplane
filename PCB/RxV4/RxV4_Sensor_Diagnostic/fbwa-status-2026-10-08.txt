@@ -1,0 +1,1 @@
+hostElapsed=0.021s STATUS radio=OK bindMode=no bindPlug=no restartRequired=no stored=7741 rx=0 accepted=0 rejected=0 pktBind=0 rssi=0 armed=no firmware=autolevel-fbwa-20261008 apMaster=OFF reason=imu-invalid mode=0 imu=yes who=6C accelG=0.971 bias=no calibration=press-button targetRoll=0.00 targetPitch=0.00 neutral=no roll=6.60 pitch=2.36

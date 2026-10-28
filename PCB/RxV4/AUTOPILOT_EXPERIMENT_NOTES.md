@@ -978,3 +978,65 @@ test passes. This remains experimental receiver firmware. A controlled flight
 test at the user's normal test site is the next validation step; start with
 brief straight-and-level activations at safe altitude and abort to manual for
 wrong-way response, oscillation, or excessive correction.
+
+
+## 2026-10-08 review implementation and deployment
+
+User authorized implementing the reviewed changes, updating memory, and flashing
+the USB-only Rx. Starting code was commit `823bd95`; automatic direction signs
+were previously bench-accepted, not flight-qualified.
+
+Implemented FBWA-style bounded attitude commands on the existing angle/rate
+controller, actual dt, applied-output anti-windup, prelaunch integral inhibition,
+explicit rate/sensor filtering, data-ready sampling, early numeric validation,
+stationary averaged calibration and 3D mounting transform. Preserved Aux OFF,
+manual TAER, throttle guards, RF failsafe, launch lockout and attitude bailout.
+
+Replaced global-mask servo busy waits with TC4 scheduled GPIO edges. TC3 conflicts
+with the installed RadioHead ASK ISR. The local PreemptibleRf95 SPI adapter masks
+EIC instead of keeping the CPU globally masked during transfers, so servo edges
+and SysTick can preempt radio SPI; only EIC/foreground use SPI in this firmware.
+A timer watchdog handles foreground stalls separately from link-loss failsafe.
+
+Tests: 25 actual-sketch scenarios, bounded I2C, portable pulse scheduler including
+publication/watchdog/counter rollover, and radio IRQ adapter contract. Mechanical
+limits, waveform accuracy, flight stability and sustained-turn attitude accuracy
+remain hardware/flight validation tasks. Optional airspeed compensation, D/notch
+filters and higher servo rate were intentionally deferred.
+
+Pre-upload USB STATUS identified /dev/cu.usbmodem101 as autolevel-experimental,
+radio OK, IMU 0x6C, bind code 7741, unarmed. Build/flash outcome: verified, as recorded below.
+
+
+Final deployment: Arduino CLI upload with read-back verification succeeded on
+/dev/cu.usbmodem101 (ATSAMD21x18). Compiled code size 68,344 bytes; uploaded image
+69,544 bytes. Existing bind 7741 was preserved by personalizing only the eight
+BindStore bytes in the otherwise zero-filled 256-byte `_dataBIND_STORE` section,
+located from this build's ELF symbol table (flash address 0x11400). Generic source
+and unpersonalized build retain no hardcoded bind. Deployment hashes are in
+`PCB/RxV4/RxV4_Sensor_Diagnostic/fbwa-deployment-2026-10-08.json`.
+
+The first hardware run exposed stale CPU-side TC4 COUNT reads: it safely latched
+outputs, with zero frames. Corrected by a bounded synchronized READREQ per ISR;
+added a register-model regression and reflashed/read-back verified. The final
+receiver reports `autolevel-fbwa-20261008`, bind 7741, radio OK and IMU 0x6C.
+
+Final captured measurements:
+- No-Tx capture: 99.97 Hz control, 49.99 Hz frames, 84.40 fresh IMU samples/s;
+  max loop interval 10,110 us; max timer ISR lateness 2 us; zero overruns/faults.
+- With user's Tx on: 100.00 Hz control, 49.94 Hz frames, 82.73 fresh IMU samples/s;
+  max loop interval 10,776 us; max timer ISR lateness 4 us; zero overruns/faults.
+- TAER output under RF: 1003,1568,1421,1467 us, showing accepted manual commands.
+- IMU is configured 104 Hz; measured fresh samples are lower due to polling and
+  register-read/data-ready behavior. Do not label this 104 Hz acquisition.
+- During the long powered session 23 samples had been rejected before the final
+  RF capture; that counter did not increase over the capture. Final eligibility
+  was false, `bias=no`, uncalibrated/degraded (`no-new-sample`); the Rx must be
+  calibrated before Trainer ON. No calibrated control-direction test was done.
+
+All five unittest methods passed: 25 actual-sketch scenarios, bounded bus,
+pulse schedule, actual timer ISR register model, and SPI adapter IRQ contract.
+Physical pulse waveforms and mounted surface directions remain to be checked
+with prop removed. Interrupt-lateness telemetry is not an oscilloscope reading.
+Flight stability and sustained-turn estimator accuracy are not established.
+Changes remain uncommitted; user requested implementation/notes/flash, not push.

@@ -12,6 +12,7 @@ const int A0=14,A1=15,A2=16,A3=17,A4=18;
 const int LOW=0,HIGH=1,INPUT=0,INPUT_PULLUP=2,OUTPUT=3,HEX=16;
 uint32_t testNow=4000;
 uint32_t millis(){return testNow;}
+uint32_t micros(){return testNow*1000u;}
 void delay(unsigned t){testNow+=t;}
 void pinMode(int,int){}
 int groundedPin=-1;
@@ -46,7 +47,9 @@ struct BoundedI2c {
  BoundedI2c(int,int){} void begin(){sensorBegins++;}
  bool writeRegister(uint8_t,uint8_t,uint8_t){return false;}
  bool probe(uint8_t){return false;}
- bool readRegisters(uint8_t,uint8_t,uint8_t* out,uint8_t n){
+ uint8_t status=3;
+ bool readRegisters(uint8_t,uint8_t reg,uint8_t* out,uint8_t n){
+  if(reg==0x1e && n==1){*out=status;return true;}
   if(sample.size()!=n)return false;
   memcpy(out,sample.data(),n);return true;
  }
@@ -67,3 +70,15 @@ struct RH_RF95 {
   *n=std::min<size_t>(*n,packet.size());memcpy(out,packet.data(),*n);packet.clear();return true;
  }
 };
+
+using PreemptibleRf95 = RH_RF95;
+namespace TimerServos {
+uint16_t outputs[4]={1000,1500,1500,1500};
+bool fault=false;
+void begin(int,int,int,int){}
+void pause(){}
+void submit(uint16_t t,uint16_t a,uint16_t e,uint16_t r){outputs[0]=t;outputs[1]=a;outputs[2]=e;outputs[3]=r;}
+bool failed(){return fault;}
+uint32_t frames(){return testNow/20;}
+uint16_t maxLateUs(){return 0;}
+}

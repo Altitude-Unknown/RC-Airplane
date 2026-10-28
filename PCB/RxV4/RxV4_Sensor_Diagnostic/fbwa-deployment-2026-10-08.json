@@ -1,0 +1,29 @@
+{
+  "firmware": "autolevel-fbwa-20261008",
+  "bytes": 69544,
+  "bind": 7741,
+  "bind_flash_address": "0x11400",
+  "sha256": "ee2dd4cf8d3b878311e565e796487b5ead0b1b82b6a7525f80b77f4b3b7ba27c",
+  "unpersonalized_sha256": "f9809d8cb1662a84a4eb063e4379fc85a1d0f8d5e652c4c08d4271c67b9828f0",
+  "backup_sha256": "7143387ae1f24678aafb89637c640078387088be07dd91bc217ac79164020fd1",
+  "upload_verified": true,
+  "port": "/dev/cu.usbmodem101",
+  "code_bytes": 68344,
+  "rf_control_hz": 100.0,
+  "rf_servo_frame_hz": 49.94499449944995,
+  "rf_fresh_imu_hz": 82.72827282728272,
+  "max_loop_interval_us": 10776,
+  "max_timer_isr_lateness_us": 4,
+  "timer_faults": 0,
+  "control_overruns": 0,
+  "calibrated_bench_verified": false,
+  "source_sha256": {
+    "attitude_control.h": "e11b481cb2ca272f62528825609b6dcf4692f1f1b7ca19c68463c92f8cd221d1",
+    "autolevel_commands.h": "922fc2c4046ff33ff40456333ba8ff5cd25e5d9c3bb09c1b77ace00015d3a857",
+    "bounded_i2c.h": "5fe7157ca2a299be8d5c40d46c1f26b25aa9c8a8213a5b3b27c198257d638ab9",
+    "preemptible_rf95.h": "54c637ab262751b88116018009004aca30a67ad8bc2562e513b30a789e66e4cf",
+    "rx_V4__firmware.ino": "b7cf3fba1639878c7874e1a504ba214991273919734a8ece5d7863318578b4e2",
+    "servo_schedule.h": "9d7b9015d944c72289f6eaf9a79b13fdbad056886dec2e9510a2be0a090e60e4",
+    "timer_servos.h": "a9a18727a3399dc7c28b2411c50e2cbd66bbba91c2cb8b555b83550a1f77c9cc"
+  }
+}

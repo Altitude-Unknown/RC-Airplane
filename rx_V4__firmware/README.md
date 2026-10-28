@@ -1,147 +1,128 @@
-# Experimental receiver autolevel
+# Experimental Rx V4 stabilized attitude mode
 
-Updated 2026-10-07. Separate from production `rx_firmware`; not packaged by the
-production release workflow. This revision has passed a prop-removed bench
-test, but has not completed its next flight test.
+Updated 2026-10-08. Firmware ID: `autolevel-fbwa-20261008`.
+This is the first implementation following the engineering review, not a
+flight-qualified release. Production `rx_firmware` and the transmitter are unchanged.
 
-## Trainer ON / Aux OFF
+## Pilot controls
 
-Use the current production transmitter firmware and configurator. In the model's
-**Button channels** settings select:
+- Production Tx V3 Master, conventional TAER airplane profile only.
+- CH5/Trainer **Momentary** latches stabilization ON; CH6/Aux **Momentary**
+  immediately selects manual. OFF wins; release before a fresh ON press.
+- **Moving the sticks no longer switches to manual.** Aileron requests up to
+  ±30 degrees bank; elevator requests +20/-15 degrees pitch. Center requests
+  calibrated level. Targets use a 0.12 s time constant and 90/60 deg/s slew caps.
+- Rudder and throttle remain manual, subject to the existing receiver safety path.
+- Retained: five-second launch lockout after throttle crosses 1120 us, and
+  post-launch bailout above 55 degrees roll or 35 degrees pitch. Bailout/fault
+  latches the mode OFF. These guards mean this is not full ArduPlane FBWA.
+- No altitude hold, airspeed scaling, stall protection, or automatic recovery
+  from an unreliable attitude solution. The MS5607 remains a probe placeholder.
 
-| Physical button | Model assignment | Experimental receiver action |
-| --- | --- | --- |
-| D10 / Trainer | Channel 5 — Momentary | Press to latch autolevel ON |
-| D7 / Aux | Channel 6 — Momentary | Press to latch autolevel OFF |
+## Calibration and mounting
 
-Save the model, set it active, and restart the transmitter. Both assignments
-must be **Momentary**, not Toggle: the receiver supplies the mode latch. The
-Trainer button is reserved for autolevel on this model, so instructor/student
-handoff is unavailable. Student transmitters do not provide this Trainer/CH5
-command. Use the instructor/master transmitter for these tests. Rudder trims
-remain ordinary trims. There is no new packet layout or transmitter code change.
+On every power cycle: bind/link, keep throttle low and sticks centered, place
+in the intended level-flight pose, release the Rx bind button after boot,
+then press it once. Sampling begins after **one second**, with a fast 10 Hz
+LED flash. Stay still through 120 fresh gyro/accel samples and the additional
+one-second neutral hold. Solid LED means armed with calibration complete and
+healthy sensing; a brief once-per-second pulse while armed means calibration
+is still required. No calibration is saved across power cycles.
 
-- Autolevel starts OFF. Release both buttons before the first ON press.
-- OFF wins when both buttons are pressed. Holding Trainer while pressing Aux,
-  or while a fault occurs, cannot automatically turn leveling back on.
-- Trainer ON is accepted only while armed, with gyro bias and servo-neutral
-  capture complete and a fresh healthy IMU sample. A premature press is not
-  queued: release and press again after capture completes.
-- Normal launch lockout remains 5 seconds after throttle crosses 1120 µs.
-- Stick override still returns to manual above the configured 80 µs offset
-  from captured neutral. While the master is ON, centering within 35 µs for
-  100 ms allows leveling again. Aux OFF keeps it OFF after centering.
-- Link staleness (>150 ms) or an invalid/stale IMU drops the master OFF and
-  requires release followed by another Trainer press. Link recovery does not
-  silently reactivate stabilization. An IMU latched failed needs a restart.
-- Post-launch attitude bailout is enabled (55° roll / 35° pitch deviation).
-  A large hand-applied bench tilt can therefore latch autolevel OFF; return near
-  the calibrated pose and press Trainer again before continuing a gentle test.
+Capture uses averaged gravity, gyro variance and <1 degree gravity-direction
+change, 0.9–1.1 g, and raw gyro magnitude <=2 deg/s per axis. Neutral sticks must
+be within 80 us of center. The calibrated gravity vector defines a proper 3D
+mounting rotation for both gyro and accel; PCB forward must still align with
+airplane forward because gravity alone cannot establish mounting yaw. Keep
+still, including in yaw; constant slow yaw cannot be separated from gyro bias
+by an accelerometer alone. Recalibration resets the launch detector.
 
-## Level calibration button
+## Controller and actuator profile
 
-Calibration is intentionally required after every receiver power cycle. After
-the receiver is bound, armed, stationary, and receiving centered controls at
-low throttle, briefly press the receiver D10 bind button. The boot binding
-gesture cannot start calibration because the button must first be released.
+The existing outer angle loop and inner PI plus feedforward rate controller
+are retained. The rate loop uses measured elapsed time and 20 Hz filtered gyro
+feedback. Conditional integration considers applied output, including ramp,
+slew, filtering and endpoint limits. Integral is inhibited before first launch
+to prevent ground/bench accumulation; low throttle after launch is treated as
+possible gliding. There is no derivative term.
 
-- Sampling begins one second after the accepted press, allowing the hand and
-  airframe to settle.
-- The receiver LED flashes at 10 Hz while gyro bias, physical level attitude,
-  and control neutral are captured.
-- The LED becomes solid when calibration is ready.
-- Trainer ON is ignored until calibration finishes.
+The receiver's `AutopilotConfig` contains independent input signs, command-angle
+limits and servo endpoints. Defaults retain the previous 1000–2000 us envelope
+and automatic authority of ±160 us aileron / ±220 us elevator. Both automatic
+correction signs retain the user's 2026-10-07 bench reversal. **Mechanical travel
+limits and input directions still require confirmation on the mounted airplane.**
+The receiver does not download endpoint/reversal/mixing settings from the Tx.
+Do not use this automatic mode with V-tail/elevon/mixed output channels.
 
-## Receiver parity and safety changes
+## Timing and sensor health
 
-- Explicit nonzero stored bind and matching received code are required. Bind
-  mode and bind-plug restart lock reject ordinary control packets.
-- Only accepted packets can build the ESC-calibration handshake or enter ESC
-  mode; unrelated packets reset its streak.
-- Boot arming requires completion of the 3-second guard followed by a fresh
-  low-throttle hold. Final throttle selection cannot undo the guard.
-- Disarmed throttle is written as exactly 1000 µs; surfaces retain 1 µs command
-  resolution. Autolevel does not filter or interpolate throttle.
-- Ordinary link loss retains outputs through 1200 ms, then disarms/kills
-  throttle; surfaces center after 3000 ms. ESC mode cuts off after 1000 ms.
-  Autolevel mode/integrators are reset separately at the 150 ms freshness limit;
-  staged output hold remains in place until normal failsafe takes over.
-- `STATUS` and `BOOTLOADER` USB commands are supported. STATUS identifies
-  `firmware=autolevel-experimental` and reports radio, binding, mode, IMU ID,
-  acceleration magnitude, bias/capture state, roll and pitch. Continuous debug
-  is disabled. USB input processing is bounded and overlong commands discarded.
-- SDA/D20 bind plug is detected before sensor initialization. A grounded plug
-  prevents sensor-bus initialization for the entire boot, requires restart
-  after binding, and never becomes a driven servo output.
+- TC4 schedules four sequential GPIO pulses every 20 ms, with a short highest-
+  priority edge ISR. No 1–2 ms interrupt-disabled busy waits remain.
+- TC4 runs at 3 MHz; TC3 is avoided because installed RadioHead defines its ISR.
+  A0 has no PWM mux, so the driver uses scheduled GPIO edges rather than native
+  PWM on all channels. Do not add Servo/tone/analogWrite timer users here.
+- `preemptible_rf95.h` changes only SPI transaction interrupt protection for
+  this sketch: EIC, the only other SPI caller, is masked while TC4/SysTick run.
+  No installed RadioHead files are modified. Do not add another SPI ISR or call
+  radio methods from an application critical section without revisiting this.
+- Timer publication stops for bind flash writes (binding is disarmed) and then
+  resumes. A foreground stall >5 frames or servo edge lateness >100 us latches
+  safe outputs and requires reset. This is separate from RF failsafe.
+- Control remains nominal 100 Hz, with measured `micros()` elapsed time and
+  overrun counters. The previous SysTick-losing pulse implementation is removed.
+- IMU remains 104 Hz / ±4 g / ±250 deg/s. Explicit accel LPF2 is 26 Hz and gyro
+  LPF1 is 33 Hz. Data-ready is checked before consuming each sample.
+- Bus transactions retain their 5 ms deadline. No new data, implausible zero-g
+  blocks, clipping, numeric errors, and sample gaps invalidate eligibility.
+  Five failed reads latch the IMU unavailable (reset required).
+- A sample gap >30 ms requires recalibration. Sustained gravity disagreement
+  >3 seconds also disables eligibility until ground recalibration. There is no
+  in-flight snap to apparent gravity. Sustained-turn accuracy is still limited
+  by six-axis sensing; accelerations cannot be fully separated from gravity.
 
-## Sensor pins and timing
+## Preserved receiver failsafe
 
-**D20/SDA and D21/SCL remain sensor pins.** Production's CH5/CH6 physical servo
-outputs cannot coexist with the I²C sensors on these pins. This experimental
-receiver therefore has four physical servo outputs; it receives CH5/CH6 over
-the radio solely as mode commands. Do not attach servos to the sensor bus.
+Binding/packet validation, ESC handshake, boot throttle guard and low-throttle
+arming remain. At link age >150 ms stabilization latches OFF and outputs hold.
+Normal throttle cutoff/disarm is >1200 ms; ESC-mode cutoff is >1000 ms. The first
+update after normal disarming selects the last manual surface values; at >3000
+ms surfaces center. This subtle pre-existing transition is covered by a test.
+Reconnection does not automatically re-enable stabilization or arm at high throttle.
 
-The installed SAMD Wire implementation has unbounded waits that can stall
-radio/failsafe processing if the sensor bus fails. `bounded_i2c.h` replaces that
-path locally with an open-drain software master. Each complete register
-transaction has a 5 ms deadline (plus small cleanup/interrupt overhead),
-including clock stretching; failed transactions release both pins. Servo/radio
-interrupts remain enabled. No installed Arduino core or production code changes.
-Bus waveform, actual sample rate, and sensor identification need hardware checks.
+## Diagnostics and validation
 
-Outputs use the receiver's proven direct pulse generator at a nominal 50 Hz,
-with 100 Hz control updates. Each pin is high with interrupts masked only for
-its commanded 1000–2000 us pulse; interrupts run between channels and during
-the rest of the frame. This prevents RadioHead/SPI interrupt work from delaying
-an Arduino Servo-library falling edge. Five failed sensor reads latch the IMU
-unavailable; sample age beyond 30 ms disables leveling sooner. Bad quaternion
-normalization is rejected. Incomplete bias calibration is discarded on a
-failed read.
+USB `STATUS` reports firmware identity, binding and calibration. `DIAG` reports
+uptime, control count/max interval/overruns, servo frames/max ISR lateness/fault,
+IMU sample count/age/rejections/health, requested attitude/rate, integral,
+limiting and TAER outputs. These records are on demand to avoid continuous
+serial load. `BOOTLOADER` publishes a safe frame before requesting reset.
 
-Stationary bias capture requires 0.8–1.2 g. The installed LSM6DSO32TR identity,
-scale, and orientation have been checked on hardware. Calibration captures the
-installed airplane's physical level pose rather than relying on the historical
-compiled offsets. Automatic aileron and elevator correction signs were reversed
-after the final prop-removed direction check; manual directions remain transmitter
-settings. Altitude hold is still disabled and lacks a flight pressure/altitude
-driver.
-
-## Validation and next bench test
-
-Build:
-
-```sh
+```
 arduino-cli compile --fqbn adafruit:samd:adafruit_feather_m0 rx_V4__firmware
-python3 -m unittest test_autolevel
+python3 -m unittest test_autolevel test_servo_schedule -v
+python3 tools/rx_usb_status.py /dev/cu.usbmodem101 --command DIAG --count 10
 ```
 
-The updated sketch compiles at 62,184 bytes. The autolevel test executes the
-actual sketch with mocked hardware through thirteen scenarios:
-binding rejection, authenticated ESC entry, boot throttle lock, staged failsafe,
-button latching/priority, 1 µs surface sweeps, interrupt-protected pulse widths,
-both correction directions, IMU fault handling, stick override and bailout,
-bind-plug restart, accelerometer calibration rejection, and delayed button
-calibration with LED states. A separate bus test verifies register read/write,
-NACK handling, stuck-clock timeout including micros rollover, and released pins
-after failure.
+The host suite executes 25 actual-sketch scenarios, a bounded-I2C test, the
+real portable pulse scheduler, a synchronized timer-register model, and the
+RadioHead adapter's IRQ contract.
+Hardware registers, GPIO waveform and aircraft dynamics are not mocked into
+proof of flight stability. Before flight, check mounted directions, endpoint
+travel, ±10/20/30-degree disturbances, fast/slow rotation, sticks while tilted,
+release, manual escape, saturation, sensor failure and RF loss with prop removed.
+Confirm timer diagnostics during RF traffic; external scope checks remain required
+for electrical pulse accuracy. Stage aircraft tuning from rate feedback outward.
 
-These tests and the completed bench work do not establish aircraft stability in
-flight. Before any flight evaluation, with propeller removed:
+## Deployment record
 
-1. Preserve model settings and record binding; flashing can clear RX binding.
-2. Configure both transmitter buttons as Momentary. Verify boot lock, bind,
-   normal manual controls, trims/rates/reversing, and transmitter-off failsafe.
-3. Read STATUS: confirm the IMU ID, approximately 1 g while stationary, correct
-   roll/pitch readings, and successful bias/neutral capture.
-4. Verify Trainer ON, Aux OFF, simultaneous-button OFF priority, and no
-   reactivation from held buttons after faults/reconnection.
-5. Verify slow and fast attitude corrections, immediate stick override, and
-   post-launch attitude bailout. Confirm both correction directions on this wing.
-6. Instrument output pulse widths and actual control cadence when equipment is
-   available. Bench-test sensor loss and grounded SDA restart handling.
+Flashed and read-back verified, preserving bind code 7741. Live RF capture:
+100 Hz control, 49.94 Hz servo frames, 82.73 fresh IMU samples/s, maximum measured
+ISR lateness 4 us, zero timing overruns/faults. Physical waveform and calibrated
+mounted-control validation remain outstanding. The first timer synchronization
+issue was fixed and verified in the final image. Full deployment results are in
+`PCB/RxV4/AUTOPILOT_EXPERIMENT_NOTES.md` and workspace `PROJECT_MEMORY.md`.
 
-No automatic migration of settings, production integration, publication, or
-general flight-clearance claim is part of this update.
+## Historical bench record (superseded by the implementation above)
 
 ## 2026-10-07 new Rx V4 bench upload
 
