@@ -167,7 +167,7 @@ jobs:
 
   firmware:
     needs: validate
-    name: Build RC firmware
+    name: Build RC firmware and package flight controller firmware
     runs-on: ubuntu-latest
     steps:
       - name: Check out transmitter repository
@@ -212,7 +212,14 @@ jobs:
           test -n "$SAMD_BIN" -a -f "$SAMD_BIN"
           test -n "$ESP_BIN" -a -f "$ESP_BIN"
           test -n "$RX_BIN" -a -f "$RX_BIN"
-          python tools/package_transmitter_firmware.py --samd-bin "$SAMD_BIN" --esp-merged-bin "$ESP_BIN" --receiver-bin "$RX_BIN" --version "$RELEASE_VERSION" --output firmware-assets
+          # Flight controller images are bench-tested builds committed with
+          # their provenance; publish them only if they match SHA256SUMS.
+          (cd flight_controller_firmware && sha256sum -c SHA256SUMS)
+          FC_ARGS=()
+          for APJ in flight_controller_firmware/*/arduplane.apj; do
+            FC_ARGS+=(--flight-controller-apj "$APJ")
+          done
+          python tools/package_transmitter_firmware.py --samd-bin "$SAMD_BIN" --esp-merged-bin "$ESP_BIN" --receiver-bin "$RX_BIN" "${FC_ARGS[@]}" --version "$RELEASE_VERSION" --output firmware-assets
 
       - name: Upload firmware artifacts
         uses: actions/upload-artifact@v4

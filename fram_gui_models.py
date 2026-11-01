@@ -977,7 +977,7 @@ class App(tk.Tk):
         self.nb.add(self.tab_firmware, text="Firmware Update")
         content = self.tab_firmware.content
 
-        ttk.Label(content, text="RC Firmware Update", style="Panel.TLabel",
+        ttk.Label(content, text="RC and Flight Controller Firmware Update", style="Panel.TLabel",
                   font=("Helvetica", 16, "bold")).pack(anchor="w")
         ttk.Label(
             content,
@@ -1003,7 +1003,8 @@ class App(tk.Tk):
         for text, value in (("Transmitter — both processors (recommended)", "tx_both"),
                             ("Transmitter M0 only", "tx_samd21"),
                             ("Transmitter ESP32-C3 only", "tx_esp32c3"),
-                            ("Receiver", "receiver_samd21")):
+                            ("Receiver (Rx V4 or ASCEND flight controller built-in receiver)", "receiver_samd21"),
+                            ("Flight controller (ArduPlane)", "flight_controller")):
             ttk.Radiobutton(target_frame, text=text, value=value,
                             variable=self.firmware_target_var,
                             command=self._update_firmware_instructions).pack(anchor="w", pady=2)
@@ -1036,6 +1037,22 @@ class App(tk.Tk):
             text="Use the small ESP USB connector. The Altitude RC TX M0 port is the other processor.",
             style="Muted.TLabel").pack(anchor="w", pady=(8, 0))
 
+        fc_port_frame = ttk.LabelFrame(content, text="Flight controller USB port", padding=14)
+        fc_port_frame.pack(fill="x", pady=(14, 0))
+        fc_port_row = ttk.Frame(fc_port_frame, style="Panel.TFrame")
+        fc_port_row.pack(fill="x")
+        self.firmware_fc_port_var = tk.StringVar()
+        self.firmware_fc_port_devices = {}
+        self.firmware_fc_port_cmb = ttk.Combobox(
+            fc_port_row, textvariable=self.firmware_fc_port_var, width=52, state="readonly")
+        self.firmware_fc_port_cmb.pack(side="left")
+        ttk.Button(fc_port_row, text="Refresh Ports", command=self.refresh_ports).pack(side="left", padx=8)
+        ttk.Label(
+            fc_port_frame,
+            text=("Only ArduPilot flight controllers are listed. The board's own bootloader "
+                  "reports which board it is, and only firmware built for that board is written."),
+            style="Muted.TLabel", wraplength=850, justify="left").pack(anchor="w", pady=(8, 0))
+
         guide = ttk.LabelFrame(content, text="Connection guide", padding=14)
         guide.pack(fill="x", pady=14)
         self.firmware_guide_var = tk.StringVar()
@@ -1060,10 +1077,24 @@ class App(tk.Tk):
         esp = ("ESP32-C3: connect the small ESP USB connector and select it above. The updater "
                "will enter its bootloader automatically; if asked, hold BOOT and tap RESET.")
         receiver = ("Receiver: remove the propeller, select the receiver USB port, and update. "
+                    "The same firmware drives servos on a Rx V4 and sends SBUS to the flight "
+                    "controller on the ASCEND board, whose receiver has its own USB connector. "
                     "Afterward, rebind it and verify controls and failsafe before flight.")
+        boards = ""
+        if self.firmware_release:
+            names = [entry["board"] for entry in
+                     self.firmware_release["manifest"].get("flight_controllers", [])]
+            boards = ("\n\nThis release supports: " + ", ".join(names) + "." if names else
+                      "\n\nThis release has no flight controller firmware.")
+        flight_controller = (
+            "Flight controller: remove the propeller, connect the flight controller's USB port and "
+            "select it above. The configurator restarts it into its bootloader, checks which board "
+            "it is, and writes the matching ArduPlane firmware. Parameters and calibrations are "
+            "kept. Afterward, check the sensors, controls and failsafe before flight." + boards)
         if target == "tx_both": guide = samd + "\n\n" + esp
         elif target == "tx_esp32c3": guide = esp
         elif target == "receiver_samd21": guide = receiver
+        elif target == "flight_controller": guide = flight_controller
         else: guide = samd
         self.firmware_guide_var.set(guide)
 
@@ -1097,6 +1128,7 @@ class App(tk.Tk):
                 return
             published = result.get("published_at", "")[:10]
             self.firmware_release_var.set(f"{result['name']}  •  {published}")
+            self._update_firmware_instructions()
         self._firmware_thread(firmware_updater.fetch_latest_firmware, completed)
 
     def _selected_firmware_esp_port(self):
@@ -1107,10 +1139,64 @@ class App(tk.Tk):
         selection = self.firmware_samd_port_var.get().strip()
         return self.firmware_samd_port_devices.get(selection, selection)
 
+    def _selected_firmware_fc_port(self):
+        selection = self.firmware_fc_port_var.get().strip()
+        return self.firmware_fc_port_devices.get(selection, "")
+
+    def on_flash_flight_controller(self):
+        release = self.firmware_release
+        if not release["manifest"].get("flight_controllers"):
+            messagebox.showerror("Firmware update", "This release has no flight controller firmware.")
+            return
+        fc_port = self._selected_firmware_fc_port()
+        if not fc_port:
+            messagebox.showerror(
+                "Firmware update",
+                "Connect the flight controller's USB port, click Refresh Ports, and select it.")
+            return
+        if not messagebox.askyesno(
+                "Confirm flight controller update",
+                "Remove the propeller and disconnect the flight battery. Do not unplug USB while "
+                "the flight controller is being written.\n\nThe flight controller restarts into its "
+                "bootloader, and only firmware built for that exact board is written. Parameters and "
+                "calibrations are kept.\n\nContinue with the latest verified firmware?"):
+            return
+        self._set_firmware_busy(True, "Downloading flight controller firmware…")
+
+        def progress(text):
+            self.after(0, lambda text=text: self.firmware_progress_var.set(text))
+
+        def work():
+            images = firmware_updater.download_flight_controller_firmware(release)
+            try:
+                progress("Restarting the flight controller into its bootloader…")
+                return firmware_updater.flash_flight_controller(images, fc_port, progress)
+            finally:
+                for path in images.values():
+                    try:
+                        os.unlink(path)
+                    except OSError:
+                        pass
+
+        def completed(result, error):
+            self._set_firmware_busy(False, "Update complete." if result else "Update stopped.")
+            self.refresh_ports()
+            if error:
+                messagebox.showerror("Flight controller update failed", str(error))
+                return
+            messagebox.showinfo(
+                "Firmware update complete",
+                f"Updated the {result['board']} flight controller. Reconnect your ground station and "
+                "check the sensors, control surface directions, and failsafe before flight.")
+        self._firmware_thread(work, completed)
+
     def on_flash_firmware(self):
         if self.firmware_busy or not self.firmware_release:
             return
         target = self.firmware_target_var.get()
+        if target == "flight_controller":
+            self.on_flash_flight_controller()
+            return
         targets = {
             "tx_both": ["samd21", "esp32c3"],
             "tx_samd21": ["samd21"],
@@ -1456,6 +1542,23 @@ class App(tk.Tk):
             self.firmware_samd_port_cmb["values"] = samd_labels
             if samd_labels and self.firmware_samd_port_var.get() not in samd_labels:
                 self.firmware_samd_port_cmb.current(0)
+        if hasattr(self, "firmware_fc_port_cmb"):
+            # Only ArduPilot USB devices: the flight controller updater must
+            # never open the transmitter or receiver ports.
+            self.firmware_fc_port_devices = {}
+            fc_labels = []
+            for port in detected:
+                if (port.vid, port.pid) not in firmware_updater.ARDUPILOT_USB_IDS:
+                    continue
+                name = port.product or port.description or "ArduPilot"
+                label = f"{name} — {port.device}"
+                self.firmware_fc_port_devices[label] = port.device
+                fc_labels.append(label)
+            self.firmware_fc_port_cmb["values"] = fc_labels
+            if fc_labels and self.firmware_fc_port_var.get() not in fc_labels:
+                self.firmware_fc_port_cmb.current(0)
+            elif not fc_labels:
+                self.firmware_fc_port_var.set("")
 
     def _update_button_role(self):
         role = self.w.device_info.get("radio_role", "UNKNOWN")

@@ -1,0 +1,10 @@
+{
+  "board": "ASCENDFCRev2",
+  "board_id": 65093,
+  "vehicle": "ArduPlane",
+  "source_repository": "mwalach76/ardupilot (local branch borealis-v92-bringup, not yet pushed)",
+  "source_commit": "25c94416c5895c3b650b5a61fb90cdd8f3de5be5",
+  "built": "2026-11-01",
+  "build": "Clean worktree at source_commit; ./waf configure --board ASCENDFCRev2 && ./waf plane; arm-none-eabi-gcc 10-2020-q4-major",
+  "sha256": "15cedb80c3968c7f8ddde2bce78b8430a3b37b74e584961f758d069e8a6833ec"
+}

@@ -387,6 +387,28 @@ sign changes the elevator contribution.
 | Elevator output | A2 | Servo pulse |
 | Rudder output | A3 | Servo pulse |
 | Battery monitor | A4 | Disabled unless voltage divider is fitted |
+| SBUS output | PB22 (J1 pin 3, TXD) | To a flight controller RC input; see below |
+
+### One Receiver Firmware For Rx V4 And The ASCEND Flight Controller
+
+The same receiver firmware always does both jobs:
+
+- **Rx V4 standalone:** drives the servo/ESC outputs above directly, with the
+  receiver's own arming and staged failsafe.
+- **ASCEND flight controller:** the built-in receiver sends SBUS on PB22, which
+  the board wires to the STM32's RC input (USART6 RX, PC7). Its servo pins
+  are not connected to anything on that board, so their pulses are harmless.
+
+SBUS is non-inverted 3.3 V, 100000 baud, 8E2, at 100 Hz, in ArduPlane input
+order: roll, pitch, throttle, yaw, CH5, CH6. It carries the raw transmitter
+sticks, not the receiver's own arming or failsafe outputs, because ArduPlane
+does its own arming. SBUS stops 300 ms after the last accepted packet, and
+in bind mode, so ArduPlane detects radio loss and runs its own RC failsafe.
+The flight controller firmware must accept non-inverted SBUS (the BOREALIS and
+ASCEND ArduPilot boards do; set `SERIAL2_PROTOCOL=23`).
+
+The receiver's `STATUS` USB reply ends with
+`firmware=rx-v7-pwm-sbus sbus=PB22 sbusFrames=<count>`.
 
 ### Receiver LED Meanings
 
@@ -475,6 +497,10 @@ on mixed aircraft. These timings describe normal operation, not intentional
 ESC calibration override.
 
 The receiver directly outputs servo pulses in software. Avoid adding blocking code to the receiver loop.
+The one deliberate exception is the SBUS frame: its 25 bytes (about 3 ms) are
+written back to back, outside the servo frame, because ArduPilot discards an
+SBUS frame with a 2 ms gap inside it and the servo pulses disable interrupts
+for up to 2 ms each.
 
 ### Receiver Battery Monitor
 
@@ -595,7 +621,10 @@ published SHA-256 checksum. Choose **Transmitter — both processors** after a
 transmitter firmware/protocol change so the SAMD21 and ESP32-C3 remain
 compatible. For the aircraft-mixing change from the matched 2026.09.01.5
 baseline, **Transmitter M0 only** is sufficient; the ESP32 and receiver do not
-perform the aircraft mix. Choose **Receiver** to update Receiver V4 directly.
+perform the aircraft mix. Choose **Receiver** to update Receiver V4 or the
+receiver built into the ASCEND flight controller (it has its own USB
+connector). Choose **Flight controller (ArduPlane)** to update the flight
+controller itself.
 
 The updater supports Altitude Unknown Transmitter V3 and Receiver V4 hardware.
 It downloads these release assets automatically:
@@ -604,6 +633,8 @@ It downloads these release assets automatically:
 - `altitude-unknown-tx-v3-esp32c3.bin` for the ESP32-C3.
 - `altitude-unknown-rx-v4-samd21.uf2` for the receiver M0.
 - `altitude-unknown-rx-v4-samd21.bin` for receiver BOSSA fallback.
+- `altitude-unknown-fc-<board>-arduplane.apj` for each supported flight
+  controller (currently `ascendfcrev2`).
 - `transmitter-firmware-manifest.json` containing the expected SHA-256 values.
 
 The official desktop builds include the ESP flashing tool and a trusted TLS CA
@@ -628,6 +659,15 @@ bootloader entry fails, hold BOOT, tap RESET, release BOOT, and retry.
 Receiver firmware older than the automatic-update bridge may require one final
 manual-reset/Arduino upload. Later receiver updates can then be completed from
 the configurator without reaching the RESET button.
+
+For a flight controller update, connect the flight controller's own USB port
+and select it under **Flight controller USB port**; only ArduPilot devices are
+listed. The configurator asks ArduPlane to restart into its bootloader, reads
+the board ID the bootloader reports, and writes only the image built for that
+board, so firmware for another board (for example BOREALIS V2, whose output
+order is reversed) is never written. ArduPlane keeps its parameters and
+calibrations across the update. If the bootloader does not respond, unplug
+and reconnect the flight controller's USB and try again.
 
 Receiver flashing may erase the stored bind code. Rebind the receiver after an
 update and complete a propeller-off control, direction, throttle-safety, and
