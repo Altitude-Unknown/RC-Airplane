@@ -1,0 +1,13 @@
+t=2s FLAT (51, -6, 988)
+t=13s TILT (-2, 677, 720)
+RC5/RC6 min,max: {5: [1000, 2000], 6: [1000, 1000]}
+AHRS_ORIENTATION  0: flat (51, -6, 988) nose-down (-2, 677, 720) 
+AHRS_ORIENTATION  8: flat (51, 6, -988) nose-down (-2, -677, -720) 
+AHRS_ORIENTATION 10: flat (-6, 51, -988) nose-down (677, -2, -720) 
+AHRS_ORIENTATION 12: flat (-51, -6, -988) nose-down (2, 677, -720) 
+AHRS_ORIENTATION 14: flat (6, -51, -988) nose-down (-677, 2, -720) <== MATCH
+AHRS_ORIENTATION  2: flat (6, 51, 988) nose-down (-677, -2, 720) 
+AHRS_ORIENTATION  4: flat (-51, 6, 988) nose-down (2, -677, 720) 
+AHRS_ORIENTATION  6: flat (-6, -51, 988) nose-down (677, 2, 720) 
+
+[exited with code 0]

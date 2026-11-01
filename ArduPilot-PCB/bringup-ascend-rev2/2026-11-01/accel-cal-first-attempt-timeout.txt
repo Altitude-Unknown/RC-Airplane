@@ -1,0 +1,36 @@
+t=0s FC: Initialising ArduPilot
+t=5s FC: Initialising ArduPilot
+start ack result 0
+t=5s waiting for LEVEL
+t=5s FC: Place vehicle level and press any key.
+t=7s LEVEL held (6, -50, -988) -> confirm
+t=8s waiting for LEFT
+t=12s FC: PreArm: 3D Accel calibration needed
+t=12s FC: PreArm: Compass not calibrated
+t=43s FC: PreArm: 3D Accel calibration needed
+t=43s FC: PreArm: Compass not calibrated
+t=53s LEFT held (4, 973, -84) -> confirm
+t=54s waiting for RIGHT
+t=65s RIGHT held (-8, -1012, 1) -> confirm
+t=66s waiting for NOSEDOWN
+t=74s FC: PreArm: 3D Accel calibration needed
+t=74s FC: PreArm: Compass not calibrated
+t=105s FC: PreArm: 3D Accel calibration needed
+t=105s FC: PreArm: Compass not calibrated
+t=136s FC: PreArm: 3D Accel calibration needed
+t=136s FC: PreArm: Compass not calibrated
+t=167s FC: PreArm: 3D Accel calibration needed
+t=167s FC: PreArm: Compass not calibrated
+t=198s FC: PreArm: 3D Accel calibration needed
+t=198s FC: PreArm: Compass not calibrated
+t=229s FC: PreArm: 3D Accel calibration needed
+t=229s FC: PreArm: Compass not calibrated
+t=260s NOSEDOWN held (-1006, -15, 48) -> confirm
+t=260s FC: PreArm: 3D Accel calibration needed
+t=260s FC: PreArm: Compass not calibrated
+t=261s waiting for NOSEUP
+t=291s FC: PreArm: 3D Accel calibration needed
+t=291s FC: PreArm: Compass not calibrated
+RESULT: TIMEOUT
+
+[exited with code 0]

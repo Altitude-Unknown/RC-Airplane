@@ -1,0 +1,15 @@
+OK   COMPASS_AUTO_ROT = 3
+start ack 0
+t=0s progress 0%
+t=31s progress 10%
+t=36s progress 20%
+t=41s progress 30%
+t=48s progress 40%
+t=55s progress 50%
+t=58s progress 60%
+t=95s progress 70%
+t=103s progress 80%
+t=106s progress 91%
+REPORT {'compass_id': 0, 'cal_mask': 1, 'cal_status': 5, 'autosaved': 0, 'fitness': 25.36146354675293, 'ofs_x': 2089.37353515625, 'ofs_y': 297.6805419921875, 'ofs_z': -76.82048797607422, 'diag_x': 0.21054242551326752, 'diag_y': 0.6855202913284302, 'diag_z': 0.6484260559082031, 'offdiag_x': -0.061810970306396484, 'offdiag_y': 0.024223782122135162, 'offdiag_z': 0.016155224293470383, 'orientation_confidence': 0.0, 'old_orientation': 0, 'new_orientation': 0, 'scale_factor': 0.0}
+
+[exited with code 0]

@@ -74,3 +74,84 @@ No parameters have been changed except the MAV1_* stream rates noted above.
 5. No-GPS training parameters as on V2: ARSPD_TYPE=0, GPS1_TYPE=0,
    GPS-free failsafe instead of RTL. Recheck temperatures at ambient.
 6. Later: custom I2C (DDC) GPS driver for the onboard NEO-M9N.
+
+## 2026-11-01 bench session
+
+Evidence, scripts and parameter captures are in `2026-11-01/` and `receiver/`.
+
+- Temperatures at room temperature: IMU 28–31 C, baro 25–27 C. The earlier
+  high readings were residual rework heat.
+- Receiver: the onboard SAMD21 was running the configurator's standalone
+  receiver firmware (linked, bind 7741), which never outputs SBUS, so the FC
+  saw no RC. Installed the Rx V4 SBUS bridge `rx_arduplane_sbus/receiver-sbus.bin`
+  (bind 7741 baked in) as UF2 through the custom `RCRXBOOT` bootloader
+  (UF2 Bootloader v4.0.0, board `SAMD21G18A-Altitude-RC-RX-M0-v0`).
+  The previous flash is backed up as `receiver/receiver-before-sbus.uf2`.
+  The receiver pinout matches Rx V4 (NSS D8, RST D4, DIO0 D3, BIND D10,
+  LED D13, SBUS PB22). **Do not update this receiver with the configurator's
+  release firmware; it removes the SBUS output.**
+  - The configurator's `BOOTLOADER` USB command did not reset this board; the
+    receiver hung in the command's safe loop until SW2 was double-pressed.
+  - During that attempt the configurator flashing routine, which tries every
+    usbmodem port, also probed the FC port with BOSSA. It stopped at "Device
+    unsupported" without erasing or writing; the FC kept running.
+- FC RC: healthy, 16 channels. CH5 (Aux 1) 1000–2000 switches FBWA/Manual.
+  CH6 fixed at 1000 because this transmitter's Aux 2 is faulty (fixed in the
+  next Tx revision).
+- Parameters copied from the last V2 flight set (2026-10-19), excluding
+  hardware-specific and calibration values: GPS1_TYPE=0, ARSPD_TYPE=0,
+  LOG_BACKEND_TYPE=0, AHRS_EKF_TYPE=0, ARMING_SKIPCHK=8, FLTMODE_CH=5,
+  FLTMODE1=5, RC6_OPTION=155, RC_OPTIONS=96, MAV1_ADSB=5, MAV1_RAW_CTRL=1.
+  COMPASS_ENABLE kept at 1 (V2 had no working compass).
+- Radio calibration from a stick capture: RC1 1036/1522/2000, RC2
+  1000/1353/1857, RC3 1003/1003/1998, RC4 1000/1451/1947. The pitch centre
+  of 1353 suggests the Tx elevator trim is off-centre.
+- Orientation measured (flat, then nose down): **AHRS_ORIENTATION=14**, same
+  as V2. Mounting: components up, I2C header forward, servo header aft.
+- Accelerometer six-position calibration: success (scales 0.990–1.005,
+  offsets ≤0.18 m/s²). Its level trim (roll 1.86 deg) is the bench tilt;
+  redo the level step once the board is installed in the airplane.
+- Compass: with orientation 14 the MMC5983 vertical axis reads inverted
+  (flat: z = −502 mG), so it needs its own rotation. Onboard calibration with
+  COMPASS_AUTO_ROT=3 failed (fitness 25, ofs_x 2089, nothing saved): the
+  3-inch USB cable kept the board beside the laptop and limited rotation.
+  Field magnitude was steady (~560 mG flat and on its side), so the sensor
+  itself looks fine. PreArm "Compass not calibrated" remains.
+- Output mapping (Manual and FBWA, disarmed): SERVO1 throttle held at 1100,
+  SERVO2 follows roll, SERVO3 pitch, SERVO4 yaw, SERVO5/6 off. Physical
+  surface movement on J3 not yet observed.
+
+Remaining:
+
+1. Compass calibration with a longer USB cable, away from the laptop,
+   ideally installed in the airplane; then put the confirmed compass rotation
+   in hwdef (`COMPASS MMC5XX3 ... ROTATION_x`).
+2. Physical servo/surface direction check on J3 (props off).
+3. Level trim in the airplane; Tx elevator trim review.
+4. RC-loss failsafe bench check with the bridge (Tx off → FC failsafe).
+5. Custom I2C (DDC) GPS driver for the NEO-M9N.
+
+### Combined receiver firmware and configurator flight controller update
+
+- `rx_firmware` v7 (PWM + SBUS on PB22, one image for Rx V4 and the ASCEND
+  board) flashed to the onboard receiver through the configurator's UF2 path
+  (1200-baud touch mounted RCRXBOOT, no button). Test image:
+  `receiver/rx-firmware-v7-test.uf2`. The update cleared the bind; the user
+  rebound with SW1 + SW2.
+- Before rebinding: packets with bind 7741 were rejected and no SBUS was sent
+  (`sbusFrames=0`). After: 1279 accepted, 0 rejected, 2355 SBUS frames (~100 Hz).
+- FC RC healthy over the v7 SBUS: RC1 1036–2000, RC2 1000–1852, RC3 1001–1998,
+  RC4 1000–1947, RC5 1000–2000.
+- The fixed `BOOTLOADER` USB command (UF2 double-tap magic + reset) entered
+  RCRXBOOT without a button and kept the application; it hung the old
+  configurator receiver firmware on this board.
+- FC USB did not enumerate while the receiver USB was connected first; an
+  unplug/replug of both fixed it.
+- Configurator updater `flash_flight_controller` flashed the release image
+  `flight_controller_firmware/ASCENDFCRev2/arduplane.apj` (clean build of
+  ardupilot 25c94416c5, `release-build.log`): bootloader board ID 65093
+  identified, written in 23 s, board re-enumerated without a replug, and
+  AUTOPILOT_VERSION reports 25c94416. All 869 parameters kept; only the
+  per-boot gyro offsets, baro ground pressure and boot count changed
+  (`params-before/after-configurator-update.json`). All sensors and RC healthy.
+- Not tested: Rx V4 servo PWM with the v7 image (no Rx V4 connected).
