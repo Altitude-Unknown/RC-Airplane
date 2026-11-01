@@ -155,3 +155,23 @@ Remaining:
   per-boot gyro offsets, baro ground pressure and boot count changed
   (`params-before/after-configurator-update.json`). All sensors and RC healthy.
 - Not tested: Rx V4 servo PWM with the v7 image (no Rx V4 connected).
+
+### Sensor rotations in firmware (AHRS_ORIENTATION=0)
+
+- Compass calibration with a long USB cable fitted well (fitness 2.1) but was
+  rejected: "Mag(0) internal bad orientation: 10 30.5". ArduPilot never
+  auto-fixes an internal compass (`compass-cal-bad-orientation.txt`).
+- ardupilot `5c10c497a4` declares the rotations in hwdef: IMU
+  `ROTATION_ROLL_180_YAW_270` (previously AHRS_ORIENTATION=14), compass
+  `ROTATION_YAW_180` (ROLL_180_YAW_90 composed with the board rotation).
+  Clean-worktree build flashed with the configurator updater (23 s);
+  AHRS_ORIENTATION set to 0.
+- Flat on the bench: roll -0.8, pitch -2.1, compass z +476 mG (down, correct).
+- Accelerometer six-position calibration: success, level trim roll 0.33,
+  pitch -1.47 (`accel-cal-rotation-fixed.txt`).
+- Compass calibration: "good orientation: 0", fitness 2.9, offsets 51/132/27,
+  saved (`compass-cal-rotation-fixed.txt`).
+- After reboot: all sensors and RC healthy, no pre-arm failures in 40 s.
+  Nose pointed north by the user: heading settled at 9–17 deg (no GPS, so no
+  declination correction; Montana declination is about 11 deg E).
+- `flight_controller_firmware/ASCENDFCRev2/arduplane.apj` updated to this image.

@@ -8,7 +8,7 @@ the image whose board ID matches the one the bootloader reports.
 
 | Board | Board ID | Notes |
 | --- | --- | --- |
-| ASCENDFCRev2 | 65093 | ASCEND flight controller Rev.2. Outputs 1–4 are throttle/aileron/elevator/rudder. GPS is I2C-only and not yet supported. |
+| ASCENDFCRev2 | 65093 | ASCEND flight controller Rev.2. Outputs 1–4 are throttle/aileron/elevator/rudder. Standard mounting (components up, I2C header forward) is `AHRS_ORIENTATION=0`. GPS is I2C-only and not yet supported. |
 
 Each image is built from committed ArduPilot source in a clean checkout and
 bench-tested on hardware before it is added here. `provenance.json` records
