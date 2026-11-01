@@ -175,3 +175,19 @@ Remaining:
   Nose pointed north by the user: heading settled at 9–17 deg (no GPS, so no
   declination correction; Montana declination is about 11 deg E).
 - `flight_controller_firmware/ASCENDFCRev2/arduplane.apj` updated to this image.
+
+### Onboard GPS over I2C (driver committed, no fix yet)
+
+- ardupilot `e9dcbe3df6` (NEO-M9V identified as M9), `0450d91a4c` (u-blox
+  over I2C/DDC port), `2719570b35` (Rev.2 enables it; GPS1_TYPE default 0).
+- The module reports as **NEO-M9V** (`u-blox NEO-M9V 1 HW: 00190000 SW: EXT
+  CORE 1.00 (add159)`), not the NEO-M9N in the schematic.
+- With GPS1_TYPE=1: detected over I2C, configured, about 3 kB/s of UBX with
+  zero I2C errors.
+- No fix in 10 minutes from a covered porch in rain (`2026-11-01/gps-porch-no-fix.txt`).
+  The user attributes it to too little ground-plane clearance at the antenna,
+  as on the ASCEND Logger, and will fix it in the next PCB revision.
+- Board left on firmware `2719570b` with GPS1_TYPE=0: all pre-arm checks pass
+  without GPS. Set GPS1_TYPE=1 to test the GPS again.
+- `flight_controller_firmware/ASCENDFCRev2` (release image) is still
+  `5c10c497`, without the I2C GPS driver.
