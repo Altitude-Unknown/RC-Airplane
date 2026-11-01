@@ -1,0 +1,5 @@
+t=   0s SYS_STATUS gps present/healthy=(True, False)
+t=   0s GPS fix_type=1 sats=0 lat=0.00000 lon=0.00000 alt=-17m hdop=100.0
+t= 105s FC: PreArm: Check mag field: 1068, max 875, min 185
+
+[exited with code 0]
