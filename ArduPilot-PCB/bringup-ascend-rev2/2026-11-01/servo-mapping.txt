@@ -1,0 +1,14 @@
+modes seen (custom_mode, armed): {(5, False), (0, False)} samples 123
+SERVO1: range 1100..1100  follows roll (corr +0.00)
+SERVO2: range 1315..1657  follows roll (corr +0.59)
+SERVO3: range 1335..1623  follows pitch (corr +0.59)
+SERVO4: range 1100..1892  follows yaw (corr +0.26)
+SERVO5: range 0..0  follows roll (corr +0.00)
+SERVO6: range 0..0  follows roll (corr +0.00)
+RC1 roll     range 1036..2000
+RC2 pitch    range 1000..1852
+RC3 throttle range 1002..2000
+RC4 yaw      range 1000..1947
+RC5 ch5      range 1000..2000
+
+[exited with code 0]

@@ -43,6 +43,8 @@ def main():
     parser.add_argument("--samd-bin", required=True, type=Path)
     parser.add_argument("--esp-merged-bin", required=True, type=Path)
     parser.add_argument("--receiver-bin", type=Path)
+    parser.add_argument("--flight-controller-apj", type=Path, action="append", default=[],
+                        help="ArduPilot .apj to publish; repeat for each flight controller board")
     parser.add_argument("--version", required=True)
     parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args()
@@ -73,6 +75,27 @@ def main():
             "serial_format": "sam-ba-bin",
             "serial_sha256": sha256(receiver_binary_asset),
         }
+    flight_controllers = []
+    for apj in args.flight_controller_apj:
+        metadata = json.loads(apj.read_text(encoding="utf-8"))
+        board, board_id = metadata.get("summary"), metadata.get("board_id")
+        if metadata.get("magic") != "APJFWv1" or not board or not isinstance(board_id, int):
+            raise SystemExit(f"{apj} is not an ArduPilot firmware file with a board name and ID")
+        if any(entry["board_id"] == board_id for entry in flight_controllers):
+            raise SystemExit(f"More than one flight controller image for board ID {board_id}")
+        asset = args.output / f"altitude-unknown-fc-{board.lower()}-arduplane.apj"
+        asset.write_bytes(apj.read_bytes())
+        flight_controllers.append({
+            "board": board,
+            "board_id": board_id,
+            "vehicle": "ArduPlane",
+            "asset": asset.name,
+            "format": "apj",
+            "git_identity": metadata.get("git_identity", ""),
+            "sha256": sha256(asset),
+        })
+    if flight_controllers:
+        manifest["flight_controllers"] = flight_controllers
     (args.output / "transmitter-firmware-manifest.json").write_text(
         json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
 

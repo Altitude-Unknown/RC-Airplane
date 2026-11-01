@@ -1,0 +1,62 @@
+t=0s FC: Initialising ArduPilot
+start ack result 0
+t=2s waiting for LEVEL
+t=2s FC: Place vehicle level and press any key.
+t=2s   seeing (4, -50, -988)
+t=4s LEVEL held (3, -50, -990) -> confirm
+t=5s waiting for LEFT
+t=7s   seeing (3, -50, -989)
+t=12s   seeing (4, -50, -986)
+t=12s   seeing (4, -53, -990)
+t=17s   seeing (4, -49, -986)
+t=17s   seeing (4, -50, -989)
+t=19s FC: PreArm: 3D Accel calibration needed
+t=19s FC: PreArm: Compass not calibrated
+t=22s   seeing (0, -48, -989)
+t=22s   seeing (6, -52, -988)
+t=27s   seeing (-1, -49, -990)
+t=27s   seeing (-14, -12, -991)
+t=32s   seeing (580, 499, -173)
+t=32s   seeing (512, 984, 34)
+t=35s LEFT held (8, 978, -14) -> confirm
+t=36s waiting for RIGHT
+t=37s   seeing (5, 978, -16)
+t=42s   seeing (3, 978, -10)
+t=42s   seeing (4, 978, -6)
+t=47s   seeing (870, 505, -29)
+t=47s   seeing (492, -362, -664)
+t=50s FC: PreArm: 3D Accel calibration needed
+t=50s FC: PreArm: Compass not calibrated
+t=52s   seeing (-6, -1008, 123)
+t=52s RIGHT held (-6, -1008, 123) -> confirm
+t=53s waiting for NOSEDOWN
+t=57s   seeing (-6, -1020, 22)
+t=57s   seeing (-5, -1014, 28)
+t=62s   seeing (-4, -1013, 21)
+t=62s   seeing (-6, -1013, 17)
+t=67s   seeing (-1023, -23, -71)
+t=67s   seeing (-939, -39, 174)
+t=69s NOSEDOWN held (-1004, -15, 90) -> confirm
+t=70s waiting for NOSEUP
+t=72s   seeing (-1006, -15, 65)
+t=77s   seeing (-1005, -14, 63)
+t=77s   seeing (-1005, -15, 61)
+t=81s FC: PreArm: 3D Accel calibration needed
+t=81s FC: PreArm: Compass not calibrated
+t=82s   seeing (895, 90, -419)
+t=82s   seeing (987, 196, 6)
+t=85s NOSEUP held (1013, -27, -15) -> confirm
+t=86s waiting for BACK
+t=87s   seeing (1035, -22, -25)
+t=92s   seeing (1017, -21, -35)
+t=92s   seeing (1019, -25, -33)
+t=97s   seeing (1039, -22, -26)
+t=97s   seeing (1036, -23, -26)
+t=102s   seeing (-98, -99, 1192)
+t=102s   seeing (36, -8, 948)
+t=106s BACK held (-55, -14, 1004) -> confirm
+t=107s FC: Trim OK: roll=1.86 pitch=0.06 yaw=0.00
+t=107s FC: Calibration successful
+RESULT: SUCCESS
+
+[exited with code 0]

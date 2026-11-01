@@ -142,6 +142,129 @@ class FirmwareUpdaterTests(unittest.TestCase):
             self.assertIn("-e", command)
             self.assertEqual(run.call_count, 2)
 
+    def test_receiver_samba_never_probes_a_flight_controller(self):
+        ports = [mock.Mock(device="/dev/cu.usbmodem1101", vid=0x239A, pid=0x800B),
+                 mock.Mock(device="/dev/cu.usbmodem101", vid=0x1209, pid=0x5741)]
+        with tempfile.TemporaryDirectory() as folder:
+            image = Path(folder) / "receiver.bin"
+            image.write_bytes(b"firmware")
+            waiting = mock.Mock(returncode=1, stdout="No device found", stderr="")
+            with mock.patch("serial.tools.list_ports.comports", return_value=ports), \
+                 mock.patch.object(updater, "request_samd_bootloader"), \
+                 mock.patch("serial.Serial", side_effect=Exception("legacy")), \
+                 mock.patch.object(updater, "_bossac_path", return_value=Path("/tools/bossac")), \
+                 mock.patch.object(updater.time, "sleep"), \
+                 mock.patch.object(updater.time, "monotonic", side_effect=[0, 1, 2, 99]), \
+                 mock.patch.object(updater.subprocess, "run", return_value=waiting) as run:
+                with self.assertRaises(updater.FirmwareUpdateError):
+                    updater.flash_receiver_samba(image, "/dev/cu.usbmodem1101")
+            probed = {arg for call in run.call_args_list for arg in call.args[0] if arg.startswith("--port=")}
+            self.assertEqual(probed, {"--port=cu.usbmodem1101"})
+
+    def test_release_packager_reads_flight_controller_board_from_apj(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            for name, content in (("tx.bin", b"tx"), ("esp.bin", b"esp")):
+                (root / name).write_bytes(content)
+            apj = root / "arduplane.apj"
+            apj.write_text(json.dumps({"magic": "APJFWv1", "board_id": 65093,
+                                       "summary": "ASCENDFCRev2", "git_identity": "25c94416"}))
+            subprocess.run([
+                sys.executable, "tools/package_transmitter_firmware.py",
+                "--samd-bin", str(root / "tx.bin"), "--esp-merged-bin", str(root / "esp.bin"),
+                "--flight-controller-apj", str(apj), "--version", "test", "--output", str(root / "out"),
+            ], check=True)
+            manifest = json.loads((root / "out" / "transmitter-firmware-manifest.json").read_text())
+            entry, = manifest["flight_controllers"]
+            self.assertEqual((entry["board"], entry["board_id"]), ("ASCENDFCRev2", 65093))
+            self.assertEqual(entry["asset"], "altitude-unknown-fc-ascendfcrev2-arduplane.apj")
+            asset = root / "out" / entry["asset"]
+            self.assertEqual(entry["sha256"], hashlib.sha256(asset.read_bytes()).hexdigest())
+
+    def _release_with_flight_controllers(self, flight_controllers, fc_assets):
+        images = {"samd21": b"samd", "esp32c3": b"esp", "receiver_samd21": b"rx"}
+        assets = [{"name": updater.MANIFEST_ASSET_NAME, "browser_download_url": "manifest"}]
+        boards = {}
+        for target, content in images.items():
+            assets.append({"name": target, "browser_download_url": "url-" + target})
+            boards[target] = {"asset": target, "sha256": hashlib.sha256(content).hexdigest()}
+        assets += [{"name": name, "browser_download_url": "url-" + name} for name in fc_assets]
+        release = {"tag_name": "v1", "assets": assets}
+        manifest = {"schema": 1, "boards": boards, "flight_controllers": flight_controllers}
+        with mock.patch.object(updater, "_request_json",
+                               side_effect=lambda url, timeout: release if "latest" in url else manifest):
+            return updater.fetch_latest_firmware()
+
+    def test_fetch_accepts_flight_controller_firmware(self):
+        entry = {"board": "ASCENDFCRev2", "board_id": 65093, "asset": "fc.apj", "sha256": "a" * 64}
+        result = self._release_with_flight_controllers([entry], ["fc.apj"])
+        self.assertEqual(result["manifest"]["flight_controllers"][0]["download_url"], "url-fc.apj")
+
+    def test_fetch_rejects_flight_controller_entry_without_board_id(self):
+        entry = {"board": "ASCENDFCRev2", "asset": "fc.apj", "sha256": "a" * 64}
+        with self.assertRaisesRegex(updater.FirmwareUpdateError, "flight controller"):
+            self._release_with_flight_controllers([entry], ["fc.apj"])
+
+    def test_flight_controller_ports_are_ardupilot_only(self):
+        ports = [mock.Mock(device="/dev/rx", vid=0x239A, pid=0x800B),
+                 mock.Mock(device="/dev/fc", vid=0x1209, pid=0x5741),
+                 mock.Mock(device="/dev/other-pidcodes", vid=0x1209, pid=0x0001)]
+        with mock.patch("serial.tools.list_ports.comports", return_value=ports):
+            self.assertEqual([p.device for p in updater.flight_controller_ports()], ["/dev/fc"])
+
+    def _fake_uploader(self, board_type, uploads):
+        class FakeUploader:
+            def __init__(self, port, *args):
+                self.port_name, self.board_type = port, board_type
+            def open(self): pass
+            def identify(self): pass
+            def send_reboot(self): return True
+            def close(self): pass
+            def upload(self, fw): uploads.append((self.port_name, fw.property("board_id")))
+            def _uploader__reboot(self): uploads.append(("rebooted", None))
+        return FakeUploader
+
+    def _fake_apj(self, folder, board_id):
+        path = Path(folder) / f"{board_id}.apj"
+        path.write_text("{}")
+        return path
+
+    def test_flash_flight_controller_writes_image_matching_bootloader_board_id(self):
+        uploads = []
+        fake = mock.Mock(uploader=self._fake_uploader(65093, uploads),
+                         firmware=lambda path: mock.Mock(property=lambda key, default=None: {
+                             "board_id": int(Path(path).stem), "summary": "ASCENDFCRev2"}.get(key, default)))
+        fc = mock.Mock(device="/dev/fc", vid=0x1209, pid=0x5741)
+        with tempfile.TemporaryDirectory() as folder, \
+             mock.patch.dict(sys.modules, {"ardupilot_uploader": fake}), \
+             mock.patch.object(updater, "flight_controller_ports", return_value=[fc]):
+            images = {board_id: self._fake_apj(folder, board_id) for board_id in (65092, 65093)}
+            result = updater.flash_flight_controller(images, "/dev/fc")
+        self.assertEqual(uploads, [("/dev/fc", 65093)])
+        self.assertEqual(result, {"board_id": 65093, "board": "ASCENDFCRev2"})
+
+    def test_flash_flight_controller_refuses_unknown_board(self):
+        uploads = []
+        fake = mock.Mock(uploader=self._fake_uploader(140, uploads),
+                         firmware=lambda path: mock.Mock(property=lambda key, default=None: {
+                             "board_id": int(Path(path).stem)}.get(key, default)))
+        fc = mock.Mock(device="/dev/fc", vid=0x1209, pid=0x5741)
+        with tempfile.TemporaryDirectory() as folder, \
+             mock.patch.dict(sys.modules, {"ardupilot_uploader": fake}), \
+             mock.patch.object(updater, "flight_controller_ports", return_value=[fc]):
+            images = {65093: self._fake_apj(folder, 65093)}
+            with self.assertRaisesRegex(updater.FirmwareUpdateError, "board ID 140"):
+                updater.flash_flight_controller(images, "/dev/fc")
+        self.assertEqual(uploads, [("rebooted", None)])
+
+    def test_flash_flight_controller_rejects_non_ardupilot_port(self):
+        with tempfile.TemporaryDirectory() as folder, \
+             mock.patch.dict(sys.modules, {"ardupilot_uploader": mock.Mock(
+                 firmware=lambda path: mock.Mock(property=lambda key, default=None: 65093))}), \
+             mock.patch.object(updater, "flight_controller_ports", return_value=[]):
+            with self.assertRaisesRegex(updater.FirmwareUpdateError, "ArduPilot"):
+                updater.flash_flight_controller({65093: self._fake_apj(folder, 65093)}, "/dev/rx")
+
 
 if __name__ == "__main__":
     unittest.main()

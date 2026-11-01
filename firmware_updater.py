@@ -1,4 +1,4 @@
-"""Download and flash signed-off transmitter firmware release assets.
+"""Download and flash signed-off transmitter, receiver and flight controller firmware.
 
 The updater deliberately keeps hardware operations separate from Tkinter so
 the release parser, checksum checks, and drive detection can be unit tested.
@@ -6,9 +6,12 @@ the release parser, checksum checks, and drive detection can be unit tested.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
+import io
 import json
 import os
+import re
 import shutil
 import ssl
 import string
@@ -88,6 +91,19 @@ def fetch_latest_firmware(timeout=20):
                     any(c not in string.hexdigits for c in serial_checksum):
                 raise FirmwareUpdateError("The receiver serial firmware entry is incomplete or invalid.")
             board["serial_download_url"] = assets[serial_name]
+    # Flight controller firmware is optional so older releases still validate.
+    flight_controllers = manifest.get("flight_controllers", [])
+    if not isinstance(flight_controllers, list):
+        raise FirmwareUpdateError("The flight controller firmware list is invalid.")
+    for entry in flight_controllers:
+        name = entry.get("asset") if isinstance(entry, dict) else None
+        checksum = str(entry.get("sha256", "")).lower() if isinstance(entry, dict) else ""
+        if not name or name not in assets or not isinstance(entry.get("board_id"), int) or \
+                not entry.get("board") or len(checksum) != 64 or \
+                any(c not in string.hexdigits for c in checksum):
+            raise FirmwareUpdateError("A flight controller firmware entry is incomplete or invalid.")
+        entry["download_url"] = assets[name]
+    manifest["flight_controllers"] = flight_controllers
     return {
         "tag": release.get("tag_name", "unknown"),
         "name": release.get("name") or release.get("tag_name", "Latest release"),
@@ -107,12 +123,33 @@ def download_firmware(release_info, target, destination=None, timeout=60, serial
     checksum_key = "serial_sha256" if serial_image else "sha256"
     if asset_key not in board or url_key not in board:
         raise FirmwareUpdateError(f"The release has no {'serial' if serial_image else target} image.")
-    suffix = Path(board[asset_key]).suffix
+    return _download_verified(board[url_key], board[checksum_key], target,
+                              Path(board[asset_key]).suffix, destination, timeout)
+
+
+def download_flight_controller_firmware(release_info, timeout=60):
+    """Download every released flight controller image; return {board_id: path}."""
+    entries = release_info["manifest"].get("flight_controllers", [])
+    if not entries:
+        raise FirmwareUpdateError("This release has no flight controller firmware.")
+    images = {}
+    try:
+        for entry in entries:
+            images[entry["board_id"]] = _download_verified(
+                entry["download_url"], entry["sha256"], "fc-" + entry["board"], ".apj", None, timeout)
+    except Exception:
+        for path in images.values():
+            path.unlink(missing_ok=True)
+        raise
+    return images
+
+
+def _download_verified(url, checksum, label, suffix, destination, timeout):
     if destination is None:
-        fd, destination = tempfile.mkstemp(prefix=f"altitude-unknown-{target}-", suffix=suffix)
+        fd, destination = tempfile.mkstemp(prefix=f"altitude-unknown-{label}-", suffix=suffix)
         os.close(fd)
     destination = Path(destination)
-    request = urllib.request.Request(board[url_key], headers={"User-Agent": USER_AGENT})
+    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
     try:
         digest = hashlib.sha256()
         with urllib.request.urlopen(request, timeout=timeout, context=TLS_CONTEXT) as response, destination.open("wb") as output:
@@ -125,7 +162,7 @@ def download_firmware(release_info, target, destination=None, timeout=60, serial
     except Exception as exc:
         destination.unlink(missing_ok=True)
         raise FirmwareUpdateError(f"Firmware download failed: {exc}") from exc
-    if digest.hexdigest().lower() != board[checksum_key].lower():
+    if digest.hexdigest().lower() != checksum.lower():
         destination.unlink(missing_ok=True)
         raise FirmwareUpdateError("Firmware checksum did not match. Nothing was flashed.")
     return destination
@@ -254,6 +291,10 @@ def flash_receiver_samba(image, port):
     # original 2016 SAM-BA board on macOS. Current receiver firmware therefore
     # exposes a guarded command and performs the SAMD core's normal reset while
     # this connection remains open. Older firmware retains touch1200 fallback.
+    # Only the selected port, or a port that appears after the reset, may be
+    # the receiver's bootloader. Never probe other devices (a flight
+    # controller, the transmitter) with BOSSA.
+    ports_before = _serial_port_devices()
     commanded = False
     try:
         import serial
@@ -284,13 +325,8 @@ def flash_receiver_samba(image, port):
         if not first_attempt:
             time.sleep(0.1)
         first_attempt = False
-        candidates = [port]
-        try:
-            import serial.tools.list_ports
-            candidates += [item.device for item in serial.tools.list_ports.comports()
-                           if "usbmodem" in item.device.lower() and item.device not in candidates]
-        except Exception:
-            pass
+        candidates = [port] + [device for device in _serial_port_devices(exclude_flight_controllers=True)
+                               if device not in ports_before and device != port]
         for candidate in candidates:
             command = [str(_bossac_path()), "-i", "-d",
                        f"--port={bossac_port_name(candidate)}", "-U", "-i",
@@ -306,6 +342,124 @@ def flash_receiver_samba(image, port):
                 break
     detail = ((result.stderr or result.stdout).strip() if result else "bootloader did not respond")
     raise FirmwareUpdateError(f"Receiver serial flashing failed: {detail}")
+
+
+# ArduPilot's pid.codes USB IDs: 0x5741 for single-USB boards, 0x5740 for
+# dual-USB boards. The application and its bootloader both use them.
+ARDUPILOT_USB_IDS = {(0x1209, 0x5740), (0x1209, 0x5741)}
+
+
+def _is_flight_controller(port_info):
+    return (port_info.vid, port_info.pid) in ARDUPILOT_USB_IDS
+
+
+def _serial_port_devices(exclude_flight_controllers=False):
+    try:
+        from serial.tools import list_ports
+        return [item.device for item in list_ports.comports()
+                if not (exclude_flight_controllers and _is_flight_controller(item))]
+    except Exception:
+        return []
+
+
+def flight_controller_ports():
+    """Return connected ArduPilot flight controllers (application or bootloader)."""
+    from serial.tools import list_ports
+    return [item for item in list_ports.comports() if _is_flight_controller(item)]
+
+
+class _UploaderOutput(io.TextIOBase):
+    """Collect the ArduPilot uploader's console output and report its progress bars."""
+
+    PROGRESS = re.compile(r"(Erase|Program|Verify)\s*:\s*\[[= ]*\]\s*([\d.]+)%")
+
+    def __init__(self, progress):
+        self.progress = progress
+        self.last = None
+        self.text = []
+
+    def write(self, text):
+        self.text.append(text)
+        for match in self.PROGRESS.finditer(text):
+            step = (match.group(1), int(float(match.group(2))) // 5 * 5)
+            if self.progress and step != self.last:
+                self.last = step
+                self.progress(f"Flight controller: {step[0].lower()} {step[1]}%")
+        return len(text)
+
+
+def _identify_or_request_bootloader(up):
+    """Identify an ArduPilot bootloader on the open port, or ask the running
+    application to reboot into it (MAVLink reboot request) and return False."""
+    up.open()
+    try:
+        up.identify()
+        return True
+    except Exception:
+        pass
+    up.send_reboot()
+    time.sleep(0.25)
+    return False
+
+
+def flash_flight_controller(images, port, progress=None, timeout=45):
+    """Flash an ArduPilot flight controller with the image for its board ID.
+
+    images maps board_id -> .apj path. The board ID comes from the board's own
+    bootloader, so firmware for another board (for example BOREALIS V2 output
+    order on an ASCEND FC) is never written. Only ArduPilot USB devices are
+    opened. Parameters and calibration are kept by ArduPilot across updates.
+    """
+    import ardupilot_uploader
+    firmwares = {}
+    for board_id, path in images.items():
+        fw = ardupilot_uploader.firmware(str(path))
+        if fw.property("board_id") != board_id:
+            raise FirmwareUpdateError(f"{Path(path).name} is not built for board ID {board_id}.")
+        firmwares[board_id] = fw
+    if port not in [item.device for item in flight_controller_ports()]:
+        raise FirmwareUpdateError("Select a connected ArduPilot flight controller USB port.")
+
+    output = _UploaderOutput(progress)
+    deadline = time.monotonic() + timeout
+    with contextlib.redirect_stdout(output), contextlib.redirect_stderr(output):
+        while time.monotonic() < deadline:
+            # After the reboot request the bootloader may come back under a
+            # new port name; it keeps ArduPilot's USB IDs.
+            candidates = [port] + [item.device for item in flight_controller_ports()
+                                   if item.device != port]
+            for candidate in candidates:
+                try:
+                    up = ardupilot_uploader.uploader(candidate, 115200, [57600])
+                except Exception:
+                    continue
+                try:
+                    if not _identify_or_request_bootloader(up):
+                        continue
+                    fw = firmwares.get(up.board_type)
+                    if fw is None:
+                        up._uploader__reboot()  # return to the existing application
+                        raise FirmwareUpdateError(
+                            f"This release has no firmware for the connected flight controller "
+                            f"(board ID {up.board_type}). Nothing was flashed.")
+                    board = fw.property("summary") or f"board {up.board_type}"
+                    if progress:
+                        progress(f"Flashing {board}…")
+                    try:
+                        up.upload(fw)
+                    except RuntimeError as exc:
+                        raise FirmwareUpdateError(
+                            f"Flight controller flashing failed: {exc}. The board stays in its "
+                            "bootloader; try the update again.") from exc
+                    return {"board_id": up.board_type, "board": board}
+                except (IOError, OSError):
+                    continue  # the port vanished during a reboot; look again
+                finally:
+                    up.close()
+            time.sleep(0.2)
+    raise FirmwareUpdateError(
+        "The flight controller bootloader did not respond. Unplug the flight controller's USB, "
+        "reconnect it, and try again.")
 
 
 def flash_esp32(image, port, offset="0x0", progress=None):

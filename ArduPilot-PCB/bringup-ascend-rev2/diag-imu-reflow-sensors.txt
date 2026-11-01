@@ -1,0 +1,10 @@
+gyro  present=True healthy=True
+accel present=True healthy=True
+mag   present=True healthy=True
+baro  present=True healthy=True
+rc    present=False healthy=False
+ahrs  present=True healthy=False
+RAW_IMU {'time_usec': 24559734, 'xacc': 284, 'yacc': 27, 'zacc': 932, 'xgyro': 4, 'ygyro': 0, 'zgyro': -2, 'xmag': 148, 'ymag': -150, 'zmag': 442, 'id': 0, 'temperature': 6190}
+ATTITUDE {'time_boot_ms': 24559, 'roll': -3.1017470359802246, 'pitch': 0.29492220282554626, 'yaw': -1.4747700691223145, 'rollspeed': 0.003916779067367315, 'pitchspeed': 0.00024291296722367406, 'yawspeed': -0.0025941196363419294}
+RC_CHANNELS {'time_boot_ms': 24559, 'chancount': 0, 'chan1_raw': 1500, 'chan2_raw': 1500, 'chan3_raw': 0, 'chan4_raw': 1500, 'chan5_raw': 0, 'chan6_raw': 0, 'chan7_raw': 0, 'chan8_raw': 0, 'chan9_raw': 0, 'chan10_raw': 0}
+STATUSTEXT:
