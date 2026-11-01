@@ -1,0 +1,5 @@
+t= 0s IMU 55.68 C  baro None C
+t=10s IMU 53.53 C  baro 46.02 C
+t=20s IMU 51.85 C  baro 44.85 C
+t=30s IMU 50.1 C  baro 43.72 C
+t=40s IMU 48.83 C  baro 42.78 C

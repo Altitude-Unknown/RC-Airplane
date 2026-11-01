@@ -1,0 +1,18 @@
+gyro  present=True healthy=False
+accel present=True healthy=False
+mag   present=True healthy=False
+baro  present=True healthy=False
+rc    present=False healthy=False
+ahrs  present=True healthy=False
+RAW_IMU {'time_usec': 34532629, 'xacc': 0, 'yacc': 0, 'zacc': 0, 'xgyro': 0, 'ygyro': 0, 'zgyro': 0, 'xmag': 0, 'ymag': 0, 'zmag': 0, 'id': 0, 'temperature': 0}
+ATTITUDE {'time_boot_ms': 34532, 'roll': 0.0, 'pitch': 0.0, 'yaw': 0.0, 'rollspeed': 0.0, 'pitchspeed': 0.0, 'yawspeed': 0.0}
+RC_CHANNELS {'time_boot_ms': 34532, 'chancount': 0, 'chan1_raw': 0, 'chan2_raw': 0, 'chan3_raw': 0, 'chan4_raw': 0, 'chan5_raw': 0, 'chan6_raw': 0, 'chan7_raw': 0, 'chan8_raw': 0, 'chan9_raw': 0, 'chan10_raw': 0}
+STATUSTEXT:
+   V2 IMU: SPI=1 ID=00/00 changes=0
+   V2 C1/2/3=00/00/00 PMCR=03000000
+   V2 GPIO M0/M3/up/down=00/00/FF/00
+   MS5611 PROM0-3 00BC C06C BB27 70A6
+   MS5611 PROM4-7 653A 80B2 66DF 48DA CRC ok
+   Config Error: INS: unable to initialise driver
+   Config Error: fix problem then reboot
+SCALED_PRESSURE samples=76 pressure 852.87-853.12 hPa, temp 44.96-47.79 C

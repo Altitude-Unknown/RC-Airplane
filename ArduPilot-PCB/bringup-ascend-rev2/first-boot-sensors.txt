@@ -1,0 +1,21 @@
+heartbeat: type 1 autopilot 3 base_mode 17 custom_mode 16
+SYS_STATUS  present/enabled/healthy:
+  gyro   present=True enabled=True healthy=False
+  accel  present=True enabled=True healthy=False
+  mag    present=False enabled=False healthy=False
+  baro   present=False enabled=False healthy=False
+  gps    present=False enabled=False healthy=False
+  rc     present=False enabled=False healthy=False
+  ahrs   present=True enabled=False healthy=False
+  prearm present=True enabled=True healthy=False
+RAW_IMU {'time_usec': 52343822, 'xacc': 0, 'yacc': 0, 'zacc': 0, 'xgyro': 0, 'ygyro': 0, 'zgyro': 0, 'xmag': 0, 'ymag': 0, 'zmag': 0, 'id': 0, 'temperature': 0}
+SCALED_PRESSURE {'time_boot_ms': 52343, 'press_abs': 0.0, 'press_diff': 0.0, 'temperature': 0, 'temperature_press_diff': 0}
+ATTITUDE {'time_boot_ms': 52343, 'roll': 0.0, 'pitch': 0.0, 'yaw': 0.0, 'rollspeed': 0.0, 'pitchspeed': 0.0, 'yawspeed': 0.0}
+RC_CHANNELS {'time_boot_ms': 52343, 'chancount': 0, 'chan1_raw': 0, 'chan2_raw': 0, 'chan3_raw': 0, 'chan4_raw': 0, 'chan5_raw': 0, 'chan6_raw': 0, 'chan7_raw': 0, 'chan8_raw': 0, 'chan9_raw': 0, 'chan10_raw': 0, 'chan11_raw': 0, 'chan12_raw': 0}
+params: {"MAV1_RAW_SENS": 10.0, "MAV1_EXT_STAT": 10.0, "MAV1_RC_CHAN": 10.0, "MAV1_RAW_CTRL": 10.0, "MAV1_POSITION": 10.0, "MAV1_EXTRA1": 10.0, "MAV1_EXTRA2": 10.0, "MAV1_EXTRA3": 10.0, "MAV1_ADSB": 10.0, "INS_GYR_ID": 0.0, "INS_ACC_ID": 0.0, "COMPASS_DEV_ID": 0.0, "COMPASS_USE": 1.0, "COMPASS_ENABLE": 1.0, "COMPASS_EXTERNAL": 0.0, "BARO1_DEVID": 0.0, "GPS1_TYPE": 0.0, "SERIAL1_PROTOCOL": 0.0, "SERIAL2_PROTOCOL": 23.0, "SERVO1_FUNCTION": 70.0, "SERVO2_FUNCTION": 4.0, "SERVO3_FUNCTION": 19.0, "SERVO4_FUNCTION": 21.0, "AHRS_ORIENTATION": 0.0, "LOG_BACKEND_TYPE": 2.0, "ARMING_SKIPCHK": 0.0, "BRD_BOOT_DELAY": 0.0, "INS_ACCOFFS_X": 0.0}
+statustext:
+   Config Error: fix problem then reboot
+   V2 IMU: probe not reached
+   V2 SPI: probe not reached
+   V2 GPIO SPI: not needed
+   Config Error: Baro: unable to initialise driver

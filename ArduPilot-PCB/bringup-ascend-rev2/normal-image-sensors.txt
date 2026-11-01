@@ -1,0 +1,17 @@
+gyro  present=True healthy=True
+accel present=True healthy=True
+mag   present=True healthy=True
+baro  present=True healthy=True
+rc    present=False healthy=False
+ahrs  present=True healthy=False
+RAW_IMU {'time_usec': 24869007, 'xacc': 56, 'yacc': 41, 'zacc': 979, 'xgyro': -5, 'ygyro': -3, 'zgyro': 0, 'xmag': 28, 'ymag': -64, 'zmag': 475, 'id': 0, 'temperature': 4272}
+ATTITUDE {'time_boot_ms': 24868, 'roll': -3.1002650260925293, 'pitch': 0.05933575704693794, 'yaw': -1.560352087020874, 'rollspeed': -0.005430592689663172, 'pitchspeed': -0.003262967336922884, 'yawspeed': 0.0003333164204377681}
+RC_CHANNELS {'time_boot_ms': 24868, 'chancount': 0, 'chan1_raw': 1500, 'chan2_raw': 1500, 'chan3_raw': 0, 'chan4_raw': 1500, 'chan5_raw': 0, 'chan6_raw': 0, 'chan7_raw': 0, 'chan8_raw': 0, 'chan9_raw': 0, 'chan10_raw': 0}
+STATUSTEXT:
+   Barometer 1 calibration complete
+   MS4525[0]: no sensor found
+   Airspeed 1 init failed
+   Airspeed 1 not initialized, cannot cal
+   ArduPilot Ready
+   AHRS: DCM active
+   RCOut: PWM:1-6

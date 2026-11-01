@@ -1,0 +1,7 @@
+V2 IMU: probe not reached
+V2 SPI: probe not reached
+V2 GPIO SPI: not needed
+MS5611 PROM0-3 0000 0000 0000 0000
+MS5611 PROM4-7 0000 0000 0000 0000 CRC ok
+Config Error: Baro: unable to initialise driver
+Config Error: fix problem then reboot
