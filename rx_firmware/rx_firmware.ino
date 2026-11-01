@@ -1,10 +1,12 @@
 #include "aux_channels.h"
 /*
   ===========================================
-  LoRa RC Receiver (Feather M0 / SAMD21) v6
+  LoRa RC Receiver (Feather M0 / SAMD21) v7
   ===========================================
   - Receives RC packets (RH_RF95) ~100 Hz.
   - Channels: Rudder, Aileron, Elevator, Throttle + flags + seq.
+  - One image for both boards: drives servo PWM directly (Rx V4) and always
+    sends SBUS on PB22 (the ASCEND flight controller's built-in receiver).
   - D10 held LOW at power-up -> Bind Mode (slow blink).
   - D20/SDA shorted to ground at power-up -> safe bind-plug mode.
   - In Bind Mode, waits for BindPacket { 'BIND', code } and stores to Flash.
@@ -40,6 +42,17 @@
   IMPORTANT SAFETY IDEA:
   The receiver starts disarmed. It will not allow throttle until it sees a fresh
   radio link and the transmitter throttle is low for a short time.
+
+  SBUS OUTPUT (flight controller use)
+  -----------------------------------
+  The same receiver also sends every accepted packet to a flight controller as
+  SBUS on PB22: non-inverted 3.3 V, 100000 baud, 8E2, channel order roll,
+  pitch, throttle, yaw, CH5, CH6. On the ASCEND flight controller PB22 is wired
+  to the STM32's RC input; on Rx V4 it is the spare TXD header pin.
+  SBUS carries the raw transmitter sticks, not the receiver's own arming or
+  failsafe outputs: the flight controller does its own arming. When packets
+  stop, SBUS stops, so the flight controller detects radio loss and runs its
+  own RC failsafe.
 */
 
 #include <SPI.h>
@@ -111,6 +124,71 @@ const uint16_t SERVO_DEADBAND_US = 2;
 // 1.0 means the receiver outputs the transmitter command immediately.
 // Lower values would smooth the motion, but would also add some lag.
 const float RX_SMOOTH_ALPHA = 1.0f; // Direct servo response; use TX rates/expo for feel.
+
+// ------------------------------
+// SBUS output to a flight controller
+// ------------------------------
+// Send SBUS at 100 Hz while the link is fresh. Stop after 300 ms without an
+// accepted packet; never replace radio loss with made-up centered channels.
+const uint32_t SBUS_BAUD = 100000;
+const uint32_t SBUS_FRAME_PERIOD_US = 10000;
+const uint32_t SBUS_LINK_TIMEOUT_MS = 300;
+const uint8_t SBUS_CHANNEL_COUNT = 16;
+const uint8_t SBUS_CHANNEL_PAYLOAD_SIZE = 22;
+const uint8_t SBUS_FRAME_SIZE = 25;
+
+// PB22/PB23 are SERCOM5 PAD2/PAD3. Configure the peripheral directly so the
+// sketch builds for both the Feather M0 and custom receiver board targets, and
+// so a whole frame is written back to back: ArduPilot treats a gap of 2 ms or
+// more inside a frame as the start of a new one.
+class SbusUart {
+ public:
+  void begin(uint32_t baud) {
+    PM->APBCMASK.reg |= PM_APBCMASK_SERCOM5;
+    GCLK->CLKCTRL.reg = GCLK_CLKCTRL_ID(SERCOM5_GCLK_ID_CORE) |
+                        GCLK_CLKCTRL_GEN_GCLK0 |
+                        GCLK_CLKCTRL_CLKEN;
+    while (GCLK->STATUS.bit.SYNCBUSY) {}
+
+    // PB22 = even half of PMUX[11], peripheral function D. Transmit only:
+    // PB23 (RX) is left as an ordinary pin.
+    PORT->Group[1].PINCFG[22].bit.PMUXEN = 1;
+    PORT->Group[1].PMUX[11].bit.PMUXE = PORT_PMUX_PMUXE_D_Val;
+
+    SERCOM5->USART.CTRLA.bit.SWRST = 1;
+    while (SERCOM5->USART.CTRLA.bit.SWRST ||
+           SERCOM5->USART.SYNCBUSY.bit.SWRST) {}
+
+    // 16x arithmetic baud mode: far less error at 100000 baud than the
+    // fractional divisor.
+    const uint64_t scaled = (uint64_t)65536 * 16 * baud;
+    const uint16_t baudRegister =
+        (uint16_t)(65536ULL - ((scaled + SystemCoreClock / 2) / SystemCoreClock));
+
+    SERCOM5->USART.CTRLA.reg = SERCOM_USART_CTRLA_MODE_USART_INT_CLK |
+                               SERCOM_USART_CTRLA_SAMPR(0) |
+                               SERCOM_USART_CTRLA_TXPO(1) |
+                               SERCOM_USART_CTRLA_RXPO(3) |
+                               SERCOM_USART_CTRLA_DORD |
+                               SERCOM_USART_CTRLA_FORM(1);  // even parity
+    SERCOM5->USART.BAUD.reg = baudRegister;
+    SERCOM5->USART.CTRLB.reg = SERCOM_USART_CTRLB_CHSIZE(0) |
+                               SERCOM_USART_CTRLB_SBMODE |   // two stop bits
+                               SERCOM_USART_CTRLB_TXEN;
+    while (SERCOM5->USART.SYNCBUSY.reg) {}
+
+    SERCOM5->USART.CTRLA.bit.ENABLE = 1;
+    while (SERCOM5->USART.SYNCBUSY.bit.ENABLE) {}
+  }
+
+  void write(const uint8_t *data, size_t length) {
+    for (size_t index = 0; index < length; ++index) {
+      while (!SERCOM5->USART.INTFLAG.bit.DRE) {}
+      SERCOM5->USART.DATA.reg = data[index];
+    }
+  }
+};
+SbusUart sbusSerial;
 
 // ------------------------------
 // Failsafe (staged)
@@ -242,6 +320,14 @@ uint16_t lastPktBind = 0;
 uint16_t lastPktSeq = 0;
 int16_t lastRssi = 0;
 
+// Raw transmitter commands for SBUS, kept apart from des_* because the PWM
+// arming and failsafe logic overwrites those.
+uint16_t sbus_r = RC_MID, sbus_a = RC_MID, sbus_e = RC_MID, sbus_t = RC_MIN;
+uint8_t sbusAuxFlags = 0;
+bool haveSbusControl = false;
+uint32_t lastSbusFrameUs = 0;
+uint32_t sbusFrames = 0;
+
 // Small, guarded USB command buffer used only for automatic firmware updates.
 // Normal flight does not print USB diagnostics or block waiting for serial.
 
@@ -325,6 +411,52 @@ bool detectBindPlug() {
   return lowSamples == sampleCount;
 }
 
+// Match ArduPilot's SBUS decoding: 200..1800 corresponds to 1000..2000 us.
+static uint16_t rcMicrosecondsToSbus(uint16_t us) {
+  if (us < RC_MIN) us = RC_MIN;
+  if (us > RC_MAX) us = RC_MAX;
+  return (uint16_t)(200UL + ((uint32_t)(us - RC_MIN) * 8UL) / 5UL);
+}
+
+// Pack sixteen 11-bit channels, least significant bit first.
+static void packSbusChannels(const uint16_t channels[SBUS_CHANNEL_COUNT],
+                             uint8_t payload[SBUS_CHANNEL_PAYLOAD_SIZE]) {
+  memset(payload, 0, SBUS_CHANNEL_PAYLOAD_SIZE);
+  uint32_t accumulator = 0;
+  uint8_t accumulatorBits = 0;
+  uint8_t outputIndex = 0;
+  for (uint8_t channel = 0; channel < SBUS_CHANNEL_COUNT; ++channel) {
+    accumulator |= ((uint32_t)channels[channel] & 0x07FFUL) << accumulatorBits;
+    accumulatorBits += 11;
+    while (accumulatorBits >= 8) {
+      payload[outputIndex++] = (uint8_t)(accumulator & 0xFF);
+      accumulator >>= 8;
+      accumulatorBits -= 8;
+    }
+  }
+}
+
+// Send one SBUS frame. Flags and footer stay zero: frames are only sent while
+// the link is fresh, and radio loss is signalled by stopping.
+void sendSbusFrame() {
+  uint16_t channels[SBUS_CHANNEL_COUNT];
+  const uint16_t neutral = rcMicrosecondsToSbus(RC_MID);
+  for (uint8_t i = 0; i < SBUS_CHANNEL_COUNT; ++i) channels[i] = neutral;
+  // Standard ArduPlane input order: roll, pitch, throttle, yaw.
+  channels[0] = rcMicrosecondsToSbus(sbus_a);
+  channels[1] = rcMicrosecondsToSbus(sbus_e);
+  channels[2] = rcMicrosecondsToSbus(sbus_t);
+  channels[3] = rcMicrosecondsToSbus(sbus_r);
+  channels[4] = rcMicrosecondsToSbus(AuxChannels::pulse(sbusAuxFlags, AuxChannels::CH5));
+  channels[5] = rcMicrosecondsToSbus(AuxChannels::pulse(sbusAuxFlags, AuxChannels::CH6));
+
+  uint8_t frame[SBUS_FRAME_SIZE] = {0};
+  frame[0] = 0x0F;
+  packSbusChannels(channels, &frame[1]);
+  sbusSerial.write(frame, sizeof(frame));
+  sbusFrames++;
+}
+
 // Return to the locked state and force throttle low.
 void disarmAndLock() {
   armed = false;
@@ -354,10 +486,44 @@ void printUsbStatus() {
   Serial.print(" rssi=");
   Serial.print(lastRssi);
   Serial.print(" armed=");
-  Serial.println(armed ? "yes" : "no");
+  Serial.print(armed ? "yes" : "no");
+  // New fields are appended so existing readers of this line keep working.
+  Serial.print(" firmware=rx-v7-pwm-sbus sbus=PB22 sbusFrames=");
+  Serial.println(sbusFrames);
 }
 
-// The desktop configurator uses BOOTLOADER to request the installed SAM-BA
+// Newer receivers (Rx V4 updates, the ASCEND flight controller) carry the
+// Altitude Unknown UF2 bootloader; original Rx V4 boards carry SAM-BA. The UF2
+// bootloader embeds its INFO_UF2.TXT text, so look for it. Start past the
+// vector table: the bootloader's strings are never there.
+static bool bootloaderIsUf2() {
+  static const char tag[] = "UF2 Bootloader";
+  const size_t tagLength = sizeof(tag) - 1;
+  const volatile uint8_t *flash = (const volatile uint8_t *)0x100;
+  const size_t searchLength = 0x2000 - 0x100 - tagLength;
+  for (size_t i = 0; i < searchLength; ++i) {
+    size_t matched = 0;
+    while (matched < tagLength && flash[i + matched] == (uint8_t)tag[matched]) matched++;
+    if (matched == tagLength) return true;
+  }
+  return false;
+}
+
+// Restart into the bootloader. UF2: set the bootloader's double-tap flag in
+// the last RAM word and reset, leaving the application intact. SAM-BA: keep
+// the SAMD core's proven path, which invalidates the application first.
+void enterBootloader() {
+  if (bootloaderIsUf2()) {
+    __disable_irq();
+    *(volatile uint32_t *)(HMCRAMC0_ADDR + HMCRAMC0_SIZE - 4) = 0xF01669EFUL;
+    NVIC_SystemReset();
+  }
+  initiateReset(1);
+  delay(1); // advances the SAMD core reset state machine once
+  while (true) {}
+}
+
+// The desktop configurator uses BOOTLOADER to request the installed
 // bootloader. STATUS is read-only and provides on-demand bench diagnostics
 // without enabling continuous serial output in the flight loop.
 void serviceUsbBootloaderRequest() {
@@ -376,9 +542,8 @@ void serviceUsbBootloaderRequest() {
         cur_t = RC_MIN;
         Serial.println("OK BOOTLOADER");
         Serial.flush();
-        initiateReset(1);
-        delay(1); // advances the SAMD core reset state machine once
-        while (true) {}
+        delay(20); // let the reply leave over USB before resetting
+        enterBootloader();
       }
       length = 0;
     } else if (length < sizeof(command) - 1) {
@@ -483,6 +648,9 @@ void setup() {
   cur_e = filt_e = des_e = RC_MID;
   cur_r = filt_r = des_r = RC_MID;
   writeServoFrame();
+
+  // SBUS idles high until the first fresh packet.
+  sbusSerial.begin(SBUS_BAUD);
 
   // Start from a safe state before the radio is even initialized.
   setSafeDesired();
@@ -616,6 +784,13 @@ void loop() {
             des_e = pkt.ch_ele;
             des_t = pkt.ch_thr;
             lastRxMs = now;
+
+            sbus_r = pkt.ch_rud;
+            sbus_a = pkt.ch_ail;
+            sbus_e = pkt.ch_ele;
+            sbus_t = pkt.ch_thr;
+            sbusAuxFlags = pkt.aux_flags;
+            haveSbusControl = true;
           } else {
             rejectedPackets++;
           }
@@ -637,6 +812,16 @@ void loop() {
         }
       }
     }
+  }
+
+  // 100 Hz SBUS, only while bound packets are fresh. Written outside the servo
+  // frame so a pulse can never split an SBUS frame.
+  const bool sbusLinkFresh = haveSbusControl && !bindMode && !bindRestartRequired &&
+                             (now - lastRxMs) <= SBUS_LINK_TIMEOUT_MS;
+  const uint32_t nowUs = micros();
+  if (sbusLinkFresh && (uint32_t)(nowUs - lastSbusFrameUs) >= SBUS_FRAME_PERIOD_US) {
+    lastSbusFrameUs = nowUs;
+    sendSbusFrame();
   }
 
   // 50 Hz servo tick.

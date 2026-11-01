@@ -1,5 +1,7 @@
 # Rx V4 to custom ArduPlane SBUS bridge
 
+**Superseded (2026-11-01):** the production receiver firmware `rx_firmware` (v7) now sends the same SBUS on PB22 while also driving servo PWM, so one image serves Rx V4 and the ASCEND flight controller. Kept for its bench evidence.
+
 AI-assisted implementation, installed 2026-10-09. Dedicated radio-to-flight-controller firmware; standalone PWM outputs and Rx-side stabilization are not used.
 
 Wiring with USB power on both boards:
