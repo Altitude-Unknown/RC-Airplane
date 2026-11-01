@@ -1,0 +1,49 @@
+t=0s FC: Initialising ArduPilot
+start ack result 0
+t=2s waiting for LEVEL
+t=2s FC: Place vehicle level and press any key.
+t=2s   seeing (-16, -21, -990)
+t=4s LEVEL held (-15, -20, -990) -> confirm
+t=5s waiting for LEFT
+t=7s FC: PreArm: Compass not calibrated
+t=8s   seeing (-16, -21, -990)
+t=12s   seeing (-16, -21, -990)
+t=13s   seeing (-16, -20, -990)
+t=17s   seeing (-15, -21, -989)
+t=18s   seeing (-16, -21, -990)
+t=22s   seeing (-16, -22, -991)
+t=23s   seeing (-16, -21, -992)
+t=27s   seeing (-17, -21, -990)
+t=28s   seeing (-15, -22, -994)
+t=32s   seeing (-52, -17, -938)
+t=33s   seeing (-32, -41, -1058)
+t=37s LEFT held (14, 977, -60) -> confirm
+t=38s waiting for RIGHT
+t=38s   seeing (11, 976, -63)
+t=38s FC: PreArm: Compass not calibrated
+t=42s   seeing (1, -1011, -17)
+t=43s   seeing (3, -1013, 22)
+t=44s RIGHT held (2, -1011, 1) -> confirm
+t=45s waiting for NOSEDOWN
+t=47s   seeing (-1, -1012, 2)
+t=48s   seeing (-1, -1012, -1)
+t=52s   seeing (-1000, -12, 74)
+t=53s   seeing (-1000, -12, 70)
+t=53s NOSEDOWN held (-1000, -13, 77) -> confirm
+t=53s waiting for NOSEDOWN
+t=55s waiting for NOSEUP
+t=57s   seeing (-992, -13, 131)
+t=58s   seeing (-993, -13, 129)
+t=62s   seeing (1020, -22, -38)
+t=63s   seeing (1022, -23, -33)
+t=63s NOSEUP held (1022, -23, -33) -> confirm
+t=64s waiting for BACK
+t=67s   seeing (1037, -25, -32)
+t=68s   seeing (678, 727, 112)
+t=69s FC: PreArm: Compass not calibrated
+t=71s BACK held (4, -7, 1018) -> confirm
+t=72s FC: Trim OK: roll=0.33 pitch=-1.47 yaw=0.00
+t=72s FC: Calibration successful
+RESULT: SUCCESS
+
+[exited with code 0]

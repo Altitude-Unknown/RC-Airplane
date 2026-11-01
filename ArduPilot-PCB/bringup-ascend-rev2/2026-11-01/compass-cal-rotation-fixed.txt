@@ -1,0 +1,16 @@
+start ack 0
+t=0s progress 0%
+t=20s progress 10%
+t=25s progress 20%
+t=30s progress 30%
+t=33s progress 40%
+t=36s progress 50%
+t=40s progress 62%
+t=43s progress 73%
+t=87s progress 83%
+t=93s progress 93%
+t=95s FC: MagCal: No location, fix_radius skipped
+t=95s FC: Mag(0) good orientation: 0 5.0
+REPORT {'compass_id': 0, 'cal_mask': 1, 'cal_status': 4, 'autosaved': 1, 'fitness': 2.9157602787017822, 'ofs_x': 51.239871978759766, 'ofs_y': 131.7353973388672, 'ofs_z': 27.460689544677734, 'diag_x': 1.0, 'diag_y': 1.0, 'diag_z': 1.0, 'offdiag_x': 0.0, 'offdiag_y': 0.0, 'offdiag_z': 0.0, 'orientation_confidence': 4.952895641326904, 'old_orientation': 0, 'new_orientation': 0, 'scale_factor': 0.0}
+
+[exited with code 0]
