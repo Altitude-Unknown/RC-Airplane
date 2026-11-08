@@ -1,0 +1,5 @@
+PARAM AHRS_TRIM_X 0.0058
+PARAM AHRS_TRIM_Y -0.0257
+PARAM AHRS_ORIENTATION 0.0
+PARAM STAT_RUNTIME 10203.0
+samples 217  roll mean 0.3 (min -1.2 max 6.5)  pitch mean -1.0 (min -13.5 max 0.2)
