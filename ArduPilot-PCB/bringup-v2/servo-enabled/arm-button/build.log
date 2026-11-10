@@ -1,0 +1,26 @@
+Waf: Entering directory `/Users/michaelwalach/Documents/BOREALIS/Codex-Projects/ardupilot/build/BOREALISv2Servo'
+Padded 28 bytes for bootloader.bin to 18592
+Embedding file bootloader.bin:/Users/michaelwalach/Documents/BOREALIS/Codex-Projects/ardupilot/Tools/bootloaders/BOREALISv2Servo_bl.bin
+Embedding file defaults.parm:/Users/michaelwalach/Documents/BOREALIS/Codex-Projects/ardupilot/build/BOREALISv2Servo/processed_defaults.parm
+Embedding file hwdef.dat:/Users/michaelwalach/Documents/BOREALIS/Codex-Projects/ardupilot/build/BOREALISv2Servo/hw.dat
+Generating compile_commands.json
+Build commands will be stored in build/BOREALISv2Servo/compile_commands.json
+Generating compile_commands.json
+Build commands will be stored in build/BOREALISv2Servo/compile_commands.json
+[1043/1049] Linking build/BOREALISv2Servo/bin/arduplane
+[1044/1049] Generating bin/arduplane.bin
+[1045/1049] checking symbols build/BOREALISv2Servo/bin/arduplane
+[1046/1049] app_descriptor set_app_descriptor: build/BOREALISv2Servo/bin/arduplane build/BOREALISv2Servo/bin/arduplane.bin
+No APP_DESCRIPTOR found
+[1047/1049] apj_gen build/BOREALISv2Servo/bin/arduplane.bin
+[1048/1049] bin cleanup build/BOREALISv2Servo/bin/arduplane.bin
+[1049/1049] Generating bin/arduplane_with_bl.hex
+Waf: Leaving directory `/Users/michaelwalach/Documents/BOREALIS/Codex-Projects/ardupilot/build/BOREALISv2Servo'
+
+BUILD SUMMARY
+Build directory: /Users/michaelwalach/Documents/BOREALIS/Codex-Projects/ardupilot/build/BOREALISv2Servo
+Target         Text (B)  Data (B)  BSS (B)  Total Flash Used (B)  Free Flash (B)  External Flash Used (B)
+---------------------------------------------------------------------------------------------------------
+bin/arduplane   1326260      4372   112792               1330632          373288  Not Applicable         
+
+'plane' finished successfully (2.797s)

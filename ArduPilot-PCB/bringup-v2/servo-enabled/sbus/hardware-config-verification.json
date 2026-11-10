@@ -1,0 +1,13 @@
+{
+  "parameters": {
+    "COMPASS_ENABLE": 0.0,
+    "GPS1_TYPE": 0.0,
+    "LOG_BACKEND_TYPE": 0.0,
+    "ARMING_SKIPCHK": 0.0,
+    "SERIAL2_PROTOCOL": 23.0
+  },
+  "mode": "MANUAL",
+  "disarmed": true,
+  "rc_healthy": false,
+  "messages": []
+}

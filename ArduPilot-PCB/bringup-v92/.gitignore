@@ -1,0 +1,2 @@
+# Preserve build and flashing evidence referenced by the hash manifests.
+!*.log

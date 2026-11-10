@@ -1,0 +1,1 @@
+SUPERSEDED initial bring-up build. Incorrect L3 mapping PC10; actual v92 BLINK is PC12. Button is PC10, not PA15. Retained only as test history; use corrected artifacts in the parent directory once verified.

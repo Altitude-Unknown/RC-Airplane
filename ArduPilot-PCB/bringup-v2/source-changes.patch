@@ -1,0 +1,251 @@
+diff --git a/libraries/AP_BoardConfig/AP_BoardConfig.cpp b/libraries/AP_BoardConfig/AP_BoardConfig.cpp
+index 9777e93..f730d28 100644
+--- a/libraries/AP_BoardConfig/AP_BoardConfig.cpp
++++ b/libraries/AP_BoardConfig/AP_BoardConfig.cpp
+@@ -17,6 +17,10 @@
+  */
+ 
+ #include "AP_BoardConfig.h"
++#if defined(HAL_BOREALIS_V2_DIAGNOSTIC) && HAL_BOREALIS_V2_DIAGNOSTIC
++#include <AP_InertialSensor/AP_InertialSensor_LSM6DSO32.h>
++#include <AP_Baro/AP_Baro.h>
++#endif
+ 
+ #include <AP_Common/AP_Common.h>
+ #include <AP_HAL/AP_HAL.h>
+@@ -29,19 +33,150 @@
+ #include <GCS_MAVLink/GCS_MAVLink.h>
+ #include <AP_InertialSensor/AP_InertialSensor_rate_config.h>
+ 
+-#if defined(HAL_BOREALIS_BENCH_TEST)
++#if defined(HAL_BOREALIS_BENCH_TEST) || defined(HAL_BOREALIS_RC_BENCH_TEST)
+ #include <AP_Baro/AP_Baro.h>
+ #include <RC_Channel/RC_Channel.h>
++#endif
++#if defined(HAL_BOREALIS_BENCH_TEST)
+ extern void borealis_bench_output_timeout();
+ #endif
++#if defined(HAL_BOREALIS_RC_BENCH_TEST)
++#include <AP_RCProtocol/AP_RCProtocol.h>
++#endif
+ 
+ #include <stdio.h>
+ #include <string.h>
+ 
+-#if defined(HAL_BOREALIS_BENCH_TEST)
++#if defined(HAL_BOREALIS_BENCH_TEST) || defined(HAL_BOREALIS_RC_BENCH_TEST)
+ bool borealis_bench_ready;
+ #endif
+ 
++#if defined(HAL_BOREALIS_RC_BENCH_TEST)
++extern const AP_HAL::HAL& hal;
++bool borealis_rc_bench_set(bool enable);
++static bool borealis_rc_active;
++static bool borealis_rc_stopping;
++static bool borealis_rc_has_run;
++static uint32_t borealis_rc_started_ms;
++static uint32_t borealis_rc_stop_ms;
++static uint32_t borealis_rc_last_frame_ms;
++static uint32_t borealis_rc_low_since_ms;
++static uint32_t borealis_rc_last_usb_ms;
++
++static bool borealis_rc_inputs_valid()
++{
++    if (hal.rcin->num_channels() < 4 || AP::RC().failsafe_active()) {
++        return false;
++    }
++    for (uint8_t i = 0; i < 4; i++) {
++        const uint16_t value = hal.rcin->read(i);
++        if (value < 900 || value > 2100) {
++            return false;
++        }
++    }
++    return true;
++}
++
++static void borealis_rc_stop(const char *reason)
++{
++    if (!borealis_rc_active) {
++        return;
++    }
++    // Send a low throttle pulse before removing PWM from the ESC.
++    hal.rcout->write(0, 1000);
++    for (uint8_t i = 1; i < 4; i++) {
++        hal.rcout->write(i, 1500);
++    }
++    borealis_rc_active = false;
++    borealis_rc_stopping = true;
++    borealis_rc_stop_ms = AP_HAL::millis();
++    gcs().send_text(MAV_SEVERITY_WARNING, "BOREALIS TAER STOP: %s", reason);
++}
++
++bool borealis_rc_bench_set(bool enable)
++{
++    if (!enable) {
++        borealis_rc_stop("USB command");
++        return true;
++    }
++    const uint32_t now = AP_HAL::millis();
++    if (borealis_rc_active) {
++        if (now - borealis_rc_last_frame_ms > 100 ||
++            !borealis_rc_inputs_valid()) {
++            return false;
++        }
++        borealis_rc_last_usb_ms = now;
++        return true;
++    }
++    if (!borealis_bench_ready || borealis_rc_has_run || borealis_rc_stopping ||
++        borealis_rc_low_since_ms == 0 ||
++        now - borealis_rc_low_since_ms < 1000 ||
++        now - borealis_rc_last_frame_ms > 100 ||
++        !borealis_rc_inputs_valid()) {
++        return false;
++    }
++    // Keep the safety gate on until all four channels are enabled. This
++    // prevents any previous timer value from reaching the ESC at startup.
++    hal.rcout->force_safety_on();
++    for (uint8_t i = 0; i < 4; i++) {
++        hal.rcout->enable_ch(i);
++    }
++    hal.rcout->force_safety_off();
++    hal.rcout->write(0, 1000);
++    for (uint8_t i = 1; i < 4; i++) {
++        hal.rcout->write(i, 1500);
++    }
++    borealis_rc_started_ms = now;
++    borealis_rc_last_usb_ms = now;
++    borealis_rc_active = true;
++    borealis_rc_has_run = true;
++    gcs().send_text(MAV_SEVERITY_WARNING, "BOREALIS TAER ACTIVE: 90s max");
++    return true;
++}
++
++static void borealis_rc_bench_update(uint32_t now, bool fresh_input)
++{
++    if (fresh_input) {
++        borealis_rc_last_frame_ms = now;
++        if (borealis_rc_inputs_valid() && hal.rcin->read(2) <= 1050) {
++            if (borealis_rc_low_since_ms == 0) {
++                borealis_rc_low_since_ms = now;
++            }
++        } else {
++            borealis_rc_low_since_ms = 0;
++        }
++    }
++
++    if (borealis_rc_active) {
++        if (now - borealis_rc_started_ms >= 90000) {
++            borealis_rc_stop("time limit");
++        } else if (now - borealis_rc_last_usb_ms > 2000) {
++            borealis_rc_stop("USB timeout");
++        } else if (now - borealis_rc_last_frame_ms > 250 ||
++                   !borealis_rc_inputs_valid()) {
++            borealis_rc_stop("receiver lost/invalid");
++        } else {
++            // Output order: THR, AIL, ELE, RUD.
++            // FlySky input order: AIL, ELE, THR, RUD.
++            const uint16_t throttle = constrain_int16(hal.rcin->read(2), 1000, 2000);
++            hal.rcout->write(0, 1000 + (throttle - 1000) * 150 / 1000);
++            const uint8_t input_channel[3] = {0, 1, 3};
++            for (uint8_t i = 0; i < 3; i++) {
++                const int16_t input = constrain_int16(hal.rcin->read(input_channel[i]), 1000, 2000);
++                hal.rcout->write(i + 1, 1500 + (input - 1500) * 2 / 5);
++            }
++        }
++    }
++    if (borealis_rc_stopping && now - borealis_rc_stop_ms >= 1000) {
++        for (uint8_t i = 0; i < 4; i++) {
++            hal.rcout->disable_ch(i);
++        }
++        hal.rcout->force_safety_on();
++        borealis_rc_stopping = false;
++    }
++}
++#endif
++
+ #ifndef BOARD_TYPE_DEFAULT
+ #define BOARD_TYPE_DEFAULT PX4_BOARD_AUTO
+ #endif
+@@ -514,9 +649,9 @@ bool AP_BoardConfig::_in_error_loop;
+ void AP_BoardConfig::throw_error(const char *err_type, const char *fmt, va_list arg)
+ {
+     _in_error_loop = true;
+-#if defined(HAL_BOREALIS_BENCH_TEST)
++#if defined(HAL_BOREALIS_BENCH_TEST) || defined(HAL_BOREALIS_RC_BENCH_TEST)
+     // This image is only for bench checks before the IMU is populated.
+-    // No flight loop runs, and PWM is enabled only by a bounded test command.
++    // No flight loop runs; PWM requires an explicit bench test command.
+     borealis_bench_ready = strstr(fmt, "INS: unable to initialise driver") != nullptr;
+     hal.rcout->force_safety_on();
+     uint32_t last_bench_read_ms = 0;
+@@ -527,15 +662,33 @@ void AP_BoardConfig::throw_error(const char *err_type, const char *fmt, va_list
+       before this, so the user can change parameters (and in
+       particular BRD_TYPE if needed)
+     */
++#if defined(HAL_BOREALIS_V2_DIAGNOSTIC) && HAL_BOREALIS_V2_DIAGNOSTIC
++    uint32_t last_v2_baro_ms = 0;
++    const bool v2_baro_ready = strstr(fmt, "INS: unable to initialise driver") != nullptr;
++#endif
+     uint32_t last_print_ms = 0;
+     while (true) {
+         uint32_t now = AP_HAL::millis();
++#if defined(HAL_BOREALIS_V2_DIAGNOSTIC) && HAL_BOREALIS_V2_DIAGNOSTIC
++        // Keep pressure telemetry available for bench checks while INS blocks startup.
++        if (v2_baro_ready && now - last_v2_baro_ms >= 20) {
++            last_v2_baro_ms = now;
++            AP::baro().update();
++        }
++#endif
+ #if defined(HAL_BOREALIS_BENCH_TEST)
+         borealis_bench_output_timeout();
++#endif
++#if defined(HAL_BOREALIS_BENCH_TEST) || defined(HAL_BOREALIS_RC_BENCH_TEST)
+         if (borealis_bench_ready && now - last_bench_read_ms >= 20) {
+             last_bench_read_ms = now;
+             AP::baro().update();
+-            rc().read_input();
++            const bool fresh_input = rc().read_input();
++#if defined(HAL_BOREALIS_RC_BENCH_TEST)
++            borealis_rc_bench_update(now, fresh_input);
++#else
++            (void)fresh_input;
++#endif
+         }
+ #endif
+         if (now - last_print_ms >= 5000) {
+@@ -549,6 +702,11 @@ void AP_BoardConfig::throw_error(const char *err_type, const char *fmt, va_list
+                 va_end(arg_copy);
+             }
+ #if HAL_GCS_ENABLED
++#if defined(HAL_BOREALIS_V2_DIAGNOSTIC) && HAL_BOREALIS_V2_DIAGNOSTIC
++            GCS_SEND_TEXT(MAV_SEVERITY_WARNING, "%s", AP_InertialSensor_LSM6DSO32::diagnostic);
++            GCS_SEND_TEXT(MAV_SEVERITY_WARNING, "%s", AP_InertialSensor_LSM6DSO32::diagnostic_extra);
++            GCS_SEND_TEXT(MAV_SEVERITY_WARNING, "%s", AP_InertialSensor_LSM6DSO32::diagnostic_gpio);
++#endif
+             hal.util->snprintf(printfmt, sizeof(printfmt), "%s: %s", err_type, fmt);
+             {
+                 va_list arg_copy;
+@@ -561,6 +719,11 @@ void AP_BoardConfig::throw_error(const char *err_type, const char *fmt, va_list
+                 gcs().send_text(MAV_SEVERITY_WARNING, "BOREALIS BENCH: outputs test-only");
+             }
+ #endif
++#if defined(HAL_BOREALIS_RC_BENCH_TEST)
++            if (borealis_bench_ready) {
++                gcs().send_text(MAV_SEVERITY_WARNING, "BOREALIS TAER TEST: USB start required");
++            }
++#endif
+ #endif
+         }
+ #if HAL_GCS_ENABLED
+diff --git a/libraries/AP_InertialSensor/AP_InertialSensor.cpp b/libraries/AP_InertialSensor/AP_InertialSensor.cpp
+index 2bee64d..397f467 100644
+--- a/libraries/AP_InertialSensor/AP_InertialSensor.cpp
++++ b/libraries/AP_InertialSensor/AP_InertialSensor.cpp
+@@ -23,6 +23,7 @@
+ #include <GCS_MAVLink/GCS.h>
+ 
+ #include "AP_InertialSensor_BMI160.h"
++#include "AP_InertialSensor_LSM6DSO32.h"
+ #include "AP_InertialSensor_BMI270.h"
+ #include "AP_InertialSensor_Backend.h"
+ #include "AP_InertialSensor_L3G4200D.h"

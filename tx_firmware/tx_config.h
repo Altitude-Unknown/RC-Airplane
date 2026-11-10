@@ -33,12 +33,16 @@ typedef struct __attribute__((packed)) {
   char     name[16];        // UTF-8, zero-terminated if shorter
   uint16_t bind_code;       // 0..0x7FFF
   int8_t   rates_pct[4];    // 0..100
-  int8_t   expo_pct[4];     // 0..100
+  int8_t   expo_pct[4];     // -100..100
   uint8_t  dr_switch;       // which switch toggles DR (you map it)
   uint8_t  active_rates;    // 0=low, 1=high
   int16_t  subtrim_us[4];   // -500..+500
   uint16_t endpoints_us[4][2]; // [ch][0=min,1=max]
     // reserved[0] bits: bit0..bit3 => channel reverse flags (1 = reversed)
+    // reserved[3]: aircraft type: 0=conventional, 1=V-tail, 2=elevons
+    // reserved[4] bit0: reverse V-tail rudder input before surface mixing
+    // reserved[5]: D10 bits0..1 (0=trainer,1=momentary,2=toggle);
+    // D7 bits2..3 (0=disabled,1=momentary,2=toggle)
     uint8_t  reserved[6];
   uint16_t crc16;           // CCITT over first 58 bytes
 } txcf_model_v1_t;
@@ -62,13 +66,17 @@ bool     setActiveSlot(uint16_t slot);
 
 // Expo helper: y = x*(1-e) + x^3*e
 inline float applyExpo(float x, int8_t expoPct) {
-  float e = (float)constrain((int)expoPct, 0, 100) / 100.0f;
+  float e = (float)expoPct / 100.0f;
   return x * (1.0f - e) + x * x * x * e;
 }
 
 // Map normalized stick [-1..1] to microseconds, applying rates/expo/subtrim/endpoints
 int16_t  channelToUs(float stickNorm, int ch,
                      const txcf_model_v1_t &m, bool highRates);
+
+// Control order is rudder, aileron, elevator, throttle.
+void controlsToUs(float rud, float ail, float ele, float thr,
+                  const txcf_model_v1_t &m, bool highRates, uint16_t out[4]);
 
 // ---------- Raw FRAM access for USB Config Mode ----------
 bool     rawRead(uint16_t addr, uint8_t* data, size_t len);

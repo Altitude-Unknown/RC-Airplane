@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Mission data model for the Walach Aviation Mission Planner.
+Mission data model for the Altitude Unknown Mission Planner.
 
 This file intentionally keeps the mission format plain JSON-friendly data.
 The future flight controller upload protocol can pack this into binary later,
@@ -76,7 +76,7 @@ class HomePoint:
 class Mission:
     mission_version: int = MISSION_VERSION
     name: str = "Untitled Mission"
-    vehicle: str = "Walach RC Aircraft"
+    vehicle: str = "Altitude Unknown RC Aircraft"
     home: HomePoint = field(default_factory=HomePoint)
     defaults: MissionDefaults = field(default_factory=MissionDefaults)
     waypoints: list[Waypoint] = field(default_factory=list)
@@ -122,7 +122,7 @@ def mission_from_dict(data: dict[str, Any]) -> Mission:
     return Mission(
         mission_version=int(data.get("mission_version", MISSION_VERSION)),
         name=str(data.get("name", "Untitled Mission")),
-        vehicle=str(data.get("vehicle", "Walach RC Aircraft")),
+        vehicle=str(data.get("vehicle", "Altitude Unknown RC Aircraft")),
         home=HomePoint(
             lat=_optional_float(home_data.get("lat")),
             lon=_optional_float(home_data.get("lon")),

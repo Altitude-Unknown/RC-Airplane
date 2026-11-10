@@ -1,0 +1,138 @@
+{
+  "info": {
+    "mcu": "SAMD21G18",
+    "fram_size": 32768,
+    "temp_bind_trim_save": true,
+    "trim_save_channel": 6,
+    "trim_save_hold_ms": 2000,
+    "trim_save_pulse_ms": 500,
+    "storage": "fram",
+    "proto": "1.1",
+    "role": "TX",
+    "button_channels": true,
+    "mode_rates": true,
+    "buzzer_test": true,
+    "radio_role": "MASTER"
+  },
+  "active_slot": 0,
+  "before_model": {
+    "name": "Research",
+    "bind_code": 7741,
+    "rates": [
+      50,
+      30,
+      80,
+      100
+    ],
+    "expo": [
+      40,
+      40,
+      40,
+      0
+    ],
+    "dr_switch": 0,
+    "active_rates": 0,
+    "subtrim": [
+      -50,
+      0,
+      -140,
+      0
+    ],
+    "endpoints": [
+      [
+        1000,
+        2000
+      ],
+      [
+        1000,
+        2000
+      ],
+      [
+        1000,
+        2000
+      ],
+      [
+        1000,
+        2000
+      ]
+    ],
+    "reverse": [
+      true,
+      false,
+      true,
+      false
+    ],
+    "aircraft_type": 0,
+    "vtail_rudder_reverse": false,
+    "d10_function": 2,
+    "d7_function": 2,
+    "ch5_rate_mode": 0,
+    "ail_to_rud_mix_enabled": false,
+    "ail_to_rud_mix_percent": 50,
+    "crc_ok": true
+  },
+  "after_model": {
+    "name": "Research",
+    "bind_code": 7741,
+    "rates": [
+      50,
+      30,
+      80,
+      100
+    ],
+    "expo": [
+      40,
+      40,
+      40,
+      0
+    ],
+    "dr_switch": 0,
+    "active_rates": 0,
+    "subtrim": [
+      -50,
+      0,
+      -140,
+      0
+    ],
+    "endpoints": [
+      [
+        1000,
+        2000
+      ],
+      [
+        1000,
+        2000
+      ],
+      [
+        1000,
+        2000
+      ],
+      [
+        1000,
+        2000
+      ]
+    ],
+    "reverse": [
+      true,
+      false,
+      true,
+      false
+    ],
+    "aircraft_type": 0,
+    "vtail_rudder_reverse": false,
+    "d10_function": 2,
+    "d7_function": 2,
+    "ch5_rate_mode": 1,
+    "ail_to_rud_mix_enabled": false,
+    "ail_to_rud_mix_percent": 50,
+    "crc_ok": true
+  },
+  "changed_storage_offsets": [
+    313,
+    314,
+    315
+  ],
+  "all_other_storage_bytes_identical": true,
+  "storage_before_sha256": "4b829c28e3fd045c0176ea853376bc864761c4a25116f5d5013472908a088b64",
+  "storage_after_sha256": "e76807125d5bb194cd3a53d2df1c625a7bf282570c81a299edfe35772b457420"
+}

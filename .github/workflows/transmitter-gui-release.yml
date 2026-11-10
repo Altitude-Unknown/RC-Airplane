@@ -1,4 +1,4 @@
-name: Transmitter GUI Release
+name: Altitude Unknown RC Configurator Release
 
 on:
   push:
@@ -15,7 +15,26 @@ permissions:
   contents: write
 
 jobs:
+  validate:
+    name: Verify model preservation and flight controls
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-tk g++
+          python -m pip install -r requirements.txt
+      - name: Check mode-linked rates, model codecs, buttons, alarms and updater
+        run: python -m unittest test_mode_rates test_gui_model_codec test_gui_aircraft_codec test_button_channels test_temp_bind_trim test_tx_buzzer test_firmware_updater
+
   build:
+    needs: validate
     name: Build ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
     strategy:
@@ -24,20 +43,20 @@ jobs:
         include:
           - name: macOS
             os: macos-latest
-            asset_name: Walach-Aviation-Transmitter-Configurator-macOS-ARM64.zip
-            build_cmd: python -m PyInstaller --clean --noconfirm "Walach Aviation Transmitter Configurator.spec"
-            package_cmd: ditto -c -k --sequesterRsrc --keepParent "dist/Walach Aviation Transmitter Configurator.app" "Walach-Aviation-Transmitter-Configurator-macOS-ARM64.zip"
-            app_path: dist/Walach Aviation Transmitter Configurator.app
+            asset_name: Altitude-Unknown-RC-Configurator-macOS-ARM64.zip
+            build_cmd: python -m PyInstaller --clean --noconfirm "Altitude Unknown RC Configurator.spec"
+            package_cmd: ditto -c -k --sequesterRsrc --keepParent "dist/Altitude Unknown RC Configurator.app" "Altitude-Unknown-RC-Configurator-macOS-ARM64.zip"
+            app_path: dist/Altitude Unknown RC Configurator.app
           - name: Windows
             os: windows-latest
-            asset_name: Walach-Aviation-Transmitter-Configurator-Windows-x64.zip
-            build_cmd: pyinstaller --clean --noconfirm --onefile --windowed --name "WalachTransmitterConfigurator" fram_gui_models.py
-            package_cmd: Compress-Archive -Path "dist/WalachTransmitterConfigurator.exe" -DestinationPath "Walach-Aviation-Transmitter-Configurator-Windows-x64.zip" -Force
+            asset_name: Altitude-Unknown-RC-Configurator-Windows-x64.zip
+            build_cmd: pyinstaller --clean --noconfirm --collect-all esptool --add-data "assets/altitude_unknown_icon.png;assets" --add-binary "tools/bossac.exe;tools" --icon "assets/altitude_unknown_icon.png" --onefile --windowed --name "AltitudeUnknownRCConfigurator" fram_gui_models.py
+            package_cmd: Compress-Archive -Path "dist/AltitudeUnknownRCConfigurator.exe" -DestinationPath "Altitude-Unknown-RC-Configurator-Windows-x64.zip" -Force
           - name: Raspberry Pi ARM64
             os: ubuntu-24.04-arm
-            asset_name: Walach-Aviation-Transmitter-Configurator-Raspberry-Pi-ARM64.zip
-            build_cmd: pyinstaller --clean --noconfirm --onefile --windowed --name "Walach Aviation Transmitter Configurator" fram_gui_models.py
-            package_cmd: zip -j "Walach-Aviation-Transmitter-Configurator-Raspberry-Pi-ARM64.zip" "dist/Walach Aviation Transmitter Configurator"
+            asset_name: Altitude-Unknown-RC-Configurator-Raspberry-Pi-ARM64.zip
+            build_cmd: pyinstaller --clean --noconfirm --collect-all esptool --add-data "assets/altitude_unknown_icon.png:assets" --add-binary "tools/bossac:tools" --icon "assets/altitude_unknown_icon.png" --onefile --windowed --name "Altitude Unknown RC Configurator" fram_gui_models.py
+            package_cmd: zip -j "Altitude-Unknown-RC-Configurator-Raspberry-Pi-ARM64.zip" "dist/Altitude Unknown RC Configurator"
 
     steps:
       - name: Check out repository
@@ -60,6 +79,19 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt pyinstaller
+
+      - name: Set up Arduino CLI for receiver flashing tool
+        uses: arduino/setup-arduino-cli@v2
+
+      - name: Stage native BOSSA receiver flashing tool
+        shell: bash
+        run: |
+          arduino-cli core update-index --additional-urls https://adafruit.github.io/arduino-board-index/package_adafruit_index.json
+          arduino-cli core install adafruit:samd@1.7.10 --additional-urls https://adafruit.github.io/arduino-board-index/package_adafruit_index.json
+          BOSSAC_PATH="$(find "$HOME" -type f \( -name bossac -o -name bossac.exe \) -path '*/packages/adafruit/tools/bossac/*' | head -n 1)"
+          test -n "$BOSSAC_PATH" -a -f "$BOSSAC_PATH"
+          mkdir -p tools
+          if [[ "$BOSSAC_PATH" == *.exe ]]; then cp "$BOSSAC_PATH" tools/bossac.exe; else cp "$BOSSAC_PATH" tools/bossac; fi
 
       - name: Require Apple signing secrets
         if: runner.os == 'macOS'
@@ -133,11 +165,79 @@ jobs:
           path: ${{ matrix.asset_name }}
           if-no-files-found: error
 
-  release:
-    name: Publish GitHub release
-    needs: build
+  firmware:
+    needs: validate
+    name: Build RC firmware and package flight controller firmware
     runs-on: ubuntu-latest
     steps:
+      - name: Check out transmitter repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - name: Set up Arduino CLI
+        uses: arduino/setup-arduino-cli@v2
+
+      - name: Install cores and libraries
+        shell: bash
+        run: |
+          arduino-cli core update-index --additional-urls https://adafruit.github.io/arduino-board-index/package_adafruit_index.json,https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
+          arduino-cli core install adafruit:samd@1.7.10 --additional-urls https://adafruit.github.io/arduino-board-index/package_adafruit_index.json
+          arduino-cli core install esp32:esp32@3.3.10 --additional-urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
+          arduino-cli lib install "RadioHead" "Adafruit GFX Library" "Adafruit SSD1306" "FlashStorage_SAMD"
+
+      - name: Compile both transmitter processors
+        shell: bash
+        run: |
+          arduino-cli compile --output-dir firmware-build/samd \
+            --fqbn adafruit:samd:adafruit_feather_m0_express \
+            --build-property 'build.usb_product="Altitude RC TX M0"' \
+            --build-property 'build.usb_manufacturer="Altitude Unknown"' \
+            --build-property build.vid=0x03EB \
+            --build-property build.pid=0x2402 \
+            --build-property 'build.extra_flags=-D__SAMD21G18A__ -DARDUINO_SAMD_FEATHER_M0 -DARDUINO_SAMD_ZERO -DARM_MATH_CM0PLUS -DALTITUDE_RC_TX_M0 {build.usb_flags}' \
+            PCB/TxV3/TxV3_Full_M0
+          arduino-cli compile --output-dir firmware-build/esp --fqbn esp32:esp32:esp32c3 --board-options CDCOnBoot=cdc PCB/TxV3/TxV3_Buddy_ESP32
+          arduino-cli compile --output-dir firmware-build/rx \
+            --fqbn adafruit:samd:adafruit_feather_m0 rx_firmware
+
+      - name: Package firmware and checksums
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          SAMD_BIN="$(find firmware-build/samd -name '*.bin' ! -name '*.with_bootloader.bin' | head -n 1)"
+          ESP_BIN="$(find firmware-build/esp -name '*.merged.bin' | head -n 1)"
+          RX_BIN="$(find firmware-build/rx -name '*.bin' ! -name '*.with_bootloader.bin' | head -n 1)"
+          test -n "$SAMD_BIN" -a -f "$SAMD_BIN"
+          test -n "$ESP_BIN" -a -f "$ESP_BIN"
+          test -n "$RX_BIN" -a -f "$RX_BIN"
+          # Flight controller images are bench-tested builds committed with
+          # their provenance; publish them only if they match SHA256SUMS.
+          (cd flight_controller_firmware && sha256sum -c SHA256SUMS)
+          FC_ARGS=()
+          for APJ in flight_controller_firmware/*/arduplane.apj; do
+            FC_ARGS+=(--flight-controller-apj "$APJ")
+          done
+          python tools/package_transmitter_firmware.py --samd-bin "$SAMD_BIN" --esp-merged-bin "$ESP_BIN" --receiver-bin "$RX_BIN" "${FC_ARGS[@]}" --version "$RELEASE_VERSION" --output firmware-assets
+
+      - name: Upload firmware artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: rc-firmware
+          path: firmware-assets/*
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub release
+    needs: [build, firmware]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out release notes
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
       - name: Download packages
         uses: actions/download-artifact@v4
         with:
@@ -160,18 +260,17 @@ jobs:
           RELEASE_TAG: ${{ steps.release_tag.outputs.tag }}
         shell: bash
         run: |
-          release_notes="Transmitter GUI builds for macOS ARM64, Windows x64, and Raspberry Pi OS ARM64. The macOS build is Developer ID signed, notarized, and stapled."
           if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release edit "$RELEASE_TAG" \
               --repo "$GITHUB_REPOSITORY" \
-              --title "Transmitter GUI ${RELEASE_TAG#transmitter-gui-v}" \
-              --notes "$release_notes"
+              --title "Altitude Unknown RC Configurator ${RELEASE_TAG#transmitter-gui-v}" \
+              --notes-file RELEASE_NOTES.md
           else
             gh release create "$RELEASE_TAG" \
               --repo "$GITHUB_REPOSITORY" \
-              --title "Transmitter GUI ${RELEASE_TAG#transmitter-gui-v}" \
-              --notes "$release_notes"
+              --title "Altitude Unknown RC Configurator ${RELEASE_TAG#transmitter-gui-v}" \
+              --notes-file RELEASE_NOTES.md
           fi
-          gh release upload "$RELEASE_TAG" release-assets/*.zip \
+          gh release upload "$RELEASE_TAG" release-assets/* \
             --repo "$GITHUB_REPOSITORY" \
             --clobber

@@ -1,34 +1,85 @@
 # RC Airplane System Manual
 
-Living manual for the RC airplane transmitter, receiver, and transmitter configurator GUI.
+Living manual for the Altitude Unknown RC transmitter, receiver, and configurator GUI.
 
-Last updated: 2026-06-18
+Last updated: 2026-11-09
+
+This manual describes release `transmitter-gui-v2026.11.09`.
+[Download the configurator and matching firmware](https://github.com/Altitude-Unknown/RC-Airplane/releases/tag/transmitter-gui-v2026.11.09).
+V-tail controls have passed the pilot's bench and flight tests. Elevon mixing
+has automated tests but has not yet been tested on an airplane.
+The [BOREALIS V2](#borealis-v2-arduplane-operation) and
+[ASCEND FC Rev.2](#ascend-flight-controller-rev2) sections describe flying
+through an ArduPlane flight controller; they do not change the standalone
+receiver's operating instructions.
+
+Changes since 2026.09.14, in order (details under
+[Release history](#release-history)):
+
+- **2026.09.22:** D10/Channel 5 and D7/Channel 6 button channels (momentary or
+  toggle), per-model trainer assignment, and receiver CH5/CH6 outputs on
+  D21/SCL and D20/SDA. See [button-channel setup](BUTTON_CHANNELS.md).
+- **2026.10.19:** optional CH5 mode-linked surface rates and the Speaker Test tab.
+- **2026.11.01:** one receiver firmware (v7) for the Rx V4 and the ASCEND
+  flight controller's built-in receiver, with SBUS output; flight controller
+  updates from the configurator.
+- **2026.11.09:** ASCEND FC Rev.2 firmware with its sensor orientation built in
+  (`AHRS_ORIENTATION=0`).
+
+## Contents
+
+- [System Overview](#system-overview)
+- [Hardware Targets](#hardware-targets)
+- [PCB Schematics](#pcb-schematics)
+- [Transmitter](#transmitter)
+- [Aircraft Type And Control Mixing](#aircraft-type-and-control-mixing)
+- [Receiver](#receiver)
+- [Desktop Transmitter Configurator](#desktop-transmitter-configurator)
+- [Mission Planner](#mission-planner)
+- [Known Good Fallback Points](#known-good-fallback-points)
+- [BOREALIS V2 ArduPlane Operation](#borealis-v2-arduplane-operation)
+- [ASCEND Flight Controller Rev.2](#ascend-flight-controller-rev2)
+- [Troubleshooting](#troubleshooting)
+- [Maintenance Notes](#maintenance-notes)
 
 ## System Overview
 
-The RC airplane system has three main pieces:
+The RC airplane system contains these components:
 
-- **Transmitter firmware:** `tx_firmware/tx_firmware.ino`
+- **Transmitter V3 M0 firmware:** `PCB/TxV3/TxV3_Full_M0/TxV3_Full_M0.ino`
+- **Transmitter V3 buddy firmware:** `PCB/TxV3/TxV3_Buddy_ESP32/TxV3_Buddy_ESP32.ino`
 - **Receiver firmware:** `rx_firmware/rx_firmware.ino`
 - **Desktop configurator GUI:** `fram_gui_models.py`
+- **Flight controller images (ArduPlane):** `flight_controller_firmware/<board>/arduplane.apj`
 
-The transmitter sends one-way LoRa control packets to the receiver. The receiver drives throttle, aileron, elevator, and rudder outputs. Model setup data is stored in transmitter FRAM and edited with the desktop GUI or the transmitter OLED setup menu.
+The master transmitter sends LoRa control packets to the receiver. A student
+transmitter sends controls to the master over ESP-NOW; only the master M0 is
+allowed to initialize LoRa. The receiver drives throttle, aileron, elevator,
+and rudder outputs, plus the optional CH5 and CH6 outputs, and sends the same
+controls as SBUS to a flight controller. Model setup data uses external FRAM
+when installed and the M0 internal-flash fallback otherwise. The desktop GUI
+edits the complete model; the OLED setup menu edits reverse, rate, and expo
+for RUD, AIL, and ELE only.
 
 ## Hardware Targets
 
-Both Tx and Rx currently build for:
+Use the target that matches the processor:
 
-```text
-adafruit:samd:adafruit_feather_m0
-```
+| Processor / sketch | Arduino target |
+| --- | --- |
+| V3 M0, `PCB/TxV3/TxV3_Full_M0` | `adafruit:samd:adafruit_feather_m0_express` with the release USB identity flags |
+| V3 ESP32-C3, `PCB/TxV3/TxV3_Buddy_ESP32` | `esp32:esp32:esp32c3`, `CDCOnBoot=cdc` |
+| Receiver, `rx_firmware` | `adafruit:samd:adafruit_feather_m0` |
+| Legacy transmitter, `tx_firmware` | `adafruit:samd:adafruit_feather_m0` |
 
-Common upload command:
+The locally installed `AltitudeUnknown:samd:altitude_rc_tx_m0` definition is an
+alternative V3 M0 target. The release workflow uses the Adafruit Express target
+with explicit USB identity flags; see [Transmitter Firmware Flashing](#transmitter-firmware-flashing).
+Published V3 M0 images use `TxV3_Full_M0`, not the legacy transmitter sketch.
 
-```bash
-arduino-cli upload -p /dev/cu.usbmodem1101 --fqbn adafruit:samd:adafruit_feather_m0 "path/to/sketch"
-```
-
-Port names vary by computer and OS.
+Use `arduino-cli board list` to identify connected ports. Port names vary by
+computer and OS; do not assume `/dev/cu.usbmodem1101` always identifies the same
+board. The M0 and ESP USB connectors belong to different processors.
 
 ## PCB Schematics
 
@@ -37,6 +88,7 @@ Hardware schematic PDFs are kept in this repo for quick reference:
 | PCB | Schematic |
 | --- | --- |
 | Transmitter V2 | `Transmitter-V2-Schematic.pdf` |
+| Transmitter V3 | `Transmitter V3.pdf` |
 | Receiver V4 | `Receiver-V4-Schematic.pdf` |
 
 ## Transmitter
@@ -49,6 +101,8 @@ Hardware schematic PDFs are kept in this repo for quick reference:
 | LoRa IRQ | D3 | RFM95 interrupt |
 | LoRa RST | D4 | RFM95 reset |
 | Bind button | D9 | Hold at boot for bind mode |
+| AUX / trainer | D10 | Channel 5 button or trainer handoff, set per model; hold alone at boot for Simulator mode |
+| AUX 2 | D7 | Optional Channel 6 button, set per model |
 | ESC override / aileron-right trim | D5 | Hold at boot for ESC calibration override |
 | Throttle gimbal | A3 | Analog input |
 | Aileron gimbal | A1 | Analog input |
@@ -71,8 +125,9 @@ Hardware schematic PDFs are kept in this repo for quick reference:
 | Safety lock | Power up with throttle high | Sends nothing until reset with throttle low |
 | ESC calibration override | Power up with throttle high and hold D5 / aileron-right trim | Sends throttle immediately for intentional ESC calibration |
 | Bind mode | Hold D9 low at boot | Repeatedly sends bind packets |
-| USB config mode | Hold both D9 and D5 low at boot | No LoRa transmit; desktop GUI can read/write FRAM |
+| USB config mode | Hold both D9 and D5 low at boot | No LoRa transmit; desktop GUI can read/write model storage |
 | OLED setup mode | Hold both rudder trims at boot | No LoRa transmit; setup menu shown on OLED |
+| Simulator mode | Hold AUX/trainer by itself at boot | No LoRa or trainer forwarding; USB and BLE HID gamepads active |
 
 ### Normal Transmitter Operation
 
@@ -86,7 +141,15 @@ If the LED fast-blinks after boot, the transmitter is in throttle safety lock. L
 
 ### Physical Trims
 
-Physical trims update the active model subtrim in FRAM when a model is loaded. Rudder, aileron, and elevator have trims. Throttle has no trim.
+Physical trims update the active model subtrim in the selected radio storage
+(external FRAM or internal flash) when a model is loaded. Rudder, aileron, and
+elevator have trims. Throttle has no trim. Each press-and-release changes the
+stored trim by 5 µs, limited to −500 through +500 µs. Holding a button does not
+repeat the trim. With mixed surfaces, trim follows the logical control axis as
+described in [Aircraft Type And Control Mixing](#aircraft-type-and-control-mixing).
+Without a loaded model, trims are temporary and reset at power-off.
+When this radio drives an ArduPlane FC, changing these trims also changes the
+FC's received input centers; follow [the ArduPlane trim procedure](#aircraft-trim-and-fbwa).
 
 Trim pins:
 
@@ -112,7 +175,54 @@ Controls:
 | Elevator trims | Select setting: REVERSE, RATE, EXPO |
 | Aileron trims | Change selected value |
 
-Changes are saved to FRAM immediately.
+Changes are saved to the active radio storage immediately. Aircraft type,
+V-tail rudder-input reversal, endpoints, and aileron-to-rudder mixing are edited
+in the desktop configurator.
+
+### Instructor / Student Operation
+
+The V3 radios use persistent roles stored by the local ESP32-C3. The recorded
+assignment for the two project radios is:
+
+| ESP MAC | Role |
+| --- | --- |
+| `80:F1:B2:F0:1A:E8` | Instructor / Master |
+| `80:F1:B2:F0:1A:D0` | Student |
+
+Other radios have different MAC addresses; read the connected radio's identity
+in the configurator before assigning its role.
+
+Normal trainer operation (the master's model must assign D10 to the trainer;
+see [button-channel setup](BUTTON_CHANNELS.md)):
+
+1. Power the student transmitter.
+2. Power the master with throttle low.
+3. Press and release AUX on the master to grant student control.
+4. Press and release AUX again to take control back.
+5. Moving a master stick sufficiently from its handoff position takes control back.
+6. Student link loss also returns authority to the master.
+
+The ESP requires a fresh M0 `FLIGHT` heartbeat before sending or forwarding
+trainer controls. Role changes are accepted only while the M0 reports Config,
+Simulator, or Setup mode.
+
+### Aileron-to-Rudder Mixing
+
+This setting is saved per model. Enable **Mix aileron into rudder** and set
+**Rudder amount** from −100% to +100%. Changing the sign reverses the added
+rudder contribution; it does not reverse the physical rudder stick.
+
+The mix follows the configured AIL output reversal and is added to rudder
+stick input, then clamped before rudder rate and expo. Aircraft mixing follows.
+For V-tail, **Reverse rudder input** reverses both the rudder-stick and the
+aileron-to-rudder contributions. Therefore a sign that works for one model may
+need reversing on another. Judge the direction from the airplane's movement.
+
+For initial surface setup, leave this option off. Once elevator and rudder
+stick directions are correct, enable a small amount and check the direction.
+For example, changing −50% to +50% reverses coordinated rudder while retaining
+the established elevator and rudder-stick directions. Save and restart in
+flight mode after editing.
 
 ### Throttle Timer / Buzzer Alarm
 
@@ -127,6 +237,49 @@ Behavior:
 - The 5-minute alarm pattern is different from the 1-minute reminder pattern.
 - Buzzer logic is non-blocking and does not use `delay()` in the flight loop.
 
+The timer is based on commanded throttle above 1080 us, not measured flight
+time or battery voltage. It pauses at idle and resets each TX power-up.
+Normal radio operation on the master runs the timer; USB
+Config/Simulator, setup, bind and Student-only operation do not count it.
+
+The current V3 M0 flight firmware does not implement a low-battery voltage
+alarm. The timer is a separate reminder, and receiver battery telemetry is
+not available. A TX battery alarm would need verified voltage sensing and
+thresholds before being implemented.
+
+#### Test the buzzer without waiting five minutes
+
+Transmitter M0 firmware from release 2026.10.19 or later includes a bounded
+USB Config Mode test using the actual flight warning patterns on the PCB's D11
+buzzer driver. It does not change stored models or timer thresholds. The
+older D0 loudness-test sketch is not the original PCB buzzer connection and
+should not be used for this assembled transmitter.
+
+1. Power off the aircraft and close other apps using the TX serial port.
+2. Restart the USB-connected transmitter while holding Bind plus aileron-right
+   trim, then release both to enter Config Mode. This mode does not transmit
+   LoRa controls.
+3. Open the configurator, connect to the TX M0, and select **Speaker Test**.
+   Play the five-minute alarm or one-minute reminder; **Stop sound** ends playback
+   early. Older firmware without test support requires a TX firmware update.
+   Alternatively, run `python3 tools/test_tx_buzzer.py` with the GUI disconnected.
+   Confirm audibility by listening; command acceptance alone does not prove sound.
+4. Restart the transmitter normally with throttle down before radio use.
+
+For maintenance, Config Mode also accepts `BEEP FIVE_MIN`, `BEEP ONE_MIN`,
+`BEEP STATUS` and `BEEP STOP`. The test reuses the non-blocking player and
+does not advance the flight timer or write model storage. `BEEP STATUS` shows
+pin 11, first alarm 300000 ms, repeat 60000 ms, and throttle threshold 1080 us.
+
+If the test completes but there is no sound, check the V3 buzzer supply path
+with battery and USB disconnected. R19 is the series resistor between +3V3
+and the buzzer; an unpopulated R19 leaves that path open. The build notes
+specify a 100-ohm resistor. On 2026-10-18 the current transmitter was confirmed
+to have R19 missing, explaining the silent test despite battery power being
+on. Fit the resistor and repeat the audible test before relying on reminders;
+audible operation was confirmed on 2026-10-19 after fitting 100 ohms, through
+both the command-line test and the Speaker Test tab.
+
 Standalone buzzer test sketch:
 
 ```text
@@ -135,17 +288,102 @@ Tx_Buzzer_Test/Tx_Buzzer_Test.ino
 
 ### Transmitter Firmware Flashing
 
-Compile:
+For routine updates, use the configurator's **Firmware Update** tab. For source
+builds, run from the repository root. The V3 M0 release command is:
 
 ```bash
-arduino-cli compile --fqbn adafruit:samd:adafruit_feather_m0 "tx_firmware"
+arduino-cli compile --output-dir firmware-build/samd \
+  --fqbn adafruit:samd:adafruit_feather_m0_express \
+  --build-property 'build.usb_product="Altitude RC TX M0"' \
+  --build-property 'build.usb_manufacturer="Altitude Unknown"' \
+  --build-property build.vid=0x03EB \
+  --build-property build.pid=0x2402 \
+  --build-property 'build.extra_flags=-D__SAMD21G18A__ -DARDUINO_SAMD_FEATHER_M0 -DARDUINO_SAMD_ZERO -DARM_MATH_CM0PLUS -DALTITUDE_RC_TX_M0 {build.usb_flags}' \
+  PCB/TxV3/TxV3_Full_M0
 ```
 
-Upload:
+The release workflow pins Adafruit SAMD core 1.7.10 and ESP32 core 3.3.10;
+its complete build/package steps are in
+[the release workflow](.github/workflows/transmitter-gui-release.yml).
+
+Compile the V3 ESP32-C3 with USB CDC enabled:
 
 ```bash
-arduino-cli upload -p /dev/cu.usbmodem1101 --fqbn adafruit:samd:adafruit_feather_m0 "tx_firmware"
+arduino-cli compile --fqbn esp32:esp32:esp32c3 --board-options CDCOnBoot=cdc "PCB/TxV3/TxV3_Buddy_ESP32"
 ```
+
+Both processors on both transmitters must run matching current firmware for
+single-cable role assignment and the mode interlock. ESP uploads retain the
+role in NVS. Export important models before M0 flashing when internal-flash
+storage is in use.
+
+## Aircraft Type And Control Mixing
+
+In the Models editor, select **Aircraft Type**, save the model, and make it the
+active model before restarting the transmitter in flight mode. Use configurator
+and transmitter M0 firmware from `transmitter-gui-v2026.09.14` or later. Older
+firmware ignores aircraft type; older configurators erase these new settings
+when saving a model. Restart an already-open older GUI after updating.
+The selection is saved per model and included in JSON exports. Existing models
+and older JSON files default to Conventional / T-tail.
+
+| Aircraft type | Receiver output connections | Mixing |
+| --- | --- | --- |
+| Conventional / T-tail | RUD: rudder; AIL: aileron; ELE: elevator | Separate controls |
+| V-tail (ruddervators) | RUD: first ruddervator; ELE: second ruddervator; AIL: aileron | RUD = elevator + rudder; ELE = elevator − rudder |
+| Flying wing (elevons) | AIL: first elevon; ELE: second elevon | AIL = elevator + aileron; ELE = elevator − aileron |
+
+These equations describe normalized commands before output reversal and travel
+mapping, not a universal left/right servo installation. Identify the receiver
+socket labels instead of relying on connector position.
+
+Throttle is unchanged. Flying wings retain an independent RUD output if needed.
+Each shaped axis is added at full weight; combined commands are clipped to the
+configured output travel. Rates and expo apply to the logical stick axes before
+mixing. **High Rates Active** overrides all four stored rates to 100%; expo
+remains active. For mixed surfaces, subtrim and physical trim follow those axes (500 µs
+is one normalized unit), so elevator trim moves both surfaces together.
+Reverse and endpoints apply to each physical output after mixing. Set servo
+neutral mechanically, then adjust endpoints to set individual output midpoint and travel. Unequal
+endpoint changes also move the midpoint; recheck both neutral and full travel.
+Optional aileron-to-rudder mixing is applied before aircraft mixing.
+
+With the motor disabled, verify both surfaces respond correctly to pitch and
+yaw/roll commands before flying. Servo installation determines the necessary
+output reversal and which surface uses the first versus second output. Check
+combined full-stick travel for binding as well as single-axis commands.
+
+### Correct elevator response but reversed V-tail rudder response
+
+Keep the servo connections and output reversal settings that give correct
+pitch movement. Enable **Reverse rudder input (V-tail only)** and save the model,
+then restart in flight mode. This reverses the yaw contribution (including yaw
+trim and optional aileron-to-rudder mix) without reversing pitch. It requires
+updated transmitter firmware and is ignored for other aircraft types.
+
+### First Setup And Direction Checks
+
+1. Disable motor power or remove the propeller. Export the existing model.
+2. Select the aircraft type and turn off aileron-to-rudder mixing initially.
+3. Connect V-tail servos to RUD and ELE, or elevons to AIL and ELE.
+4. Check neutral trim and endpoints; start with modest rates and travel.
+5. Move only the elevator stick. Set each participating output's **Reverse**
+   value so both surfaces produce the intended pitch response.
+6. For V-tail, move only the rudder stick. If yaw is backward but pitch is
+   correct, toggle **Reverse rudder input (V-tail only)**. Keep the connections
+   and output reversals that gave correct pitch. Cable swapping is not a
+   reliable substitute across different servo installations.
+7. For elevons, check roll separately. There is no independent roll-input
+   reversal option in this release; establish the appropriate output assignment
+   and reversals for the installation and repeat the pitch check.
+8. Save with **Save To Radio**, use **Set Active** if necessary, and restart in
+   flight mode. Repeat the checks after every change.
+9. If desired, enable aileron-to-rudder mixing and choose its sign from the
+   resulting yaw direction. Check combined full-stick travel for binding.
+
+V-tail rudder-input reversal also reverses the yaw-trim contribution, so recheck
+neutral trim after changing it. Neither that option nor aileron-to-rudder mix
+sign changes the elevator contribution.
 
 ## Receiver
 
@@ -157,11 +395,37 @@ arduino-cli upload -p /dev/cu.usbmodem1101 --fqbn adafruit:samd:adafruit_feather
 | LoRa IRQ | D3 | RFM95 interrupt |
 | LoRa RST | D4 | RFM95 reset |
 | Bind button | D10 | Hold low at boot for bind mode |
+| Bind plug | D20 / SDA | Short to ground at boot for bind mode |
 | Throttle output | A0 | Servo/ESC pulse |
 | Aileron output | A1 | Servo pulse |
 | Elevator output | A2 | Servo pulse |
 | Rudder output | A3 | Servo pulse |
+| Channel 5 output | D21 / SCL | Servo pulse from the transmitter's CH5 button |
+| Channel 6 output | D20 / SDA | Servo pulse from the CH6 button; stays an input for the whole power cycle if the bind plug is fitted at boot |
 | Battery monitor | A4 | Disabled unless voltage divider is fitted |
+| SBUS output | PB22 (J1 pin 3, TXD) | To a flight controller RC input; see below |
+
+### One Receiver Firmware For Rx V4 And The ASCEND Flight Controller
+
+The same receiver firmware always does both jobs:
+
+- **Rx V4 standalone:** drives the servo/ESC outputs above directly, with the
+  receiver's own arming and staged failsafe.
+- **ASCEND flight controller:** the built-in receiver sends SBUS on PB22, which
+  the board wires to the STM32's RC input (USART6 RX, PC7). Its servo pins
+  are not connected to anything on that board, so their pulses are harmless.
+
+SBUS is non-inverted 3.3 V, 100000 baud, 8E2, at 100 Hz, in ArduPlane input
+order: roll, pitch, throttle, yaw, CH5, CH6. It carries the raw transmitter
+sticks, not the receiver's own arming or failsafe outputs, because ArduPlane
+does its own arming. SBUS stops 300 ms after the last accepted packet, and
+in bind mode, so ArduPlane detects radio loss and runs its own RC failsafe.
+The flight controller firmware must accept non-inverted SBUS (the BOREALIS and
+ASCEND ArduPilot boards do). Set `SERIAL2_PROTOCOL=23`; it is the default on
+the ASCEND FC Rev.2.
+
+The receiver's `STATUS` USB reply ends with
+`firmware=rx-v7-pwm-sbus sbus=PB22 sbusFrames=<count>`.
 
 ### Receiver LED Meanings
 
@@ -174,22 +438,86 @@ arduino-cli upload -p /dev/cu.usbmodem1101 --fqbn adafruit:samd:adafruit_feather
 
 ### Receiver Bind Mode
 
-1. Hold receiver bind button low at boot.
-2. Put transmitter in bind mode by holding D9 low at boot.
-3. Receiver waits for bind packet and stores bind code to flash.
-4. After bind is stored, receiver exits bind mode.
+The receiver must have an explicitly stored, nonzero bind code before it will
+accept control packets. An unbound receiver remains disarmed in failsafe even
+if valid packets are present on the correct LoRa channel.
+
+Use this sequence:
+
+1. Turn off both transmitter and receiver and remove the propeller.
+2. Hold the receiver Bind button (D10) while powering or resetting the receiver.
+3. Release the receiver Bind button after it enters bind mode.
+4. Hold the transmitter Bind button (D9) while powering or resetting the
+   transmitter.
+5. Wait for the receiver's bind confirmation. It stores the transmitted bind
+   code in flash and exits bind mode.
+6. Release the transmitter Bind button.
+7. Restart the transmitter normally with throttle low. Power-cycle the receiver
+   as well if its normal armed/linked indication does not appear.
+8. Verify all surfaces, throttle safety, and failsafe behavior before flight.
+
+Changing the active model's bind code in the configurator does not update an
+already-bound receiver. Save the new code to the transmitter, restart it, and
+repeat the complete bind sequence above for every receiver that should accept
+that model.
+
+Flashing receiver firmware can clear its stored bind code. Treat a freshly
+flashed receiver as unbound and bind it again before testing controls.
+
+#### Binding With A D20/SDA Bind Plug
+
+This method avoids holding the receiver's D10 button while connecting the
+aircraft battery:
+
+1. Turn off the transmitter and receiver and remove the propeller.
+2. Connect a bind plug between D20/SDA and ground. Never short 3.3 V or 5 V to
+   ground.
+3. Power the receiver. It detects the grounded D20/SDA pin at startup and enters
+   bind mode.
+4. Start the transmitter while holding its Bind button (D9).
+5. Wait for the receiver's bind confirmation, then release the transmitter
+   Bind button.
+6. Turn off the receiver. The bind-plug startup intentionally cannot transition
+   into flight during the same power cycle.
+7. Remove the bind plug and restart the transmitter and receiver normally.
+8. Verify rudder direction, every other surface, throttle safety, and failsafe
+   before flight.
+
+For electrical safety, receiver firmware latches bind-plug mode at boot and
+keeps D20/SDA as a high-impedance input for that entire power cycle. After
+storing the bind code, the receiver remains disarmed and rejects normal control
+packets until it is restarted without the plug. The original D10 receiver Bind
+button remains supported.
 
 ### Arming And Failsafe
 
-The receiver requires a fresh link and low throttle before arming.
+The receiver requires packets no older than 150 ms and commanded throttle at
+or below 1060 µs for 300 ms before normal arming. Control surfaces can still
+move while throttle is disarmed; the LED alone does not prove every output is
+working.
 
 Failsafe behavior:
 
-- 0-1 seconds without packets: hold last surfaces, preserve staged motor behavior.
-- Around 1 second: throttle kill.
-- Around 3 seconds: surfaces neutralize.
+- No stored bind code: reject all normal control packets, remain disarmed, and
+  hold failsafe outputs.
+- Wrong bind code: reject the packet and remain in the existing failsafe/link
+  state.
+- While armed, up to 1 second without accepted packets: retain the last commands.
+- Between 1 and 1.2 seconds: show lost-link status while retaining outputs.
+- Beyond 1.2 seconds: disarm and force throttle to 1000 µs.
+- Beyond 3 seconds: command RUD, AIL, and ELE to 1500 µs.
+- Rearming requires fresh matching packets and low throttle again.
+
+The 1500 µs failsafe positions are fixed receiver values, not the model's
+trimmed neutrals or endpoint midpoints. Verify the resulting surface positions
+on mixed aircraft. These timings describe normal operation, not intentional
+ESC calibration override.
 
 The receiver directly outputs servo pulses in software. Avoid adding blocking code to the receiver loop.
+The one deliberate exception is the SBUS frame: its 25 bytes (about 3 ms) are
+written back to back, outside the servo frame, because ArduPilot discards an
+SBUS frame with a 2 ms gap inside it and the servo pulses disable interrupts
+for up to 2 ms each.
 
 ### Receiver Battery Monitor
 
@@ -226,12 +554,25 @@ fram_gui_models.py
 
 Purpose:
 
-- Read and write model slots in transmitter FRAM.
+- Read and write model slots in external FRAM or M0 internal flash.
 - Edit model name, bind code, rates, expo, subtrim, endpoints, and reverse flags.
+- Select conventional, V-tail, or elevon mixing per model.
+- Reverse V-tail rudder input independently of elevator.
+- Configure per-model aileron-to-rudder mixing.
+- Assign the D10 and D7 buttons (Channel 5, Channel 6, or trainer) and the
+  optional CH5 mode-linked rates.
+- Play the flight-timer alarms from the **Speaker Test** tab.
+- Download and flash released transmitter, receiver, and ArduPlane flight
+  controller firmware.
+- Read and assign the V3 Instructor / Student role through the ESP USB port.
 - Set active model.
 - Import/export model JSON files.
 
 ### Running The GUI
+
+Packaged apps are available for macOS ARM64, Windows x64, and Raspberry Pi OS
+ARM64 from the release link above. The macOS package is signed and notarized.
+For source execution:
 
 Install dependencies:
 
@@ -252,7 +593,203 @@ python3 fram_gui_models.py
 2. Launch GUI.
 3. Select serial port.
 4. Click Connect.
-5. Use Load From FRAM / Save To FRAM.
+5. Select a model slot and click **Load From Radio**.
+6. Edit its fields; double-click channel names or table values to edit them.
+7. Click **Save To Radio**. This saves the selected slot but does not make it active.
+8. Click **Set Active** to choose the flight model. The active slot has a `*`.
+9. Disconnect and restart in normal flight mode to use the saved model.
+
+The connection status identifies the active storage backend as `fram` or
+`internal flash`.
+
+### Model Fields And Backups
+
+The table displays **Throttle, Aileron, Elevator, Rudder**. Internal channel
+numbers are **0=RUD, 1=AIL, 2=ELE, 3=THR**. Changing a channel name changes its
+label only; it does not remap a receiver output. Custom labels are stored on
+the computer and included in JSON exports.
+
+| Field | Meaning |
+| --- | --- |
+| Rate | 0–100% control-axis response; applies unless High Rates Active is checked |
+| Expo | −100–100%; positive values soften response around center |
+| Subtrim | −500–500 µs; mixed-axis behavior is described in the aircraft section |
+| Endpoints | Output minimum/maximum; use 1000–2000 µs with the production receiver and keep minimum below maximum |
+| Reverse | Reverses the output's control direction; for mixed surfaces it applies after mixing |
+| High Rates Active | Overrides all four rates to 100% |
+| DR Switch | Stored field; the production flight loop does not implement a physical dual-rate switch |
+| New Bind | Generates a new model bind code; save and rebind its receiver afterward |
+
+**Endpoint compatibility:** the GUI currently permits 800–2200 µs, but the
+production receiver accepts only 1000–2000 µs on every channel. If even one
+command is outside that receiver range, it rejects the entire packet. Keep
+all output endpoints within 1000–2000 µs for this release; a wider GUI range
+does not mean the receiver supports wider pulses.
+
+**Export Model (.json)** reads the saved radio slot, not unsaved editor values.
+Save first, then export each model you need to back up. **Import Model (.json)**
+writes directly into the selected slot, including its bind code; choose the
+slot carefully and load it afterward to inspect the result. Import does not
+select the active flight model. Older JSON files default to conventional
+with V-tail rudder-input reversal off.
+
+### Updating transmitter or receiver firmware from the configurator
+
+Open **Firmware Update** in **Altitude Unknown RC Configurator** and click
+**Check GitHub**. The configurator reads the
+latest release's firmware manifest and verifies each downloaded image with its
+published SHA-256 checksum. Choose **Transmitter — both processors** after a
+transmitter firmware/protocol change so the SAMD21 and ESP32-C3 remain
+compatible. **Transmitter M0 only** and **Transmitter ESP32-C3 only** update
+one processor; use them only when the release notes say the other processor
+is unchanged (for example, aircraft mixing and mode-linked rates run on the
+M0 alone). Choose **Receiver** to update Receiver V4 or the
+receiver built into the ASCEND flight controller (it has its own USB
+connector). Choose **Flight controller (ArduPlane)** to update the flight
+controller itself.
+
+The updater supports Altitude Unknown Transmitter V3 and Receiver V4 hardware.
+It downloads these release assets automatically:
+
+- `altitude-unknown-tx-v3-samd21.uf2` for the transmitter M0.
+- `altitude-unknown-tx-v3-esp32c3.bin` for the ESP32-C3.
+- `altitude-unknown-rx-v4-samd21.uf2` for the receiver M0.
+- `altitude-unknown-rx-v4-samd21.bin` for receiver BOSSA fallback.
+- `altitude-unknown-fc-<board>-arduplane.apj` for each supported flight
+  controller (currently `ascendfcrev2`).
+- `transmitter-firmware-manifest.json` containing the expected SHA-256 values.
+
+The official desktop builds include the ESP flashing tool and a trusted TLS CA
+bundle; the user does not need Arduino IDE, Arduino CLI, or a separate Python
+installation to perform an update.
+
+For a transmitter M0 update, select its USB port. The configurator requests
+bootloader mode automatically, detects the UF2 drive, and copies the verified
+firmware. For a receiver update, select its USB port. Newer receivers mount an
+`RCRXBOOT` UF2 volume and receive the verified receiver UF2 directly. Original
+Receiver V4 boards retain their 2016 SAM-BA bootloader; if UF2 is not detected,
+the configurator automatically falls back to its bundled BOSSA programmer and
+the verified serial image. Current receiver firmware accepts an exact guarded
+bootloader request and forces outputs safe before resetting. This also works
+when USB-only power leaves the LoRa hardware unavailable. Double-tap RESET is
+only a recovery fallback. The Firmware Update tab is vertically scrollable so
+the flash button remains reachable on smaller or scaled displays. For the
+ESP32-C3 stage, connect the small **ESP** USB
+connector, select its serial port, and follow the prompt. If automatic ESP
+bootloader entry fails, hold BOOT, tap RESET, release BOOT, and retry.
+
+Receiver firmware older than the automatic-update bridge may require one final
+manual-reset/Arduino upload. Later receiver updates can then be completed from
+the configurator without reaching the RESET button.
+
+For a flight controller update, connect the flight controller's own USB port
+and select it under **Flight controller USB port**; only ArduPilot devices are
+listed. The configurator asks ArduPlane to restart into its bootloader, reads
+the board ID the bootloader reports, and writes only the image built for that
+board, so firmware for another board (for example BOREALIS V2, whose output
+order is reversed) is never written. ArduPlane keeps its parameters and
+calibrations across the update, but a parameter whose meaning changes between
+images must be changed by hand (see
+[ASCEND FC Rev.2 firmware](#ascend-flight-controller-rev2)). The update
+replaces whatever image the board is running, including a test build. If the
+bootloader does not respond, unplug and reconnect the flight controller's USB
+and try again. If the receiver's USB is also connected and the flight
+controller does not appear, unplug and reconnect both.
+
+Receiver flashing may erase the stored bind code. Rebind the receiver after an
+update and complete a propeller-off control, direction, throttle-safety, and
+failsafe check before flight.
+
+Before updating, power off the aircraft, remove the propeller, and export
+important models. Do not disconnect USB during a write. After both stages,
+power-cycle the transmitter and bench-check its model selection, roles, stick
+directions, endpoints, failsafe behavior, and buddy-box handoff before flight.
+
+If the transmitter uses the M0 internal-flash model-storage fallback, firmware
+flashing may reset its stored models. Export important models first. External
+FRAM models normally survive, but they must still be inspected after updating.
+
+### Release history
+
+The first updater-enabled, end-to-end validated release is
+`transmitter-gui-v2026.08.30.2`. Its signed/notarized macOS, Windows x64, and
+Raspberry Pi ARM64 packages and both firmware images were built by GitHub
+Actions. Live latest-release discovery, TLS download, and checksum validation
+passed for both images. A physical Transmitter V3 was then updated through the
+GUI, power-cycled, and reported working normally in the post-update bench test.
+
+Release `transmitter-gui-v2026.09.01.1` is the minimum receiver safety baseline.
+It includes the receiver UF2 and prevents an unbound receiver from
+accepting every otherwise-valid control packet. The correction was verified on
+physical hardware: the unbound receiver rejected packets and stayed in
+failsafe, then stored bind code `9905` during an explicit bind and accepted
+matching packets afterward. Flight-control surface movement was confirmed.
+
+The bind-plug pin was subsequently moved to **D20/SDA** in commit `6d8f184`,
+included in `transmitter-gui-v2026.09.14`. Follow the D20/SDA instructions in this
+manual for this release; do not use older rudder-port bind-plug instructions.
+
+Release `transmitter-gui-v2026.09.01.4` adds automatic support for newer
+receiver hardware with the `RCRXBOOT` UF2 bootloader while preserving the
+original Receiver V4 BOSSA path. It also makes the Firmware Update tab
+scrollable. The newer receiver was flashed through the GUI, rebound, and passed
+the flight-control bench test before publication.
+
+Release `transmitter-gui-v2026.09.01.5` restores both rudder buttons to
+press-release rudder trim. They no longer emit the temporary experimental
+autolevel commands. The production receiver retains the current packet's
+reserved auxiliary byte for Tx/Rx layout compatibility but deliberately ignores
+it and contains no autolevel control path. Because this corrects the over-air
+packet match, update the transmitter M0 and receiver from the same release,
+rebind, and complete the full propeller-off control and failsafe test before
+flight. Physical testing confirmed the rudder trims and matched production
+Tx/Rx controls operate correctly after the `.5` update.
+
+Release `transmitter-gui-v2026.09.14` adds aircraft selection and independent
+V-tail rudder-input reversal to the configurator and transmitter firmware.
+The pilot confirmed V-tail operation on the bench and in flight. Elevon
+coverage is currently automated testing only. This release does not change
+the production over-air control packet format.
+
+Release `transmitter-gui-v2026.09.22` adds the D10/D7 button channels,
+per-model trainer assignment and receiver CH5/CH6 outputs, and gives the
+receiver 1 µs surface resolution (previously at least 3 µs steps).
+`transmitter-gui-v2026.09.22.1` makes every configurator tab scrollable on
+smaller displays.
+
+Release `transmitter-gui-v2026.10.19` adds CH5 mode-linked surface rates and
+the Speaker Test tab, with transmitter M0 firmware that supports both. It was
+published without a macOS app (Apple notarization was blocked at the time);
+use 2026.11.01 or later on a Mac.
+
+Release `transmitter-gui-v2026.11.01` makes receiver firmware v7 one image for
+the Rx V4 and the ASCEND flight controller's built-in receiver (servo outputs
+plus SBUS), and adds flight controller updates to the configurator. Receiver
+v7 was verified on the ASCEND board; its Rx V4 servo outputs have not been
+tested yet, so bench-check a Rx V4 before flight.
+
+Release `transmitter-gui-v2026.11.09` updates the ASCEND FC Rev.2 ArduPlane
+image so the sensor orientation is built in. The configurator, transmitter and
+receiver firmware are unchanged from 2026.11.01.
+
+### Assigning Instructor or Student Role
+
+With current V3 firmware, only the ESP32-C3 USB cable is needed:
+
+1. Keep the aircraft powered off.
+2. Start the transmitter in Config, Simulator, or Setup mode.
+3. Open the **Instructor / Student** tab.
+4. Select the ESP32-C3 USB port and click **Connect**.
+5. Confirm the displayed MAC address, M0 mode, and existing role.
+6. Select **Set as Instructor (Master)** or **Set as Student**.
+7. Confirm the warning and wait for readback verification.
+8. Restart the transmitter before normal operation.
+
+The firmware refuses role changes in Flight or Bind mode. When either processor
+has older firmware that does not report M0 mode, connect the M0 USB port through
+the Models header as a Config Mode safety proof, or update both processors.
+
+Never leave both radios assigned as Master or both assigned as Student.
 
 The config protocol uses text commands such as `PING`, `INFO`, `READ`, `WRITE`, and `RANGE`.
 
@@ -282,8 +819,246 @@ Important commits/tags:
 | `rc-lag-flight-proven-2026-06-17` | Flight-proven low-lag RC control behavior |
 | `rc-trims-flight-proven-2026-06-17` | Flight-proven physical trims |
 | `675cd95` | Adds throttle timer buzzer warning |
+| `transmitter-gui-v2026.09.01.5` | Validated matched production Tx/Rx packet layout and rudder trim |
+| `transmitter-gui-v2026.09.14` | Aircraft-type GUI and firmware; V-tail bench/flight-tested, elevons awaiting hardware testing |
+| `transmitter-gui-v2026.10.19` | Mode-linked rates and Speaker Test; flown on BOREALIS V2 on 2026-10-20 (pilot report) |
+| `transmitter-gui-v2026.11.09` | Bench-tested ASCEND FC Rev.2 image with built-in sensor orientation; receiver v7 Rx V4 outputs untested |
+
+## BOREALIS V2 ArduPlane Operation
+
+These instructions apply to the custom BOREALISv2Servo flight controller with
+the non-inverted SBUS receiver bridge, not the direct-servo receiver described
+above. Use the matching [new-board setup checklist](ArduPilot-PCB/bringup-v2/servo-enabled/NEW_BOARD_SETUP.md)
+and [GPS-free training preset](ArduPilot-PCB/bringup-v2/servo-enabled/training-no-gps.parm).
+Calibrations, failsafes, servo directions and travel remain aircraft-specific.
+
+### Arming With Flight Trims
+
+The training preset now includes `RC_OPTIONS 96`:
+
+- Bit 5 / value 32 retains the requirement for throttle at idle when arming.
+- Bit 6 / value 64 skips the neutral-roll/pitch/yaw check when arming, so a
+  transmitter trim adjustment does not itself prevent arming. Deliberately
+  deflected surface-control sticks are also allowed by this setting.
+
+In QGroundControl, open Parameters, search for **RC_OPTIONS**, and edit it
+while disarmed with the propeller removed. Keep **Arming check throttle for 0
+input** checked and check **Skip the arming check for neutral Roll/Pitch/Yaw
+sticks**. For this profile, these are the only selected bits; confirm the value
+is **96** and click **Save**. Reconnect/read back the parameter to verify it.
+Review any existing extra bits before replacing settings on a different aircraft.
+
+This setting does not save trims, recalibrate the radio, or change FBWA's
+interpretation of stick commands. Other configured arming checks still apply.
+The PCB button requires fresh healthy RC, idle throttle, on-ground eligibility
+and MANUAL or FBWA throughout a two-second hold. Release the button after each
+attempt; it must also be released after startup. Hold again at idle on the
+ground to disarm. L3 is solid when armed and normally slow-blinks when disarmed
+and ready; failsafe patterns can take priority. Working control surfaces or lit
+IMU/barometer health LEDs alone do not prove arming will pass.
+
+Successful physical-button arming, user-reported motor response and button
+disarming were verified on 2026-10-18 after restoring matched TX/FC centers.
+That test used `RC_OPTIONS=32`; the value 96 has not been read back on the
+BOREALIS V2 board. The ASCEND FC Rev.2, set up from the same profile, reads
+back `RC_OPTIONS=96` and armed with its button in MANUAL on 2026-11-04.
+
+### Radio Calibration And Lower MANUAL Rates
+
+1. Remove the propeller and isolate motor power for calibration. Back up the
+   transmitter model and FC parameters. Use the intended neutral baseline;
+   zeroing an already-calibrated radio's subtrims alone changes its relationship
+   to the FC's saved centers.
+2. Set aileron, elevator and rudder to 100% rates. In this transmitter,
+   **High Rates Active** overrides all four channel rates, including throttle;
+   check throttle configuration before and after changing it. Calibrate full
+   stick travel, then finish with surface sticks centered and throttle down.
+3. Save the full-range FC calibration. Lower surface rates, such as 50%, may
+   then be used in MANUAL without recalibrating. Preserve the centers,
+   reversals and endpoint settings used for calibration; keep throttle's rate
+   at its intended full range.
+4. Check direction, neutral, useful surface travel and mode changes with the
+   propeller removed. Lower rates send smaller pilot commands within the saved
+   range; reaching the full calibrated endpoints is not required for arming.
+
+In FBWA, full calibrated roll/pitch input permits the full configured bank and
+pitch command range. Reduced transmitter rates reduce that requested range,
+not the FC's corrective servo authority. Expo can soften center-stick response
+without reducing full-stick input. Set servo-output limits for the aircraft's
+required safe travel rather than using them as a MANUAL-only rate adjustment.
+
+Rates are selected in the saved model. Since release 2026.10.19, the same
+AUX/CH5 button can select both the flight mode and the surface rates:
+
+1. Use transmitter M0 firmware and a configurator from 2026.10.19 or later
+   (2026.11.01 or later on a Mac). Back up the model first and keep the
+   aircraft powered off while editing.
+2. Keep D10 assigned to **Channel 5 — Toggle** for the current MANUAL/FBWA setup.
+3. Under **Button channels → Mode-linked rates**, select **FBWA at CH5 low** or
+   **FBWA at CH5 high**, matching the actual FC mode mapping. On BOREALIS V2
+   the FC read back `FLTMODE_CH=5`, `FLTMODE1=5` (FBWA, CH5 low) and
+   `FLTMODE6=0` (MANUAL, CH5 high) on 2026-10-19. Check it again on any other
+   FC.
+4. Save the model and restart normally with throttle down. The FBWA position
+   now uses full rudder/aileron/elevator rates; the MANUAL position restores
+   the selected rates. If High Rates Active is already on, MANUAL remains at
+   full rates too. Throttle, expo, trims, endpoints and reversals are preserved.
+5. With the propeller removed, verify FC mode and surface input range in both
+   positions, including idle throttle and centered-stick values. CH5 starts
+   low on power-up. Switching with an off-center stick changes its command.
+
+This option is off for existing models until enabled. It follows the radio's
+CH5 state and receives no actual FC mode feedback; failsafes or another mode
+source can change the FC mode independently. It does not change trim profiles.
+The stored **DR Switch** field remains unused. The broken CH6 button on the old
+prototype is not needed. Older GUIs erase the new setting when saving models.
+See [button-channel notes](BUTTON_CHANNELS.md#ch5-mode-linked-surface-rates--released-in-20261019).
+
+The Research model on the old TX uses CH5 low = FBWA with full rates and
+CH5 high = MANUAL with aileron 30%, elevator 80%, rudder 50%. The setting was
+found cleared on 2026-10-19 and restored, with a byte-for-byte readback of
+the model memory (the cause was not established; an older configurator saving
+the model would clear it). Edit this model only with a configurator from
+2026.10.19 or later, and read back the active model's rate selector after any
+edit, import or firmware update.
+
+If FBWA turns are too wide, check transmitter rates before raising FC angle
+limits. With matched calibration, a 30% roll input requests about 13.5 degrees
+when the bank limit is 45 degrees. This is an illustration; actual requested
+angles depend on calibration, trim, High Rates Active and other limiters.
+Check RC input and NAV_CONTROLLER_OUTPUT requested bank/pitch with the
+propeller removed. Ground tests can encounter speed-based bank limiting and
+do not establish airborne limits. If the FC requests adequate bank but the
+airplane fails to reach it in flight, investigate tracking rather than simply
+increasing the limit. Full input in FBWA and reduced input in MANUAL can use
+the optional mode-linked rates described above; verify them on hardware first.
+
+Three successful flights were reported on 2026-10-18: smooth FBWA autolevel,
+working MANUAL control and successful repeated mode switching, with limited
+FBWA maneuverability at aileron 30% and elevator 80%
+([notes](memory/2026-10-18-v2-flight-tests.md)). After a new receiver antenna
+and insulating the receiver from the FC, five flights on 2026-10-20 went well
+overall, including FBWA recovery from unusual attitudes. FBWA bank and pitch
+authority still felt limited, and the airplane turned left better than right
+in both modes; the cause has not been found
+([notes](memory/2026-10-20-flight-checkpoint.md)). These are pilot reports;
+the rate selector was not read back that day.
+
+### Aircraft Trim And FBWA
+
+In MANUAL, transmitter flight trims offset surface commands. In FBWA, roll and
+pitch input requests attitude: an unsaved roll-trim change can request a bank,
+and pitch trim can request a different nose attitude. The FC cannot identify
+trim-button input separately from stick movement. FBWA holds attitude, not
+altitude. Rudder remains a manual input plus configured coordination/mixing.
+
+Prefer establishing the aircraft's basic trim through linkages and FC
+`SERVOx_TRIM` output settings. ArduPlane also supports auxiliary function
+**155, TRIM RC/SERVO Save**: in MANUAL it saves the present surface outputs
+and the corresponding roll, pitch and yaw RC input centers. Thus a released
+stick at the trimmed transmitter setting becomes the new recognized neutral,
+while retaining the surface correction. This built-in function requires no
+transmitter or FC code change and no GPS.
+
+If using trim-save, assign it to a separate unused RC channel, not a control
+axis or flight-mode channel. Keep sticks released at the intended trimmed
+centers; the current firmware rejects invalid RC, non-MANUAL operation, large
+roll/pitch inputs or excessive rotation. Bench-verify the function and saved
+input/output values before flight use. It is not yet assigned or hardware
+validated on this installation. After saving, leave the transmitter trims at
+the saved positions; zeroing them changes the inputs again. Further trim
+changes need another deliberate save before they become the new FBWA neutral.
+Do not automatically run trim-save on every mode-button press.
+
+On a transmitter with a working D7 button, the trim-save control is
+**D7 / Aux -> Channel 6, Momentary** in the transmitter model, with
+**RC6_OPTION=155** in ArduPlane. Keep Channel 5 for MANUAL/FBWA selection.
+With the propeller removed, first verify CH6 reads about 1000 µs released and
+2000 µs held, and that the mode channel does not change; then bench-check the
+save with sticks released in MANUAL.
+
+The old BOREALIS transmitter's D7 connection was removed during PCB repair,
+so it runs a **temporary** build instead (`TXV3_TEMP_BIND_TRIM_SAVE=1`, not in
+any release): in MANUAL, holding Bind for 2 seconds sends one 0.5-second CH6
+pulse. It is disabled in FBWA, trainer, Simulator and throttle lock. The
+BOREALIS V2 FC has `RC6_OPTION=155`, and two MANUAL pulses and the FBWA
+lockout were verified on the bench on 2026-10-19. The pilot believed it
+worked in flight on 2026-10-20, but the saved trims were not read back; only
+the FC's "trim complete" message confirms a save. Remove this temporary
+feature when Transmitter V4 replaces V3
+([details](memory/2026-10-19-temporary-bind-trim-save.md)).
+
+`SERVO_AUTO_TRIM` is another built-in option for suitable installations, but
+requires adequate ground-speed and airspeed estimates. Do not assume it will
+operate in this GPS-free training configuration. `RC_OPTIONS=96` only addresses
+arming; it does not substitute for either trim method.
+
+References: [radio calibration](https://ardupilot.org/plane/docs/common-radio-control-calibration.html),
+[RC options](https://ardupilot.org/plane/docs/common-rc-options.html),
+[FBWA](https://ardupilot.org/plane/docs/fbwa-mode.html),
+[trim-save auxiliary function](https://ardupilot.org/plane/docs/common-auxiliary-functions.html),
+and [automatic servo trim](https://ardupilot.org/plane/docs/auto-trim.html).
+
+## ASCEND Flight Controller Rev.2
+
+The ASCEND FC Rev.2 combines an STM32H743 ArduPlane flight controller with a
+built-in SAMD21 + RFM95W receiver. The receiver runs the standard receiver
+firmware and sends SBUS to the FC. Bring-up records:
+[ASCEND Rev.2 bring-up](ArduPilot-PCB/bringup-ascend-rev2/README.md);
+firmware images: [flight controller firmware](flight_controller_firmware/README.md).
+
+**Firmware.** Board `ASCENDFCRev2`, board ID 65093. Outputs 1–4 are throttle,
+aileron, elevator and rudder: the reverse of the BOREALIS V2 order, so never
+flash V2 firmware on this board (the configurator's board-ID check prevents
+it). Update with **Firmware Update → Flight controller (ArduPlane)**.
+
+**Sensor orientation.** From release 2026.11.09 the IMU and compass rotations
+are built into the firmware, and the standard mounting (components up, I2C
+header forward) is `AHRS_ORIENTATION=0`. A board set up with 2026.11.01 used
+`AHRS_ORIENTATION=14`; updating keeps that parameter, so set it to 0, then
+redo the accelerometer and compass calibrations and the level calibration in
+the airplane before flight.
+
+**Receiver.** Update the built-in receiver through its own USB connector with
+**Receiver**, then rebind; the update clears the bind code. ArduPlane reads
+the SBUS on `SERIAL2` (`SERIAL2_PROTOCOL=23`, the default).
+
+**Limits of the current board.**
+
+- GPS is not supported. The onboard u-blox module (it reports as NEO-M9V)
+  connects over I2C only; a test driver detects it but has not obtained a
+  fix, which is attributed to the antenna layout. Keep `GPS1_TYPE=0`.
+- There is no SD card, so there are no onboard flight logs. Record a MAVLink
+  telemetry log from a ground station if you need one.
+- With no GPS and no airspeed sensor, ArduPlane has no airspeed estimate. In
+  November flight tests, FBWA and AUTOTUNE gave weak roll response and
+  AUTOTUNE did not learn roll gains. Firmware changes for this are being
+  flight-tested and are not in the release image.
+
+**Arming.** The PCB ARM button works only in MANUAL or FBWA, with healthy RC,
+idle throttle and a two-second hold. If a switch position is set to another
+mode (for example AUTOTUNE), arm in MANUAL and then switch.
+
+The first flight was reported on 2026-11-03 with this transmitter: takeoff
+and landing in MANUAL, with short AUTOTUNE segments. Pilot report only; no
+flight-ready claim is made for the board.
 
 ## Troubleshooting
+
+### BOREALIS V2 Control Surfaces Work But Motor Will Not Arm
+
+Read QGroundControl's latest arming message and check the actual flight mode.
+On 2026-10-18, `Arm: Roll (RC1) is not neutral` identified a radio-center mismatch;
+after a link interruption, `PreArm: RTL mode not armable` identified the need
+to reselect MANUAL/FBWA. Apply the documented RC_OPTIONS policy and verify
+healthy RC and idle throttle rather than changing firmware or guessing from
+sensor LEDs. See [BOREALIS V2 ArduPlane Operation](#borealis-v2-arduplane-operation).
+
+### ASCEND FC Rev.2 ARM Button Does Nothing
+
+The button is ignored outside MANUAL and FBWA. Switch to MANUAL, keep the
+throttle at idle, and hold the button for two seconds. If it still does not
+arm, read the pre-arm message in the ground station.
 
 ### Transmitter Does Not Send
 
@@ -294,17 +1069,71 @@ Important commits/tags:
 
 ### Receiver Does Not Move Servos
 
-- Confirm receiver is bound or no bind code is stored.
+- Confirm the receiver has been explicitly bound to the active transmitter
+  model. A receiver with no stored bind code intentionally rejects all control
+  packets.
+- If the receiver was just flashed, repeat the complete bind sequence; flashing
+  may clear its stored bind code.
+- If the bind code was changed in the GUI, save it to the transmitter, restart
+  the transmitter, and rebind the receiver.
 - Confirm transmitter is sending normal packets.
 - Check receiver LED state.
+- Keep all channel endpoints within 1000–2000 µs. An out-of-range command on
+  any channel causes the receiver to reject the entire packet.
 - Check servo output pins and power.
+
+### Only One Mixed Surface Moves
+
+- V-tail needs the RUD and ELE receiver sockets; elevons need AIL and ELE.
+- Confirm the aircraft type is saved in the active model and the M0 has current firmware.
+- Check both output endpoint ranges and the relevant axis rates/trims.
+- Move pitch and yaw/roll separately; simultaneous commands can cancel on one
+  output or reach its limit.
+- With power off, swap servos between sockets to determine whether the symptom
+  follows a servo or an output. Return to the known wiring afterward; this is
+  a diagnostic step, not a general direction correction.
+
+### V-tail Pitch Is Correct But Yaw Is Backward
+
+Toggle **Reverse rudder input (V-tail only)**, save, and restart in flight mode.
+Keep the wiring and output reversal settings that give correct pitch. Recheck
+trim. If only the aileron-to-rudder contribution is backward, change the sign
+of **Rudder amount** instead.
 
 ### Desktop GUI Cannot Connect
 
-- Confirm transmitter is in USB config mode, not normal mode.
+- Confirm transmitter is in USB config mode, not normal Flight Mode. Hold Bind
+  and Aileron Trim Right while powering the transmitter, then release them
+  after startup.
 - Refresh serial ports.
-- Try `/dev/cu.usbmodem...` on macOS.
-- Replug USB or double-tap reset if the port is missing.
+- Select the **Altitude RC TX M0** `/dev/cu.usbmodem...` port on macOS, not the
+  separate ESP32-C3 port.
+- Replug a known data-capable USB cable if the port is missing. Double-tap
+  RESET enters the bootloader for recovery; it does not enter Config Mode.
+- Close other serial monitors or configurator instances using the same port.
+
+Seeing a serial device in the list does not prove Config Mode is active. The
+GUI connects only after the M0 configurator service answers its `PING` command.
+
+### Firmware Update Cannot Check GitHub
+
+- Confirm the computer has internet access and GitHub is reachable.
+- Use configurator release `transmitter-gui-v2026.08.30.2` or later; older
+  releases do not contain the firmware manifest and verified images.
+- Do not bypass a checksum failure. Retry the download and report the release
+  tag and error if it fails again.
+
+### SAMD21 UF2 Drive Does Not Appear
+
+- Confirm the larger M0 USB connector is attached.
+- Double-tap the SAMD RESET button when the updater prompts.
+- Try a known data-capable USB cable and connect directly to the computer.
+
+### ESP32-C3 Flashing Cannot Connect
+
+- Confirm the small ESP USB connector and its serial port are selected.
+- Hold BOOT, tap RESET, release BOOT, and retry.
+- Do not select the **Altitude RC TX M0** port for the ESP32-C3 stage.
 
 ### Buzzer Too Quiet
 

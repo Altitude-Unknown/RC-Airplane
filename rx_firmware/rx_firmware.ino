@@ -1,10 +1,14 @@
+#include "aux_channels.h"
 /*
   ===========================================
-  LoRa RC Receiver (Feather M0 / SAMD21) v6
+  LoRa RC Receiver (Feather M0 / SAMD21) v7
   ===========================================
   - Receives RC packets (RH_RF95) ~100 Hz.
   - Channels: Rudder, Aileron, Elevator, Throttle + flags + seq.
+  - One image for both boards: drives servo PWM directly (Rx V4) and always
+    sends SBUS on PB22 (the ASCEND flight controller's built-in receiver).
   - D10 held LOW at power-up -> Bind Mode (slow blink).
+  - D20/SDA shorted to ground at power-up -> safe bind-plug mode.
   - In Bind Mode, waits for BindPacket { 'BIND', code } and stores to Flash.
   - Normal mode: accepts control packets if pkt.flags & 0x7FFF == stored bind code.
   - ESC Mode (intentional): requires several consecutive ESC-flagged packets
@@ -38,10 +42,22 @@
   IMPORTANT SAFETY IDEA:
   The receiver starts disarmed. It will not allow throttle until it sees a fresh
   radio link and the transmitter throttle is low for a short time.
+
+  SBUS OUTPUT (flight controller use)
+  -----------------------------------
+  The same receiver also sends every accepted packet to a flight controller as
+  SBUS on PB22: non-inverted 3.3 V, 100000 baud, 8E2, channel order roll,
+  pitch, throttle, yaw, CH5, CH6. On the ASCEND flight controller PB22 is wired
+  to the STM32's RC input; on Rx V4 it is the spare TXD header pin.
+  SBUS carries the raw transmitter sticks, not the receiver's own arming or
+  failsafe outputs: the flight controller does its own arming. When packets
+  stop, SBUS stops, so the flight controller detects radio loss and runs its
+  own RC failsafe.
 */
 
 #include <SPI.h>
 #include <RH_RF95.h>
+#include <Reset.h>
 #include <FlashStorage_SAMD.h>
 #include <string.h>
 
@@ -76,6 +92,10 @@ const int PIN_SERVO_THROTTLE = A0;
 const int PIN_SERVO_AILERON  = A1;
 const int PIN_SERVO_ELEVATOR = A2;
 const int PIN_SERVO_RUDDER   = A3;
+// Additional servo signal headers: CH5=SCL, CH6=SDA (also bind-plug input).
+const int PIN_SERVO_CHANNEL5 = 21;
+const int PIN_SERVO_CHANNEL6 = 20;
+uint16_t channel5Us = 1000, channel6Us = 1000;
 
 // ------------------------------
 // Bind button
@@ -84,6 +104,7 @@ const int PIN_SERVO_RUDDER   = A3;
 // bind code. The bind code prevents this receiver from listening to the wrong
 // transmitter.
 const int PIN_BIND_BTN = 10;
+const int PIN_BIND_PLUG = 20; // SDA/CH6: input at boot, output only without bind plug.
 
 // ------------------------------
 // RC pulse ranges
@@ -96,13 +117,78 @@ const uint16_t RC_MAX = 2000;
 // Servos expect a new pulse about every 20 ms, which is 50 times per second.
 const uint32_t SERVO_PERIOD_MS = 20;
 
-// Ignore tiny one-or-two-microsecond changes so we do not constantly rewrite
-// outputs for changes too small to matter.
+// Retain the existing throttle deadband. Surfaces accept every microsecond;
+// suppressing 1–2 us changes made slow stick motion jump in 3 us steps.
 const uint16_t SERVO_DEADBAND_US = 2;
 
 // 1.0 means the receiver outputs the transmitter command immediately.
 // Lower values would smooth the motion, but would also add some lag.
 const float RX_SMOOTH_ALPHA = 1.0f; // Direct servo response; use TX rates/expo for feel.
+
+// ------------------------------
+// SBUS output to a flight controller
+// ------------------------------
+// Send SBUS at 100 Hz while the link is fresh. Stop after 300 ms without an
+// accepted packet; never replace radio loss with made-up centered channels.
+const uint32_t SBUS_BAUD = 100000;
+const uint32_t SBUS_FRAME_PERIOD_US = 10000;
+const uint32_t SBUS_LINK_TIMEOUT_MS = 300;
+const uint8_t SBUS_CHANNEL_COUNT = 16;
+const uint8_t SBUS_CHANNEL_PAYLOAD_SIZE = 22;
+const uint8_t SBUS_FRAME_SIZE = 25;
+
+// PB22/PB23 are SERCOM5 PAD2/PAD3. Configure the peripheral directly so the
+// sketch builds for both the Feather M0 and custom receiver board targets, and
+// so a whole frame is written back to back: ArduPilot treats a gap of 2 ms or
+// more inside a frame as the start of a new one.
+class SbusUart {
+ public:
+  void begin(uint32_t baud) {
+    PM->APBCMASK.reg |= PM_APBCMASK_SERCOM5;
+    GCLK->CLKCTRL.reg = GCLK_CLKCTRL_ID(SERCOM5_GCLK_ID_CORE) |
+                        GCLK_CLKCTRL_GEN_GCLK0 |
+                        GCLK_CLKCTRL_CLKEN;
+    while (GCLK->STATUS.bit.SYNCBUSY) {}
+
+    // PB22 = even half of PMUX[11], peripheral function D. Transmit only:
+    // PB23 (RX) is left as an ordinary pin.
+    PORT->Group[1].PINCFG[22].bit.PMUXEN = 1;
+    PORT->Group[1].PMUX[11].bit.PMUXE = PORT_PMUX_PMUXE_D_Val;
+
+    SERCOM5->USART.CTRLA.bit.SWRST = 1;
+    while (SERCOM5->USART.CTRLA.bit.SWRST ||
+           SERCOM5->USART.SYNCBUSY.bit.SWRST) {}
+
+    // 16x arithmetic baud mode: far less error at 100000 baud than the
+    // fractional divisor.
+    const uint64_t scaled = (uint64_t)65536 * 16 * baud;
+    const uint16_t baudRegister =
+        (uint16_t)(65536ULL - ((scaled + SystemCoreClock / 2) / SystemCoreClock));
+
+    SERCOM5->USART.CTRLA.reg = SERCOM_USART_CTRLA_MODE_USART_INT_CLK |
+                               SERCOM_USART_CTRLA_SAMPR(0) |
+                               SERCOM_USART_CTRLA_TXPO(1) |
+                               SERCOM_USART_CTRLA_RXPO(3) |
+                               SERCOM_USART_CTRLA_DORD |
+                               SERCOM_USART_CTRLA_FORM(1);  // even parity
+    SERCOM5->USART.BAUD.reg = baudRegister;
+    SERCOM5->USART.CTRLB.reg = SERCOM_USART_CTRLB_CHSIZE(0) |
+                               SERCOM_USART_CTRLB_SBMODE |   // two stop bits
+                               SERCOM_USART_CTRLB_TXEN;
+    while (SERCOM5->USART.SYNCBUSY.reg) {}
+
+    SERCOM5->USART.CTRLA.bit.ENABLE = 1;
+    while (SERCOM5->USART.SYNCBUSY.bit.ENABLE) {}
+  }
+
+  void write(const uint8_t *data, size_t length) {
+    for (size_t index = 0; index < length; ++index) {
+      while (!SERCOM5->USART.INTFLAG.bit.DRE) {}
+      SERCOM5->USART.DATA.reg = data[index];
+    }
+  }
+};
+SbusUart sbusSerial;
 
 // ------------------------------
 // Failsafe (staged)
@@ -179,6 +265,9 @@ struct __attribute__((packed)) ControlPacket {
   uint16_t ch_ele;
   uint16_t ch_thr;
   uint16_t flags; // bit15 = ESC mode request, lower 15 bits = bind code
+  // Reserved protocol byte. Production firmware deliberately ignores it;
+  // keeping it preserves the packet layout shared by current transmitters.
+  uint8_t aux_flags;
   uint16_t seq;
 };
 
@@ -196,11 +285,18 @@ struct __attribute__((packed)) BindPacket {
 BindStore g_bind = {0, 0, 0};
 
 // bindMode means "learn a transmitter code."
+// bindPlugBoot latches when D20/SDA is grounded at startup. D20 remains an
+// input so firmware can never drive against the bind plug.
+// bindRestartRequired prevents flight after a bind-plug bind until power is
+// removed and the plug is removed.
 // escMode means "intentional ESC calibration mode."
 // armed means "normal flight outputs may include throttle."
 bool bindMode = false;
+bool bindPlugBoot = false;
+bool bindRestartRequired = false;
 bool escMode = false;
 bool armed = false;
+bool radioInitialized = false;
 
 // Used to prove the throttle has been low long enough to arm.
 uint32_t thrLowSince = 0;
@@ -223,6 +319,17 @@ uint32_t lastDebugMs = 0;
 uint16_t lastPktBind = 0;
 uint16_t lastPktSeq = 0;
 int16_t lastRssi = 0;
+
+// Raw transmitter commands for SBUS, kept apart from des_* because the PWM
+// arming and failsafe logic overwrites those.
+uint16_t sbus_r = RC_MID, sbus_a = RC_MID, sbus_e = RC_MID, sbus_t = RC_MIN;
+uint8_t sbusAuxFlags = 0;
+bool haveSbusControl = false;
+uint32_t lastSbusFrameUs = 0;
+uint32_t sbusFrames = 0;
+
+// Small, guarded USB command buffer used only for automatic firmware updates.
+// Normal flight does not print USB diagnostics or block waiting for serial.
 
 // --- ESC calibration safety ---
 // ESC calibration is intentionally hard to enter. It must happen right after
@@ -264,7 +371,7 @@ static inline void setSafeDesired() {
   des_r = RC_MID; des_a = RC_MID; des_e = RC_MID; des_t = RC_MIN;
 }
 
-// Only update the stored output value when the change is large enough to matter.
+// Preserve the existing throttle output behavior.
 static inline void setServoIfChanged(uint16_t &cur, uint16_t target) {
   if (abs((int)target - (int)cur) > SERVO_DEADBAND_US) {
     cur = target;
@@ -281,12 +388,73 @@ static inline void writePulse(int pin, uint16_t us) {
   interrupts();
 }
 
-// Write all four servo/ESC pulses once. This is called at 50 Hz.
+// Write servo/ESC pulses once.
 void writeServoFrame() {
   writePulse(PIN_SERVO_THROTTLE, cur_t);
   writePulse(PIN_SERVO_AILERON,  cur_a);
   writePulse(PIN_SERVO_ELEVATOR, cur_e);
-  writePulse(PIN_SERVO_RUDDER,   cur_r);
+  writePulse(PIN_SERVO_RUDDER, cur_r);
+  writePulse(PIN_SERVO_CHANNEL5, channel5Us);
+  if (!bindPlugBoot) writePulse(PIN_SERVO_CHANNEL6, channel6Us);
+}
+
+// A bind plug connects D20/SDA to ground. Multiple startup samples avoid
+// treating a brief transient as a plug.
+bool detectBindPlug() {
+  pinMode(PIN_BIND_PLUG, INPUT_PULLUP);
+  uint8_t lowSamples = 0;
+  const uint8_t sampleCount = 8;
+  for (uint8_t i = 0; i < sampleCount; ++i) {
+    if (digitalRead(PIN_BIND_PLUG) == LOW) lowSamples++;
+    delay(2);
+  }
+  return lowSamples == sampleCount;
+}
+
+// Match ArduPilot's SBUS decoding: 200..1800 corresponds to 1000..2000 us.
+static uint16_t rcMicrosecondsToSbus(uint16_t us) {
+  if (us < RC_MIN) us = RC_MIN;
+  if (us > RC_MAX) us = RC_MAX;
+  return (uint16_t)(200UL + ((uint32_t)(us - RC_MIN) * 8UL) / 5UL);
+}
+
+// Pack sixteen 11-bit channels, least significant bit first.
+static void packSbusChannels(const uint16_t channels[SBUS_CHANNEL_COUNT],
+                             uint8_t payload[SBUS_CHANNEL_PAYLOAD_SIZE]) {
+  memset(payload, 0, SBUS_CHANNEL_PAYLOAD_SIZE);
+  uint32_t accumulator = 0;
+  uint8_t accumulatorBits = 0;
+  uint8_t outputIndex = 0;
+  for (uint8_t channel = 0; channel < SBUS_CHANNEL_COUNT; ++channel) {
+    accumulator |= ((uint32_t)channels[channel] & 0x07FFUL) << accumulatorBits;
+    accumulatorBits += 11;
+    while (accumulatorBits >= 8) {
+      payload[outputIndex++] = (uint8_t)(accumulator & 0xFF);
+      accumulator >>= 8;
+      accumulatorBits -= 8;
+    }
+  }
+}
+
+// Send one SBUS frame. Flags and footer stay zero: frames are only sent while
+// the link is fresh, and radio loss is signalled by stopping.
+void sendSbusFrame() {
+  uint16_t channels[SBUS_CHANNEL_COUNT];
+  const uint16_t neutral = rcMicrosecondsToSbus(RC_MID);
+  for (uint8_t i = 0; i < SBUS_CHANNEL_COUNT; ++i) channels[i] = neutral;
+  // Standard ArduPlane input order: roll, pitch, throttle, yaw.
+  channels[0] = rcMicrosecondsToSbus(sbus_a);
+  channels[1] = rcMicrosecondsToSbus(sbus_e);
+  channels[2] = rcMicrosecondsToSbus(sbus_t);
+  channels[3] = rcMicrosecondsToSbus(sbus_r);
+  channels[4] = rcMicrosecondsToSbus(AuxChannels::pulse(sbusAuxFlags, AuxChannels::CH5));
+  channels[5] = rcMicrosecondsToSbus(AuxChannels::pulse(sbusAuxFlags, AuxChannels::CH6));
+
+  uint8_t frame[SBUS_FRAME_SIZE] = {0};
+  frame[0] = 0x0F;
+  packSbusChannels(channels, &frame[1]);
+  sbusSerial.write(frame, sizeof(frame));
+  sbusFrames++;
 }
 
 // Return to the locked state and force throttle low.
@@ -294,6 +462,96 @@ void disarmAndLock() {
   armed = false;
   thrLowSince = 0;
   des_t = RC_MIN;
+}
+
+void printUsbStatus() {
+  Serial.print("STATUS radio=");
+  Serial.print(radioInitialized ? "OK" : "ERROR");
+  Serial.print(" bindMode=");
+  Serial.print(bindMode ? "yes" : "no");
+  Serial.print(" bindPlug=");
+  Serial.print(bindPlugBoot ? "yes" : "no");
+  Serial.print(" restartRequired=");
+  Serial.print(bindRestartRequired ? "yes" : "no");
+  Serial.print(" stored=");
+  Serial.print((g_bind.magic == BIND_MAGIC) ? g_bind.bindCode : 0);
+  Serial.print(" rx=");
+  Serial.print(rxPackets);
+  Serial.print(" accepted=");
+  Serial.print(acceptedPackets);
+  Serial.print(" rejected=");
+  Serial.print(rejectedPackets);
+  Serial.print(" pktBind=");
+  Serial.print(lastPktBind);
+  Serial.print(" rssi=");
+  Serial.print(lastRssi);
+  Serial.print(" armed=");
+  Serial.print(armed ? "yes" : "no");
+  // New fields are appended so existing readers of this line keep working.
+  Serial.print(" firmware=rx-v7-pwm-sbus sbus=PB22 sbusFrames=");
+  Serial.println(sbusFrames);
+}
+
+// Newer receivers (Rx V4 updates, the ASCEND flight controller) carry the
+// Altitude Unknown UF2 bootloader; original Rx V4 boards carry SAM-BA. The UF2
+// bootloader embeds its INFO_UF2.TXT text, so look for it. Start past the
+// vector table: the bootloader's strings are never there.
+static bool bootloaderIsUf2() {
+  static const char tag[] = "UF2 Bootloader";
+  const size_t tagLength = sizeof(tag) - 1;
+  const volatile uint8_t *flash = (const volatile uint8_t *)0x100;
+  const size_t searchLength = 0x2000 - 0x100 - tagLength;
+  for (size_t i = 0; i < searchLength; ++i) {
+    size_t matched = 0;
+    while (matched < tagLength && flash[i + matched] == (uint8_t)tag[matched]) matched++;
+    if (matched == tagLength) return true;
+  }
+  return false;
+}
+
+// Restart into the bootloader. UF2: set the bootloader's double-tap flag in
+// the last RAM word and reset, leaving the application intact. SAM-BA: keep
+// the SAMD core's proven path, which invalidates the application first.
+void enterBootloader() {
+  if (bootloaderIsUf2()) {
+    __disable_irq();
+    *(volatile uint32_t *)(HMCRAMC0_ADDR + HMCRAMC0_SIZE - 4) = 0xF01669EFUL;
+    NVIC_SystemReset();
+  }
+  initiateReset(1);
+  delay(1); // advances the SAMD core reset state machine once
+  while (true) {}
+}
+
+// The desktop configurator uses BOOTLOADER to request the installed
+// bootloader. STATUS is read-only and provides on-demand bench diagnostics
+// without enabling continuous serial output in the flight loop.
+void serviceUsbBootloaderRequest() {
+  static char command[16] = {0};
+  static uint8_t length = 0;
+  while (Serial.available()) {
+    char c = (char)Serial.read();
+    if (c == '\r') continue;
+    if (c == '\n') {
+      command[length] = '\0';
+      if (strcmp(command, "STATUS") == 0) {
+        printUsbStatus();
+      } else if (strcmp(command, "BOOTLOADER") == 0) {
+        setSafeDesired();
+        disarmAndLock();
+        cur_t = RC_MIN;
+        Serial.println("OK BOOTLOADER");
+        Serial.flush();
+        delay(20); // let the reply leave over USB before resetting
+        enterBootloader();
+      }
+      length = 0;
+    } else if (length < sizeof(command) - 1) {
+      command[length++] = c;
+    } else {
+      length = 0;
+    }
+  }
 }
 
 // Hardware reset of the LoRa module.
@@ -339,9 +597,11 @@ void updateLed() {
 // Setup
 // ------------------------------
 void setup() {
+  // USB command input remains non-blocking and silent during flight.
+  Serial.begin(115200);
+
   // Serial debug is normally off for flying. If enabled, this opens USB serial.
   if (ENABLE_RX_DEBUG) {
-    Serial.begin(115200);
     delay(50);
   }
 
@@ -350,7 +610,19 @@ void setup() {
 
   // The bind button uses INPUT_PULLUP, so the pin normally reads HIGH.
   // Pressing the button connects it to ground, making it read LOW.
-  bindMode = (digitalRead(PIN_BIND_BTN) == LOW);
+  const bool bindButtonHeld = (digitalRead(PIN_BIND_BTN) == LOW);
+
+  // Detect the optional D20/SDA bind plug. This result remains latched until
+  // the receiver restarts.
+  bindPlugBoot = detectBindPlug();
+  bindMode = bindButtonHeld || bindPlugBoot;
+  pinMode(PIN_SERVO_CHANNEL5, OUTPUT);
+  digitalWrite(PIN_SERVO_CHANNEL5, LOW);
+  // Never drive a grounded bind plug: preserve input mode for the whole boot.
+  if (!bindPlugBoot) {
+    pinMode(PIN_SERVO_CHANNEL6, OUTPUT);
+    digitalWrite(PIN_SERVO_CHANNEL6, LOW);
+  }
 
   // Load the bind code saved from an earlier bind operation.
   g_bind = loadBind();
@@ -377,15 +649,25 @@ void setup() {
   cur_r = filt_r = des_r = RC_MID;
   writeServoFrame();
 
+  // SBUS idles high until the first fresh packet.
+  sbusSerial.begin(SBUS_BAUD);
+
   // Start from a safe state before the radio is even initialized.
   setSafeDesired();
   disarmAndLock();
 
   // Reset and initialize the LoRa radio.
   hardResetRadio();
-  if (!rf95.init()) {
-    // Fatal radio init failure: blink fast forever.
-    while(1){digitalWrite(LED_BUILTIN,!digitalRead(LED_BUILTIN));delay(100);}
+  radioInitialized = rf95.init();
+  if (!radioInitialized) {
+    // Radio hardware may be unavailable when the receiver is powered only for
+    // a desktop firmware update. Keep the safe error blink, but continue to
+    // accept the exact configurator bootloader command over USB.
+    while (1) {
+      serviceUsbBootloaderRequest();
+      digitalWrite(LED_BUILTIN, !digitalRead(LED_BUILTIN));
+      delay(100);
+    }
   }
 
   // The receiver and transmitter must use the same radio settings.
@@ -410,6 +692,7 @@ void setup() {
     Serial.print("Stored bind code: ");
     Serial.println((g_bind.magic == BIND_MAGIC) ? g_bind.bindCode : 0);
     if (bindMode) Serial.println("Bind Mode Active");
+    if (bindPlugBoot) Serial.println("D20/SDA bind plug detected; restart required after bind");
   }
 }
 
@@ -418,6 +701,8 @@ void setup() {
 // ------------------------------
 void loop() {
   uint32_t now = millis();
+
+  serviceUsbBootloaderRequest();
 
   // Battery check.
   // This only runs if ENABLE_VBAT_MONITOR is true.
@@ -448,6 +733,7 @@ void loop() {
           saveBind(g_bind);
           digitalWrite(LED_BUILTIN, HIGH); delay(800); digitalWrite(LED_BUILTIN, LOW);
           bindMode = false;
+          bindRestartRequired = bindPlugBoot;
           ledState = LED_LOCKED;
           if (ENABLE_RX_DEBUG) {
             Serial.print("Stored Bind Code: ");
@@ -478,24 +764,33 @@ void loop() {
             escFlagStreak = 0;
           }
 
-          // Accept controls if bind matches.
-          // If no bind code is stored yet, accept packets so initial setup is
-          // still possible.
-          bool accept = true;
-          if (g_bind.magic == BIND_MAGIC && g_bind.bindCode != 0) {
-            accept = (pktBind == g_bind.bindCode);
-          }
+          // Accept controls only after an explicit bind and only when the
+          // packet carries the stored code. An erased/new receiver must remain
+          // in failsafe instead of accepting the first transmitter it hears.
+          const bool hasBind =
+            (g_bind.magic == BIND_MAGIC && g_bind.bindCode != 0);
+          const bool accept = !bindMode && !bindRestartRequired &&
+                              hasBind && (pktBind == g_bind.bindCode);
           if (accept) {
             acceptedPackets++;
 
             // Copy the newest transmitter commands into the desired outputs.
             // The servo tick below will decide whether it is safe to actually
             // output them.
+            channel5Us = AuxChannels::pulse(pkt.aux_flags, AuxChannels::CH5);
+            channel6Us = AuxChannels::pulse(pkt.aux_flags, AuxChannels::CH6);
             des_r = pkt.ch_rud;
             des_a = pkt.ch_ail;
             des_e = pkt.ch_ele;
             des_t = pkt.ch_thr;
             lastRxMs = now;
+
+            sbus_r = pkt.ch_rud;
+            sbus_a = pkt.ch_ail;
+            sbus_e = pkt.ch_ele;
+            sbus_t = pkt.ch_thr;
+            sbusAuxFlags = pkt.aux_flags;
+            haveSbusControl = true;
           } else {
             rejectedPackets++;
           }
@@ -519,6 +814,16 @@ void loop() {
     }
   }
 
+  // 100 Hz SBUS, only while bound packets are fresh. Written outside the servo
+  // frame so a pulse can never split an SBUS frame.
+  const bool sbusLinkFresh = haveSbusControl && !bindMode && !bindRestartRequired &&
+                             (now - lastRxMs) <= SBUS_LINK_TIMEOUT_MS;
+  const uint32_t nowUs = micros();
+  if (sbusLinkFresh && (uint32_t)(nowUs - lastSbusFrameUs) >= SBUS_FRAME_PERIOD_US) {
+    lastSbusFrameUs = nowUs;
+    sendSbusFrame();
+  }
+
   // 50 Hz servo tick.
   // Radio packets may arrive faster than this, but servos expect pulses at
   // about 50 Hz, so all output decisions are made here.
@@ -539,7 +844,15 @@ void loop() {
     }
 
     // ---------- Arming + staged failsafe ----------
-    if (!bindMode && !escMode) {
+    if (bindRestartRequired) {
+      // A bind plug was present at boot. Keep every output safe and require a
+      // full restart before normal packets can arm the receiver. D20/SDA
+      // remains an input, so the grounded plug is never driven by the MCU.
+      setSafeDesired();
+      disarmAndLock();
+      ledState = LED_LOCKED;
+
+    } else if (!bindMode && !escMode) {
       if (!armed) {
         // Require fresh link + low throttle for UNLOCK_HOLD_MS to arm.
         if (age <= LINK_FRESH_MS && des_t <= UNLOCK_THRESH_US) {
@@ -634,17 +947,23 @@ void loop() {
     // throttle above RC_MIN.
     if (armed || escMode) {
       setServoIfChanged(cur_t, filt_t);
-      setServoIfChanged(cur_a, filt_a);
-      setServoIfChanged(cur_e, filt_e);
-      setServoIfChanged(cur_r, filt_r);
     } else {
       // Disarmed:
       // throttle hard low, surfaces follow staged desired values. After a long
       // failsafe, those desired values become centered.
       setServoIfChanged(cur_t, RC_MIN);
-      setServoIfChanged(cur_a, filt_a);
-      setServoIfChanged(cur_e, filt_e);
-      setServoIfChanged(cur_r, filt_r);
+    }
+
+    // Preserve the full packet resolution on surfaces, including safe/trim
+    // targets. Pulses are emitted every frame anyway; this adds no delay.
+    cur_a = filt_a;
+    cur_e = filt_e;
+    cur_r = filt_r;
+
+    // Auxiliary switches fail low promptly, independently of throttle arming.
+    // Bind mode and the initial no-packet state must never hold a high switch.
+    if (bindMode || bindRestartRequired || age > LINK_FRESH_MS || acceptedPackets == 0) {
+      channel5Us = channel6Us = 1000;
     }
 
     // Send the actual pulses and update the status LED once per servo frame.
@@ -675,6 +994,10 @@ void loop() {
     Serial.print(armed ? "yes" : "no");
     Serial.print(" bindMode=");
     Serial.print(bindMode ? "yes" : "no");
+    Serial.print(" bindPlug=");
+    Serial.print(bindPlugBoot ? "yes" : "no");
+    Serial.print(" restartRequired=");
+    Serial.print(bindRestartRequired ? "yes" : "no");
     Serial.print(" des=");
     Serial.print(des_r); Serial.print(",");
     Serial.print(des_a); Serial.print(",");

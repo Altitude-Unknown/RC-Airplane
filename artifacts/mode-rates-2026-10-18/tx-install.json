@@ -1,0 +1,8 @@
+{
+  "serial": "89CB5B3050304C59502E3120FF101E44",
+  "port": "/dev/cu.usbmodem1301",
+  "image_sha256": "f4211c4c744b318be3b07049d34834142c00a676a8a18661bae2fe33cd11e2a4",
+  "bootloader": "UF2 Bootloader v4.0.0 SFHWRO\nModel: RC Airplane TX M0\nBoard-ID: SAMD21G18A-Altitude-RC-TX-M0-v0\n",
+  "rollback_sha256": "c2d530922cf69ea4c5c2b2d61aca222417a46b140a11b95f01d6a4641c678032",
+  "status": "image copied; TX enumerated; Config Mode readback pending"
+}

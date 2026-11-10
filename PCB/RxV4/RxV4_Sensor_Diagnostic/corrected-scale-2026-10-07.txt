@@ -1,0 +1,48 @@
+0x6A G raw x/y/z: 108, 39, 29 | A raw x/y/z: 193, 243, -8118 | magnitude_g=0.9911
+0x6A G raw x/y/z: 114, 7, 35 | A raw x/y/z: 187, 263, -8114 | magnitude_g=0.9907
+0x6A G raw x/y/z: 85, 34, 30 | A raw x/y/z: 183, 250, -8135 | magnitude_g=0.9932
+0x6A G raw x/y/z: 105, 20, 32 | A raw x/y/z: 205, 240, -8116 | magnitude_g=0.9909
+0x6A G raw x/y/z: 102, 23, 29 | A raw x/y/z: 193, 242, -8120 | magnitude_g=0.9914
+IMU WHO_AM_I=0x6C
+CONFIG read=OK CTRL1_XL=0x40 CTRL2_G=0x40 CTRL3_C=0x44
+BARO addr=76 PROM=112,40017,35608,24918,24469,33769,27465,35439, D1=5957054 D2=8797016
+BARO no ACK addr=77
+0x6A G raw x/y/z: 91, 35, 29 | A raw x/y/z: 192, 250, -8125 | magnitude_g=0.9920
+0x6A G raw x/y/z: 117, 25, 31 | A raw x/y/z: 170, 267, -8114 | magnitude_g=0.9907
+0x6A G raw x/y/z: 84, 32, 31 | A raw x/y/z: 184, 235, -8138 | magnitude_g=0.9935
+0x6A G raw x/y/z: 94, 54, 33 | A raw x/y/z: 204, 239, -8128 | magnitude_g=0.9924
+0x6A G raw x/y/z: 105, 21, 31 | A raw x/y/z: 208, 249, -8115 | magnitude_g=0.9908
+0x6A G raw x/y/z: 83, 55, 45 | A raw x/y/z: 203, 270, -8138 | magnitude_g=0.9937
+0x6A G raw x/y/z: 207, 36, 92 | A raw x/y/z: 178, 224, -8029 | magnitude_g=0.9802
+0x6A G raw x/y/z: 199, -27, 39 | A raw x/y/z: 280, 206, -8140 | magnitude_g=0.9940
+IMU WHO_AM_I=0x6C
+CONFIG read=OK CTRL1_XL=0x40 CTRL2_G=0x40 CTRL3_C=0x44
+BARO addr=76 PROM=112,40017,35608,24918,24469,33769,27465,35439, D1=5956882 D2=8796726
+BARO no ACK addr=77
+0x6A G raw x/y/z: -211, 20, 140 | A raw x/y/z: 239, 283, -8130 | magnitude_g=0.9929
+0x6A G raw x/y/z: 58, -9, 25 | A raw x/y/z: 252, 313, -8104 | magnitude_g=0.9899
+0x6A G raw x/y/z: 16, 29, 27 | A raw x/y/z: 262, 245, -8145 | magnitude_g=0.9947
+0x6A G raw x/y/z: 91, 5, 32 | A raw x/y/z: 247, 344, -8120 | magnitude_g=0.9920
+0x6A G raw x/y/z: 76, 17, 39 | A raw x/y/z: 288, 331, -8140 | magnitude_g=0.9945
+0x6A G raw x/y/z: 104, 14, 28 | A raw x/y/z: 253, 346, -8115 | magnitude_g=0.9914
+0x6A G raw x/y/z: 106, 43, 42 | A raw x/y/z: 257, 319, -8139 | magnitude_g=0.9942
+0x6A G raw x/y/z: 64, 35, 27 | A raw x/y/z: 246, 332, -8124 | magnitude_g=0.9924
+IMU WHO_AM_I=0x6C
+CONFIG read=OK CTRL1_XL=0x40 CTRL2_G=0x40 CTRL3_C=0x44
+BARO addr=76 PROM=112,40017,35608,24918,24469,33769,27465,35439, D1=5956976 D2=8796244
+BARO no ACK addr=77
+0x6A G raw x/y/z: 79, 20, 40 | A raw x/y/z: 247, 322, -8149 | magnitude_g=0.9954
+0x6A G raw x/y/z: 79, 19, 29 | A raw x/y/z: 254, 331, -8166 | magnitude_g=0.9976
+0x6A G raw x/y/z: 105, 11, 34 | A raw x/y/z: 238, 354, -8129 | magnitude_g=0.9931
+0x6A G raw x/y/z: 121, -6, 33 | A raw x/y/z: 235, 312, -8111 | magnitude_g=0.9907
+0x6A G raw x/y/z: 98, 20, 34 | A raw x/y/z: 248, 343, -8142 | magnitude_g=0.9947
+0x6A G raw x/y/z: 121, 22, 31 | A raw x/y/z: 256, 354, -8121 | magnitude_g=0.9922
+0x6A G raw x/y/z: 96, 39, 40 | A raw x/y/z: 232, 334, -8139 | magnitude_g=0.9942
+0x6A G raw x/y/z: 122, 18, 31 | A raw x/y/z: 253, 369, -8132 | magnitude_g=0.9936
+IMU WHO_AM_I=0x6C
+CONFIG read=OK CTRL1_XL=0x40 CTRL2_G=0x40 CTRL3_C=0x44
+BARO addr=76 PROM=112,40017,35608,24918,24469,33769,27465,35439, D1=5957048 D2=8795932
+BARO no ACK addr=77
+0x6A G raw x/y/z: 43, 62, 32 | A raw x/y/z: 243, 328, -8140 | magnitude_g=0.9943
+0x6A G raw x/y/z: 79, 28, 35 | A raw x/y/z: 224, 354, -8145 | magnitude_g=0.9950
+0x6A G raw x/y/z: 105, 11, 28 | A raw x/y/z: 256, 320, -8143 | magnitude_g=0.9947

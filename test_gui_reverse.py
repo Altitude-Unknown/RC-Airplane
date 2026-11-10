@@ -2,15 +2,14 @@
 """
 Test: Use the updated GUI module to write/read a model via serial and verify reverse flags.
 """
+import argparse
 import os, sys, serial, time, struct
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import fram_gui_models as gui
 
-def test_gui_reverse_flags():
+def test_gui_reverse_flags(port):
     """Test GUI serialization of reverse flags."""
-    port = "/dev/cu.usbmodem101"
-    
     try:
         # Create a worker and connect
         worker = gui.SerialWorker()
@@ -46,13 +45,13 @@ def test_gui_reverse_flags():
         print(f"Reverse flags: {model['reverse']}")
         
         # Test 3: Write model to slot 1
-        print("\n=== TEST 3: Write Model to FRAM ===")
+        print("\n=== TEST 3: Write Model to transmitter storage ===")
         slot = 1
         store.write_model(slot, model)
         print(f"[OK] Model written to slot {slot}")
         
         # Test 4: Read it back
-        print("\n=== TEST 4: Read Model from FRAM ===")
+        print("\n=== TEST 4: Read Model from transmitter storage ===")
         read_model = store.read_model(slot)
         expected_bind = model['bind_code'] & 0x7FFF  # bind_code is 15-bit
         print(f"Name: {read_model['name']} (expect: GuiRevTest)")
@@ -85,5 +84,8 @@ def test_gui_reverse_flags():
         return False
 
 if __name__ == "__main__":
-    success = test_gui_reverse_flags()
+    parser = argparse.ArgumentParser(description="Exercise GUI model serialization against a transmitter in config mode.")
+    parser.add_argument("port", nargs="?", default="/dev/cu.usbmodem101")
+    args = parser.parse_args()
+    success = test_gui_reverse_flags(args.port)
     sys.exit(0 if success else 1)

@@ -39,6 +39,15 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 #include "tx_config.h"
+#include "aux_channels.h"
+
+#ifdef TXV3_BUDDY_BUILD
+void txv3BuddyBegin();
+void txv3BuddyService();
+bool txv3BuddyIsStudent();
+void txv3BuddyPublishLocal(uint16_t rud, uint16_t ail, uint16_t ele, uint16_t thr, uint8_t aux);
+bool txv3BuddySelectChannels(uint16_t &rud, uint16_t &ail, uint16_t &ele, uint16_t &thr, uint8_t &aux);
+#endif
 
 #if __has_include(<FlashStorage_SAMD.h>)
   #include <FlashStorage_SAMD.h>
@@ -93,7 +102,8 @@ const uint8_t PIN_TRIM_ELE_U = 0;
 const int16_t TRIM_STEP_US = 5;
 const int16_t TRIM_MIN_US = -500;
 const int16_t TRIM_MAX_US = 500;
-const uint16_t TRIM_DEBOUNCE_MS = 45;
+const uint16_t TRIM_FIRST_REPEAT_MS = 450;
+const uint16_t TRIM_REPEAT_MS = 140;
 
 // ---------------- Flight Timer / Buzzer -----------------
 // The buzzer is used as a simple "land soon" reminder. We count only actual
@@ -168,6 +178,7 @@ Cal calRud{0,512,1023,false};
 struct __attribute__((packed)) ControlPacket {
   uint16_t ch_rud, ch_ail, ch_ele, ch_thr;
   uint16_t flags;  // bindCode + optional high bit for ESC mode
+  uint8_t aux_flags;
   uint16_t seq;
 };
 struct __attribute__((packed)) BindPacket {
@@ -309,7 +320,7 @@ static void processConfigLine(const String &line) {
   if (cmd == "INFO") {
     Serial.print("{\"mcu\":\"SAMD21G18\",\"fram_size\":");
     Serial.print(TXCF::framSize());
-    Serial.println(",\"proto\":\"1.0\",\"role\":\"TX\"}");
+    Serial.println(",\"proto\":\"1.0\",\"role\":\"TX\",\"button_channels\":true,\"radio_role\":\"MASTER\"}");
     return;
   }
   if (cmd == "RANGE") {
@@ -352,6 +363,13 @@ static void processConfigLine(const String &line) {
 // global because setup(), loop(), menu handlers, and helper functions all need
 // to see the same state.
 ControlPacket pkt; uint16_t seqCounter=0;
+#ifdef TXV3_BUDDY_BUILD
+// Keep instructor filtering independent from the outgoing packet. The outgoing
+// packet may contain student controls and must never become the next loop's
+// instructor movement baseline.
+uint16_t txv3SmoothRud=RC_MID, txv3SmoothAil=RC_MID;
+uint16_t txv3SmoothEle=RC_MID, txv3SmoothThr=RC_MIN;
+#endif
 bool bindMode=false;
 bool escOverride=false;
 bool configMode=false;
@@ -363,6 +381,7 @@ const bool FORCE_THROTTLE_SAFE_LOW = false;
 const float TX_SMOOTH_ALPHA = 0.65f;   // Higher = faster stick response, lower = smoother output.
 const uint8_t TX_LOOP_DELAY_MS = 2;    // Small pacing delay after each LoRa packet.
 const uint16_t UNLOCK_THRESH_US = RC_MIN + 60;
+const uint16_t MENU_REPEAT_MS = 180;
 uint32_t lastDebugMs = 0;
 
 // Accumulated throttle-on time. This pauses when throttle is at idle and is not
@@ -384,27 +403,26 @@ uint32_t nextBeepTransitionMs = 0;
 // endpoints, reverse flags, bind code, etc. gModelLoaded tells us whether FRAM
 // data was valid; if not, the transmitter falls back to simple direct mapping.
 txcf_model_v1_t gModel;
+AuxChannels::Button channel5Button, channel6Button;
 bool gModelLoaded = false;
 
-// Small record for each trim button. Flight trims are edge-triggered so a held
-// or stuck button cannot keep changing the model.
+// Small record for each trim button. wasPressed tracks a full press-release
+// cycle so a held or stuck input cannot keep walking trim to an endpoint.
 struct TrimButton {
   uint8_t pin;
   uint8_t ch;
   int8_t dir;
-  bool rawPressed;
-  uint32_t rawChangedMs;
   bool wasPressed;
   uint32_t nextMs;
 };
 
 TrimButton trimButtons[] = {
-  {PIN_TRIM_RUD_L, 0, -1, false, 0, false, 0},
-  {PIN_TRIM_RUD_R, 0,  1, false, 0, false, 0},
-  {PIN_TRIM_AIL_L, 1, -1, false, 0, false, 0},
-  {PIN_TRIM_AIL_R, 1,  1, false, 0, false, 0},
-  {PIN_TRIM_ELE_D, 2, -1, false, 0, false, 0},
-  {PIN_TRIM_ELE_U, 2,  1, false, 0, false, 0},
+  {PIN_TRIM_RUD_L, 0, -1, false, 0},
+  {PIN_TRIM_RUD_R, 0,  1, false, 0},
+  {PIN_TRIM_AIL_L, 1, -1, false, 0},
+  {PIN_TRIM_AIL_R, 1,  1, false, 0},
+  {PIN_TRIM_ELE_D, 2, -1, false, 0},
+  {PIN_TRIM_ELE_U, 2,  1, false, 0},
 };
 const uint8_t TRIM_BUTTON_COUNT = sizeof(trimButtons) / sizeof(trimButtons[0]);
 int16_t runtimeTrimUs[4] = {0, 0, 0, 0};
@@ -428,7 +446,7 @@ const uint8_t menuButtonPins[MB_COUNT] = {
   PIN_TRIM_RUD_L, PIN_TRIM_RUD_R, PIN_TRIM_AIL_L, PIN_TRIM_AIL_R, PIN_TRIM_ELE_D, PIN_TRIM_ELE_U
 };
 bool menuButtonWasPressed[MB_COUNT] = {false, false, false, false, false, false};
-bool menuButtonReleaseArmed[MB_COUNT] = {false, false, false, false, false, false};
+uint32_t menuButtonNextMs[MB_COUNT] = {0, 0, 0, 0, 0, 0};
 
 static inline uint16_t addTrimUs(uint16_t us, int16_t trim) {
   // Add a trim amount in microseconds, then keep the result in servo range.
@@ -474,31 +492,21 @@ void stepTrim(uint8_t ch, int8_t dir) {
 }
 
 void updatePhysicalTrims() {
-  // Called from the fast transmit loop. It checks each trim button and performs
-  // one debounced trim step per press. A stuck trim switch must not be able to
-  // walk an airplane to full subtrim while in flight.
-  uint32_t now = millis();
+  // Called from the fast transmit loop. A trim change is applied only when a
+  // button that was pressed becomes released. This protects against a stuck
+  // LOW input continuously changing trim.
   for (uint8_t i = 0; i < TRIM_BUTTON_COUNT; ++i) {
     TrimButton &b = trimButtons[i];
-    bool rawPressed = (digitalRead(b.pin) == LOW);
-
-    if (rawPressed != b.rawPressed) {
-      b.rawPressed = rawPressed;
-      b.rawChangedMs = now;
-    }
-    if ((uint32_t)(now - b.rawChangedMs) < TRIM_DEBOUNCE_MS) {
+    bool pressed = (digitalRead(b.pin) == LOW);
+    if (pressed) {
+      b.wasPressed = true;
       continue;
     }
 
-    if (!rawPressed) {
+    if (b.wasPressed) {
+      stepTrim(b.ch, b.dir);
       b.wasPressed = false;
       b.nextMs = 0;
-      continue;
-    }
-
-    if (!b.wasPressed) {
-      stepTrim(b.ch, b.dir);
-      b.wasPressed = true;
     }
   }
 }
@@ -577,34 +585,31 @@ void updateThrottleTimer(uint16_t throttleUs, uint32_t now) {
 }
 
 bool menuButtonEvent(uint8_t button, uint32_t now) {
-  // Shared helper for OLED setup mode. It reports "true" only after a complete
-  // press-and-release click, so a held or stuck button cannot run a setting to
-  // its limit.
-  (void)now;
+  // Shared helper for OLED setup mode. It reports "true" once when a button is
+  // first pressed and then repeats at MENU_REPEAT_MS while held.
   bool pressed = (digitalRead(menuButtonPins[button]) == LOW);
-  if (pressed) {
-    if (!menuButtonWasPressed[button]) {
-      menuButtonWasPressed[button] = true;
-      menuButtonReleaseArmed[button] = true;
-    }
+  if (!pressed) {
+    menuButtonWasPressed[button] = false;
+    menuButtonNextMs[button] = 0;
     return false;
   }
-
-  if (menuButtonWasPressed[button]) {
-    menuButtonWasPressed[button] = false;
-    if (menuButtonReleaseArmed[button]) {
-      menuButtonReleaseArmed[button] = false;
-      return true;
-    }
+  if (!menuButtonWasPressed[button]) {
+    menuButtonWasPressed[button] = true;
+    menuButtonNextMs[button] = now + TRIM_FIRST_REPEAT_MS;
+    return true;
   }
-
+  if ((int32_t)(now - menuButtonNextMs[button]) >= 0) {
+    menuButtonNextMs[button] = now + MENU_REPEAT_MS;
+    return true;
+  }
   return false;
 }
 
 void resetMenuButtons() {
+  uint32_t now = millis() + TRIM_FIRST_REPEAT_MS;
   for (uint8_t i = 0; i < MB_COUNT; ++i) {
     menuButtonWasPressed[i] = (digitalRead(menuButtonPins[i]) == LOW);
-    menuButtonReleaseArmed[i] = false;
+    menuButtonNextMs[i] = now;
   }
 }
 
@@ -625,7 +630,7 @@ int currentMenuValue() {
   switch (menuItem) {
     case MENU_REVERSE: return channelReversed(menuChannel) ? 1 : 0;
     case MENU_RATE: return gModel.rates_pct[menuChannel];
-    case MENU_EXPO: return constrain((int)gModel.expo_pct[menuChannel], 0, 100);
+    case MENU_EXPO: return gModel.expo_pct[menuChannel];
     default: return 0;
   }
 }
@@ -641,7 +646,7 @@ void adjustMenuValue(int8_t dir) {
     int v = constrain((int)gModel.rates_pct[menuChannel] + dir * 5, 0, 100);
     gModel.rates_pct[menuChannel] = (int8_t)v;
   } else if (menuItem == MENU_EXPO) {
-    int v = constrain((int)gModel.expo_pct[menuChannel] + dir * 5, 0, 100);
+    int v = constrain((int)gModel.expo_pct[menuChannel] + dir * 5, -100, 100);
     gModel.expo_pct[menuChannel] = (int8_t)v;
   }
 
@@ -738,6 +743,12 @@ void setup() {
   pinMode(PIN_BIND_BTN,INPUT_PULLUP);
   pinMode(PIN_ESC_BTN, INPUT_PULLUP);
   setupTrimPins();
+  pinMode(7, INPUT_PULLUP);
+  pinMode(10, INPUT_PULLUP);
+
+#ifdef TXV3_BUDDY_BUILD
+  txv3BuddyBegin();
+#endif
 
   bool bindHeld = (digitalRead(PIN_BIND_BTN)==LOW);
   bool escHeld  = (digitalRead(PIN_ESC_BTN)==LOW);
@@ -750,6 +761,9 @@ void setup() {
   configMode = (!setupMode && bindHeld && escHeld);   // BOTH held -> Config Mode (for GUI)
   bindMode   = (!setupMode && bindHeld && !escHeld);  // Only bind   -> Bind Mode
   escOverride= (!setupMode && !bindHeld && escHeld);  // Only ESC    -> ESC override
+#ifdef TXV3_BUDDY_BUILD
+  if (txv3BuddyIsStudent()) { bindMode=false; escOverride=false; }
+#endif
 
   if (configMode || ENABLE_TX_DEBUG) {
     // Serial is normally off in flight mode because debug printing can slow the
@@ -786,15 +800,21 @@ void setup() {
   // LoRa init
   // Reset the radio module, then let RadioHead configure it. If init fails,
   // blinking forever is safer than pretending the transmitter is working.
-  pinMode(RFM95_RST,OUTPUT);
-  digitalWrite(RFM95_RST,LOW); delay(10);
-  digitalWrite(RFM95_RST,HIGH); delay(10);
-  if(!rf95.init()){
-    while(1){digitalWrite(LED_BUILTIN,!digitalRead(LED_BUILTIN));delay(100);}
+  bool enableLoRa = true;
+#ifdef TXV3_BUDDY_BUILD
+  enableLoRa = !txv3BuddyIsStudent();
+#endif
+  if (enableLoRa) {
+    pinMode(RFM95_RST,OUTPUT);
+    digitalWrite(RFM95_RST,LOW); delay(10);
+    digitalWrite(RFM95_RST,HIGH); delay(10);
+    if(!rf95.init()){
+      while(1){digitalWrite(LED_BUILTIN,!digitalRead(LED_BUILTIN));delay(100);}
+    }
+    rf95.setModemConfig(RH_RF95::Bw500Cr45Sf128);
+    rf95.setFrequency(RF95_FREQ);
+    rf95.setTxPower(17,false);
   }
-  rf95.setModemConfig(RH_RF95::Bw500Cr45Sf128);
-  rf95.setFrequency(RF95_FREQ);
-  rf95.setTxPower(17,false);
 
   // Load model
   // The model can override the fallback bind code. Only the lower 15 bits are
@@ -803,6 +823,11 @@ void setup() {
   if (gModelLoaded && (gModel.bind_code & 0x7FFF)) {
     g_bind.magic = BIND_MAGIC;
     g_bind.bindCode = (gModel.bind_code & 0x7FFF);
+  }
+  if (gModelLoaded && gModel.subtrim_us[1] == -500) {
+    gModel.subtrim_us[1] = 0;
+    TXCF::saveActiveModel(gModel);
+    TXCF::loadActiveModel(gModel);
   }
 
   // Throttle safety
@@ -831,6 +856,22 @@ void setup() {
     Serial.print(thr);
     Serial.print(" locked=");
     Serial.println(txLocked ? "yes" : "no");
+    if (gModelLoaded) {
+      Serial.print("TX model ail rate=");
+      Serial.print(gModel.rates_pct[1]);
+      Serial.print(" expo=");
+      Serial.print(gModel.expo_pct[1]);
+      Serial.print(" subtrim=");
+      Serial.print(gModel.subtrim_us[1]);
+      Serial.print(" endpoint=");
+      Serial.print(gModel.endpoints_us[1][0]);
+      Serial.print("-");
+      Serial.print(gModel.endpoints_us[1][1]);
+      Serial.print(" reverse=");
+      Serial.print((gModel.reserved[0] & (1 << 1)) ? "yes" : "no");
+      Serial.print(" active_rates=");
+      Serial.println(gModel.active_rates);
+    }
   }
 }
 
@@ -839,6 +880,10 @@ void loop() {
   // loop() runs forever. In normal mode, every pass builds and sends one fresh
   // control packet. Keep this path short and predictable.
   uint32_t loopNow = millis();
+
+#ifdef TXV3_BUDDY_BUILD
+  txv3BuddyService();
+#endif
 
   // The buzzer is checked first so alarm tones continue even while the rest of
   // the loop is sending packets. It does not block.
@@ -905,16 +950,23 @@ void loop() {
   // and override 'highRates', optionally saving back to FRAM.
 
   updatePhysicalTrims();
+  uint8_t buttonConfig = gModelLoaded ? gModel.reserved[5] : 0;
+  uint8_t mode5 = AuxChannels::mode(buttonConfig, 0);
+  uint8_t mode6 = AuxChannels::mode(buttonConfig, 2);
+#ifdef TXV3_BUDDY_BUILD
+  txv3TrainerEnabled = (mode5 == 0);
+  // A student radio never repurposes its trainer button as an aircraft command.
+  if (txv3BuddyIsStudent()) mode5 = 0;
+#endif
+  uint8_t localAux = AuxChannels::encode(
+      channel5Button.update(digitalRead(10) == LOW, mode5, millis()),
+      channel6Button.update(digitalRead(7) == LOW, mode6, millis()));
 
   uint16_t thr, ail, ele, rud;
   if (gModelLoaded) {
-    // Normal path: tx_config.cpp applies model settings, including endpoints,
-    // rates, expo, subtrim, and reverse.
-    // Channel order: 0:RUD,1:AIL,2:ELE,3:THR (matches ControlPacket)
-    rud = TXCF::channelToUs(xRud, 0, gModel, highRates);
-    ail = TXCF::channelToUs(xAil, 1, gModel, highRates);
-    ele = TXCF::channelToUs(xEle, 2, gModel, highRates);
-    thr = TXCF::channelToUs(xThr, 3, gModel, highRates);
+    uint16_t outputs[4];
+    TXCF::controlsToUs(xRud, xAil, xEle, xThr, gModel, highRates, outputs);
+    rud = outputs[0]; ail = outputs[1]; ele = outputs[2]; thr = outputs[3];
   } else {
     // Fallback mapping (no FRAM model)
     // This makes the transmitter still basically usable if FRAM/model data is
@@ -939,10 +991,23 @@ void loop() {
   // Smoothing
   // Smooth each outgoing channel a little. The value is stored back into pkt so
   // the next loop can smooth from the previous transmitted command.
+#ifdef TXV3_BUDDY_BUILD
+  txv3SmoothThr=emaU16(txv3SmoothThr,thr,TX_SMOOTH_ALPHA);
+  txv3SmoothAil=emaU16(txv3SmoothAil,ail,TX_SMOOTH_ALPHA);
+  txv3SmoothEle=emaU16(txv3SmoothEle,ele,TX_SMOOTH_ALPHA);
+  txv3SmoothRud=emaU16(txv3SmoothRud,rud,TX_SMOOTH_ALPHA);
+  pkt.ch_thr=txv3SmoothThr; pkt.ch_ail=txv3SmoothAil;
+  pkt.ch_ele=txv3SmoothEle; pkt.ch_rud=txv3SmoothRud;
+#else
   pkt.ch_thr=emaU16(pkt.ch_thr,thr,TX_SMOOTH_ALPHA);
   pkt.ch_ail=emaU16(pkt.ch_ail,ail,TX_SMOOTH_ALPHA);
   pkt.ch_ele=emaU16(pkt.ch_ele,ele,TX_SMOOTH_ALPHA);
   pkt.ch_rud=emaU16(pkt.ch_rud,rud,TX_SMOOTH_ALPHA);
+#endif
+
+#ifdef TXV3_BUDDY_BUILD
+  uint8_t buddyAux = localAux;
+#endif
 
   // Safety
   if(txLocked){
@@ -962,12 +1027,31 @@ void loop() {
     return;
   }
 
+#ifdef TXV3_BUDDY_BUILD
+  if (txv3BuddyIsStudent()) {
+    txv3BuddyPublishLocal(pkt.ch_rud, pkt.ch_ail, pkt.ch_ele, pkt.ch_thr, buddyAux);
+    driveBlink(LED_SLOW);
+    delay(TX_LOOP_DELAY_MS);
+    return;
+  }
+#endif
+
+#ifdef TXV3_BUDDY_BUILD
+  uint16_t selectedRud=pkt.ch_rud, selectedAil=pkt.ch_ail, selectedEle=pkt.ch_ele, selectedThr=pkt.ch_thr;
+  txv3BuddySelectChannels(selectedRud, selectedAil, selectedEle, selectedThr, buddyAux);
+  pkt.ch_rud=selectedRud; pkt.ch_ail=selectedAil; pkt.ch_ele=selectedEle; pkt.ch_thr=selectedThr;
+#endif
+
   updateThrottleTimer(pkt.ch_thr, loopNow);
 
   // Send LoRa packet
   // flags contains the bind code plus an optional ESC calibration bit. seq is a
   // rolling counter that helps with debugging and packet-loss checks.
   pkt.flags = (uint16_t)( (g_bind.bindCode & 0x7FFF) | (escOverride ? 0x8000 : 0) ); // bit15 = ESC mode
+  pkt.aux_flags = localAux;
+#ifdef TXV3_BUDDY_BUILD
+  pkt.aux_flags = buddyAux;
+#endif
   pkt.seq = ++seqCounter;
   rf95.send((uint8_t*)&pkt,sizeof(pkt));
   rf95.waitPacketSent();
@@ -994,7 +1078,36 @@ void loop() {
     Serial.print(",");
     Serial.print(rawRud);
     Serial.print(" model=");
-    Serial.println(gModelLoaded ? "yes" : "no");
+    Serial.print(gModelLoaded ? "yes" : "no");
+    if (gModelLoaded) {
+      Serial.print(" ailCfg=");
+      Serial.print(gModel.rates_pct[1]);
+      Serial.print(",");
+      Serial.print(gModel.expo_pct[1]);
+      Serial.print(",");
+      Serial.print(gModel.subtrim_us[1]);
+      Serial.print(",");
+      Serial.print(gModel.endpoints_us[1][0]);
+      Serial.print("-");
+      Serial.print(gModel.endpoints_us[1][1]);
+      Serial.print(",");
+      Serial.print((gModel.reserved[0] & (1 << 1)) ? "rev" : "norm");
+      Serial.print(",ar=");
+      Serial.print(gModel.active_rates);
+    }
+    Serial.print(" trims=");
+    Serial.print(digitalRead(PIN_TRIM_RUD_L) == LOW ? "RL" : "--");
+    Serial.print(",");
+    Serial.print(digitalRead(PIN_TRIM_RUD_R) == LOW ? "RR" : "--");
+    Serial.print(",");
+    Serial.print(digitalRead(PIN_TRIM_AIL_L) == LOW ? "AL" : "--");
+    Serial.print(",");
+    Serial.print(digitalRead(PIN_TRIM_AIL_R) == LOW ? "AR" : "--");
+    Serial.print(",");
+    Serial.print(digitalRead(PIN_TRIM_ELE_D) == LOW ? "ED" : "--");
+    Serial.print(",");
+    Serial.print(digitalRead(PIN_TRIM_ELE_U) == LOW ? "EU" : "--");
+    Serial.println();
   }
 
   driveBlink(LED_SOLID);

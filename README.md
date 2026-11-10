@@ -1,13 +1,56 @@
-# Walach Aviation Transmitter Configurator — Build & Run
+# Altitude Unknown RC Configurator — Build & Run
 
-This repository contains a Tkinter-based desktop GUI to manage TX models via serial (FRAM). The main script is `fram_gui_models.py`.
+This repository contains a Tkinter-based desktop GUI to manage transmitter models over USB serial. The radio automatically uses external FRAM when installed or the SAMD21's internal-flash fallback when FRAM is absent. The main script is `fram_gui_models.py`.
+
+Every tab has vertical and horizontal scrollbars for small windows and enlarged
+display text. Use the mouse wheel to scroll vertically, Shift+wheel to scroll
+horizontally, or drag the scrollbars. Keyboard Tab navigation brings focused
+controls into view. The serial connection row also scrolls in narrow windows.
+
+For V3 buddy-box radios, the **Instructor / Student** tab can also read and set
+the persistent role through the transmitter's separate ESP32-C3 USB port. With
+current M0 and ESP firmware, only the ESP cable is needed: the M0 reports its
+operating mode internally and the ESP rejects role writes unless that mode is
+Config, Simulator, or Setup. Keep the aircraft powered off while assigning
+roles. The GUI retains a two-cable Config Mode check for older firmware.
+
+Each model also has an optional **Mix aileron into rudder** setting. Enable it
+under Control Mixing and choose a signed percentage from -100% to +100%.
+Positive values move rudder with aileron; negative values reverse the mix
+direction. Start around 20-30%, save the model to the radio, and verify both
+directions on the bench before flight.
+
+The Models editor now offers **Aircraft Type**: Conventional / T-tail,
+V-tail (ruddervators), or Flying wing (elevons). V-tail uses RUD + ELE outputs;
+elevons use AIL + ELE. **Reverse rudder input (V-tail only)** changes yaw
+without reversing pitch. Save the model and restart in flight mode.
+Install the updated configurator and transmitter M0 firmware together: older
+configurators do not preserve these settings. Existing models default to
+conventional. V-tail controls have passed the pilot's bench and flight tests;
+elevons have automated test coverage and await hardware validation.
+
+The **Firmware Update** tab checks the project's latest GitHub release and can
+update the V3 transmitter's SAMD21/M0, ESP32-C3, or both, and can update the V4
+receiver. Firmware images are SHA-256 verified before flashing. The transmitter
+M0 uses automatic 1200-baud UF2 bootloader entry. Newer receivers use their
+`RCRXBOOT` UF2 bootloader; original Receiver V4 boards use a guarded USB
+bootloader request and the bundled BOSSA programmer. A RESET double-tap remains
+the recovery fallback. The update page scrolls on smaller or scaled displays so
+the flash action remains reachable. The small ESP connector uses its native
+serial/JTAG bootloader. Keep the aircraft powered off, remove the propeller,
+and export important models before updating.
+
+Current production firmware uses the rudder buttons only as press-release
+rudder trims. The temporary experimental autolevel commands are not emitted or
+processed. Update the transmitter M0 and receiver from the same release so
+their over-air packet layouts match, then rebind and bench-test every control.
 
 For the full RC transmitter, receiver, and GUI operating manual, see [MANUAL.md](MANUAL.md).
 
 Prerequisites
 - Python 3 (3.8+ recommended)
 - `tkinter` (usually bundled with CPython)
-- `pyserial` (install via `pip`)
+- `pyserial` and `esptool` (installed by `requirements.txt`)
 
 Install dependencies
 
@@ -33,9 +76,9 @@ pip install pyinstaller
 3. Build a one-file, windowed executable (run on Windows):
 
 ```powershell
-pyinstaller --onefile --windowed --name "WalachTransmitterConfigurator" fram_gui_models.py
+pyinstaller --onefile --windowed --name "AltitudeUnknownRCConfigurator" fram_gui_models.py
 
-# Result: dist\WalachTransmitterConfigurator.exe
+# Result: dist\AltitudeUnknownRCConfigurator.exe
 ```
 
 4. Test the exe by running it and verifying the serial port list and connectivity to your device (use COMx on Windows).
@@ -52,15 +95,30 @@ Option B — bundle with PyInstaller (build on macOS):
 
 ```bash
 pip install pyinstaller
-pyinstaller --windowed --name "Walach Aviation Transmitter Configurator" fram_gui_models.py
+pyinstaller --windowed --name "Altitude Unknown RC Configurator" fram_gui_models.py
 
-# Result: dist/Walach\ Aviation\ Transmitter\ Configurator.app
+# Result: dist/Altitude\ Unknown\ RC\ Configurator.app
 ```
+
+Raspberry Pi OS (64-bit) — released executable
+
+Download `Altitude-Unknown-RC-Configurator-Raspberry-Pi-ARM64.zip`
+from the GitHub release, unzip it, and run:
+
+```bash
+chmod +x "Altitude Unknown RC Configurator"
+./"Altitude Unknown RC Configurator"
+```
+
+This build is for 64-bit Raspberry Pi OS on ARM64 hardware (such as Pi 3, 4,
+or 5). It is not compatible with 32-bit Raspberry Pi OS.
 
 Notes & troubleshooting
 - Serial ports differ by OS: Windows uses `COMx`; macOS uses `/dev/tty.*` or `/dev/cu.*`.
 - If `tkinter` is missing on Windows, install the official Python installer from python.org and enable tcl/tk.
 - If PyInstaller misses imports, run the CLI build with `--hidden-import=serial.tools.list_ports` or adjust the generated spec.
+- The GUI connection status reports `fram` or `internal flash` after connecting.
+- Export important models before reflashing a radio that uses internal flash; a firmware upload may reset its model storage.
 
 Key files
 - [requirements.txt](requirements.txt)

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Desktop transmitter configuration GUI.
+Desktop RC transmitter and receiver configuration GUI.
 
 This program talks to the SAMD21 transmitter over USB serial while the
 transmitter is in Config Mode. The transmitter firmware exposes a tiny text
@@ -9,8 +9,8 @@ protocol:
     READ <address> <length>
     WRITE <address> <hex bytes>
 
-The GUI uses that protocol to read and write model settings stored in FRAM.
-FRAM is non-volatile memory, so it keeps the model data even when power is off.
+    The GUI uses that protocol to read and write model settings stored in the
+    transmitter's FRAM or built-in M0 flash fallback.
 
 Important beginner note:
 The Python GUI and the Arduino transmitter firmware must agree exactly about
@@ -19,9 +19,11 @@ struct format strings below. If the firmware struct changes, this file must be
 updated to match it byte-for-byte.
 """
 
-import sys, os, binascii, json, time, struct, random
+import sys, os, binascii, json, time, struct, random, threading
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, simpledialog
+
+import firmware_updater
 
 try:
     import serial
@@ -30,7 +32,7 @@ except Exception as e:
     raise SystemExit("This app requires 'pyserial' (or apt python3-serial on Debian).\n" + str(e))
 
 # Basic application-wide settings.
-APP_TITLE = "Walach Aviation Transmitter Configurator"
+APP_TITLE = "Altitude Unknown RC Configurator"
 BAUD = 115200
 
 # The firmware uses four fixed channel indexes internally:
@@ -47,7 +49,8 @@ CHANNEL_DISPLAY_ORDER = [3, 1, 2, 0]  # Show receiver-style TAER order while kee
 # Channel label names are GUI-only metadata. The transmitter's 60-byte model
 # struct has no spare room for long names, so custom channel labels live in this
 # local JSON preferences file instead of FRAM.
-LOCAL_PREFS_PATH = os.path.join(os.path.expanduser("~"), ".walach_transmitter_configurator.json")
+LOCAL_PREFS_PATH = os.path.join(os.path.expanduser("~"), ".altitude_unknown_rc_configurator.json")
+LEGACY_PREFS_PATH = os.path.join(os.path.expanduser("~"), ".walach_transmitter_configurator.json")
 
 # Centralized colors for the custom Tk/ttk styling. Keeping them here makes it
 # easier to adjust the visual design without searching through the UI code.
@@ -62,6 +65,11 @@ COLORS = {
     "border": "#cfd9e2",
     "success": "#1f8a4c",
 }
+
+def resource_path(relative):
+    """Resolve bundled PyInstaller assets and normal source-tree assets."""
+    base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(base, relative)
 
 # ---- FRAM map constants (mirror of tx_config.h) ----
 #
@@ -94,8 +102,45 @@ HDR_FMT = "<I H H H I 18s"   # 32 bytes header: 4+2+2+2+4+18
 MODEL_FMT_NOCRC = "<16s H 4b 4b B B 4h 8H 6s"  # 58 bytes
 MODEL_FMT       = MODEL_FMT_NOCRC + " H"       # +2 = 60
 
+AIRCRAFT_TYPES = ("Conventional / T-tail", "V-tail (ruddervators)", "Flying wing (elevons)")
+
+D10_FUNCTIONS = ("Trainer", "Channel 5 — Momentary", "Channel 5 — Toggle")
+D7_FUNCTIONS = ("Disabled", "Channel 6 — Momentary", "Channel 6 — Toggle")
+CH5_RATE_MODES = ("Off — use selected rates", "FBWA at CH5 low — full surface rates",
+                  "FBWA at CH5 high — full surface rates")
+
+def button_config(model):
+    modes = (model.get("d10_function", 0), model.get("d7_function", 0))
+    if any(type(value) is not int or value not in (0, 1, 2) for value in modes):
+        raise ValueError("Button function must be 0, 1, or 2")
+    rate_mode = model.get("ch5_rate_mode", 0)
+    if type(rate_mode) is not int or rate_mode not in (0, 1, 2):
+        raise ValueError("CH5 rate mode must be 0, 1, or 2")
+    if rate_mode and modes[0] == 0:
+        raise ValueError("Mode-linked rates require D10 assigned to Channel 5, not Trainer.")
+    return modes[0] | (modes[1] << 2) | (rate_mode << 4)
+
+def validate_model_controls(model: dict) -> dict:
+    """Clamp editable controls and reject endpoints that collapse a channel."""
+    if model.get("aircraft_type", 0) not in range(len(AIRCRAFT_TYPES)):
+        raise ValueError("Unsupported aircraft type")
+    button_config(model)
+    for i in range(4):
+        model["rates"][i] = max(0, min(100, model["rates"][i]))
+        model["expo"][i] = max(-100, min(100, model["expo"][i]))
+        model["subtrim"][i] = max(-500, min(500, model["subtrim"][i]))
+        mn, mx = model["endpoints"][i]
+        mn = max(800, min(2200, mn))
+        mx = max(800, min(2200, mx))
+        if mn >= mx:
+            raise ValueError(
+                f"{CHANNEL_DEFAULT_NAMES[i]} endpoints must have Min us below Max us"
+            )
+        model["endpoints"][i] = [mn, mx]
+    return model
+
 def crc16_ccitt(data: bytes, poly=0x1021, init=0xFFFF) -> int:
-    """Return the CRC used to detect corrupted model bytes in FRAM."""
+    """Return the CRC used to detect corrupted model bytes in radio storage."""
     crc = init
     for b in data:
         # Move this byte into the top half of the CRC register.
@@ -131,16 +176,38 @@ class SerialWorker:
     def __init__(self):
         # self.ser is None when disconnected; otherwise it is a serial.Serial.
         self.ser = None
+        self.device_info = {}
 
     def open(self, port):
         # Open the chosen USB serial port at the same baud rate as the firmware.
-        self.ser = serial.Serial(port=port, baudrate=BAUD, timeout=1)
+        try:
+            self.ser = serial.Serial(port=port, baudrate=BAUD, timeout=0.5)
 
-        # Give the microcontroller/USB stack a moment to settle, then clear any
-        # stale text that may have been waiting in the buffers.
-        time.sleep(0.2)
-        self.ser.reset_input_buffer()
-        self.ser.reset_output_buffer()
+            # Give the microcontroller/USB stack a moment to settle, then prove
+            # that this is the SAMD21 config service. A V3 transmitter exposes
+            # a second USB port from its ESP32; that port accepts role/status
+            # commands but cannot access the model FRAM.
+            time.sleep(0.2)
+            self.ser.reset_input_buffer()
+            self.ser.reset_output_buffer()
+            for _ in range(3):
+                self.send_line("PING")
+                if self.read_line() == "PONG":
+                    self.ser.timeout = 1
+                    self.send_line("INFO")
+                    try:
+                        self.device_info = json.loads(self.read_line())
+                    except Exception:
+                        self.device_info = {}
+                    return
+            raise RuntimeError(
+                "No configurator response. Select the 'Altitude RC TX M0' "
+                "port and restart the transmitter while holding Bind (D9) "
+                "+ Aileron Trim Right (D5)."
+            )
+        except Exception:
+            self.close()
+            raise
 
     def close(self):
         if self.ser:
@@ -161,14 +228,43 @@ class SerialWorker:
         if not self.ser: raise RuntimeError("Not connected")
         return self.ser.readline().decode("ascii", errors="ignore").strip()
 
+    def verify_config_mode(self):
+        """Prove this SAMD21 is still serving the no-LoRa Config Mode."""
+        if not self.ser:
+            return False
+        self.ser.reset_input_buffer()
+        self.send_line("PING")
+        return self.read_line() == "PONG"
+
+    def test_speaker(self, pattern):
+        """Play bounded Config Mode sounds without changing models or timers."""
+        if pattern not in ("FIVE_MIN", "ONE_MIN", "STOP"):
+            raise ValueError("Unknown speaker test")
+        if not self.ser:
+            raise RuntimeError("Connect the transmitter M0 in USB Config Mode first.")
+        if not self.device_info.get("buzzer_test"):
+            raise RuntimeError("This TX firmware does not support speaker tests. Update its firmware first.")
+        if not self.verify_config_mode():
+            raise RuntimeError("TX is not responding in USB Config Mode. Reconnect before testing.")
+        self.send_line("BEEP " + pattern)
+        response = self.read_line()
+        if response != "OK BEEP " + pattern:
+            raise RuntimeError(response or "No response to speaker test")
+
     # --- Protocol: READ/WRITE ---
     def cmd_read(self, addr: int, length: int) -> bytes:
-        # Ask the transmitter for raw FRAM bytes.
+        # Ask the transmitter for raw persistent-storage bytes.
         self.send_line(f"READ {addr} {length}")
         resp = self.read_line()
 
         # A successful response looks like:
         #   DATA 00112233AABB...
+        if resp == "ERR":
+            raise RuntimeError(
+                "The transmitter is connected, but its persistent storage did "
+                "not answer. Reflash current firmware, then check the FRAM or "
+                "M0 internal-flash fallback."
+            )
         if not resp.startswith("DATA "):
             raise RuntimeError(f"Unexpected READ response: {resp}")
         hexblob = resp.split(" ", 1)[1].strip()
@@ -181,6 +277,79 @@ class SerialWorker:
         resp = self.read_line()
         if resp != "OK":
             raise RuntimeError(f"WRITE failed: {resp}")
+
+class EspRoleWorker:
+    """USB-serial client for the V3 transmitter's ESP32-C3 role service."""
+
+    def __init__(self):
+        self.ser = None
+
+    def open(self, port):
+        try:
+            self.ser = serial.Serial(port=port, baudrate=BAUD, timeout=0.25)
+            time.sleep(0.35)
+            self.ser.reset_input_buffer()
+            self.ser.reset_output_buffer()
+            return self.status(timeout=2.0)
+        except Exception:
+            self.close()
+            raise
+
+    def close(self):
+        if self.ser:
+            try:
+                self.ser.close()
+            except Exception:
+                pass
+        self.ser = None
+
+    def _write(self, command):
+        if not self.ser:
+            raise RuntimeError("ESP role port is not connected")
+        self.ser.write((command + "\n").encode("ascii"))
+        self.ser.flush()
+
+    def _read_matching(self, prefixes, timeout):
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            line = self.ser.readline().decode("ascii", errors="ignore").strip()
+            if line and any(line.startswith(prefix) for prefix in prefixes):
+                return line
+        raise RuntimeError("No role-service response from the ESP32-C3")
+
+    @staticmethod
+    def parse_status(line):
+        if not line.startswith("STATUS "):
+            raise ValueError(f"Unexpected ESP response: {line}")
+        values = {}
+        for field in line.split()[1:]:
+            if "=" in field:
+                key, value = field.split("=", 1)
+                values[key] = value
+        for required in ("role", "authority", "mac"):
+            if required not in values:
+                raise ValueError(f"Incomplete ESP status: {line}")
+        return values
+
+    def status(self, timeout=1.5):
+        self._write("STATUS")
+        return self.parse_status(self._read_matching(("STATUS ",), timeout))
+
+    def set_role(self, role):
+        role = role.upper()
+        if role not in ("MASTER", "STUDENT"):
+            raise ValueError("Role must be MASTER or STUDENT")
+        self._write(f"ROLE {role}")
+        response = self._read_matching(("OK ", "ERR"), 1.5)
+        if not response.startswith(f"OK role={role}"):
+            raise RuntimeError(f"Role change failed: {response}")
+        verified = self.status()
+        if verified.get("role") != role:
+            raise RuntimeError(
+                f"ESP reported {verified.get('role', 'UNKNOWN')} after writing {role}"
+            )
+        return verified
+
 
 class ModelsStore:
     """
@@ -276,6 +445,9 @@ class ModelsStore:
         reserved = tup[24]
         rev_mask = reserved[0] if isinstance(reserved, (bytes, bytearray)) and len(reserved) > 0 else 0
         reverse = [bool((rev_mask >> i) & 1) for i in range(4)]
+        mix_enabled = bool(reserved[1] & 0x01) if len(reserved) > 1 else False
+        mix_percent = struct.unpack("b", reserved[2:3])[0] if len(reserved) > 2 else 0
+        mix_percent = max(-100, min(100, mix_percent))
 
         # Return a plain dictionary because it is easy for the GUI and JSON
         # import/export code to work with.
@@ -283,6 +455,13 @@ class ModelsStore:
                 dr_switch=dr_switch, active_rates=active_rates,
                 subtrim=subtrim, endpoints=endpoints,
                 reverse=reverse,
+                aircraft_type=reserved[3] if reserved[3] < len(AIRCRAFT_TYPES) else 0,
+                vtail_rudder_reverse=bool(reserved[4] & 1),
+                d10_function=(reserved[5] & 3) if (reserved[5] & 3) < 3 else 0,
+                d7_function=((reserved[5] >> 2) & 3) if ((reserved[5] >> 2) & 3) < 3 else 0,
+                ch5_rate_mode=((reserved[5] >> 4) & 3) if ((reserved[5] >> 4) & 3) < 3 else 0,
+                ail_to_rud_mix_enabled=mix_enabled,
+                ail_to_rud_mix_percent=mix_percent,
                 crc_ok=(crc_stored == crc_calc))
 
     def write_model(self, slot: int, model):
@@ -291,6 +470,15 @@ class ModelsStore:
         # string.
         name_bytes = model["name"].encode("utf-8")[:15] + b"\x00"
         name_bytes = name_bytes.ljust(16, b"\x00")
+
+        config = button_config(model)
+        info = getattr(self.w, "device_info", None)
+        if config and info is not None and not info.get("button_channels"):
+            raise ValueError("Update the transmitter M0 firmware before saving button channels.")
+        if model.get("ch5_rate_mode", 0) and info is not None and not info.get("mode_rates"):
+            raise ValueError("Update the transmitter M0 firmware before saving mode-linked rates.")
+        if model.get("d10_function", 0) and info and info.get("radio_role") == "STUDENT":
+            raise ValueError("Student radios reserve D10 for training. Select Trainer for D10.")
 
         # Clamp each setting to the same safe range the transmitter expects.
         # This prevents a bad GUI value or imported JSON file from writing
@@ -318,7 +506,13 @@ class ModelsStore:
         if "reverse" in model:
             for i in range(4):
                 if model["reverse"][i]: rev_mask |= (1 << i)
-        reserved = bytes([rev_mask]) + b"\x00"*5
+        mix_enabled = bool(model.get("ail_to_rud_mix_enabled", False))
+        mix_percent = int(max(-100, min(100, model.get("ail_to_rud_mix_percent", 0))))
+        mix_flags = 0x01 if mix_enabled else 0x00
+        aircraft_type = model.get("aircraft_type", 0)
+        if aircraft_type not in range(len(AIRCRAFT_TYPES)):
+            raise ValueError("Unsupported aircraft type")
+        reserved = bytes([rev_mask, mix_flags]) + struct.pack("b", mix_percent) + bytes([aircraft_type, int(bool(model.get("vtail_rudder_reverse", False))), button_config(model)])
 
         # Pack everything except the CRC first, because the CRC is calculated
         # over these first 58 bytes.
@@ -353,7 +547,10 @@ class ChannelLabelStore:
         # If the preferences file is missing or malformed, fall back quietly to
         # default names. The GUI should still open even if local preferences fail.
         try:
-            with open(self.path, "r") as f:
+            source = self.path
+            if source == LOCAL_PREFS_PATH and not os.path.exists(source) and os.path.exists(LEGACY_PREFS_PATH):
+                source = LEGACY_PREFS_PATH
+            with open(source, "r") as f:
                 data = json.load(f)
             self.labels = data.get("channel_labels", {})
         except Exception:
@@ -395,6 +592,92 @@ class ChannelLabelStore:
             del self.labels[str(slot)]
             self.save()
 
+class ScrollableTab(ttk.Frame):
+    """Two-axis viewport; keep the form's natural size instead of clipping it."""
+
+    def __init__(self, parent, padding=12):
+        super().__init__(parent, style="Panel.TFrame")
+        self.canvas = tk.Canvas(self, background=COLORS["panel"],
+                                highlightthickness=0, width=1, height=1,
+                                xscrollincrement=1, yscrollincrement=1)
+        self.vertical = ttk.Scrollbar(self, orient="vertical", command=self.canvas.yview)
+        self.horizontal = ttk.Scrollbar(self, orient="horizontal", command=self.canvas.xview)
+        self.canvas.configure(xscrollcommand=self.horizontal.set,
+                              yscrollcommand=self.vertical.set)
+        self.canvas.grid(row=0, column=0, sticky="nsew")
+        self.vertical.grid(row=0, column=1, sticky="ns")
+        self.horizontal.grid(row=1, column=0, sticky="ew")
+        self.rowconfigure(0, weight=1)
+        self.columnconfigure(0, weight=1)
+        self.content = ttk.Frame(self.canvas, padding=padding, style="Panel.TFrame")
+        self.window = self.canvas.create_window(0, 0, window=self.content, anchor="nw")
+        self.canvas.bind("<Configure>", self._resize)
+        self.content.bind("<Configure>", self._resize)
+        # A per-tab tag runs before widget class bindings. No bind_all/unbind_all:
+        # wheel events cannot change a combobox value or affect another window.
+        self._tag = f"ScrollableTab:{self}"
+        for sequence in ("<MouseWheel>", "<Shift-MouseWheel>",
+                         "<Button-4>", "<Button-5>",
+                         "<Shift-Button-4>", "<Shift-Button-5>"):
+            self.bind_class(self._tag, sequence, self._wheel)
+        self.bind_class(self._tag, "<FocusIn>", self._focus)
+
+    def _resize(self, _event=None):
+        width = max(self.content.winfo_reqwidth(), self.canvas.winfo_width())
+        height = max(self.content.winfo_reqheight(), self.canvas.winfo_height())
+        self.canvas.itemconfigure(self.window, width=width, height=height)
+        self.canvas.configure(scrollregion=(0, 0, width, height))
+
+    def bind_content(self, widget=None):
+        widget = self if widget is None else widget
+        tags = widget.bindtags()
+        if self._tag not in tags:
+            widget.bindtags((tags[0], self._tag, *tags[1:]))
+        for child in widget.winfo_children():
+            self.bind_content(child)
+
+    def _wheel(self, event):
+        horizontal = bool(event.state & 0x1)
+        if getattr(event, "num", None) in (4, 5):
+            units = -1 if event.num == 4 else 1
+        else:
+            delta = event.delta
+            if not delta:
+                return "break"
+            # Windows uses multiples of 120; macOS delivers smaller deltas.
+            units = -int(delta / 120) if abs(delta) >= 120 else (-1 if delta > 0 else 1)
+        # Preserve useful nested list/table scrolling. At its edge, scroll the
+        # whole form so wheel users can still reach controls below the list.
+        widget = event.widget
+        if not horizontal and isinstance(widget, (tk.Listbox, ttk.Treeview, tk.Text)):
+            first, last = widget.yview()
+            if (units < 0 and first > 0) or (units > 0 and last < 1):
+                widget.yview_scroll(units, "units")
+                return "break"
+        view = self.canvas.xview_scroll if horizontal else self.canvas.yview_scroll
+        view(units * 20, "units")
+        return "break"
+
+    def _focus(self, event):
+        widget = event.widget
+        if widget in (self, self.canvas, self.vertical, self.horizontal, self.content):
+            return
+        self.update_idletasks()
+        # Coordinates relative to the complete content, independent of scroll.
+        x = widget.winfo_rootx() - self.content.winfo_rootx()
+        y = widget.winfo_rooty() - self.content.winfo_rooty()
+        for start, size, viewport, total, current, move in (
+            (x, widget.winfo_width(), self.canvas.winfo_width(),
+             self.content.winfo_width(), self.canvas.canvasx(0), self.canvas.xview_moveto),
+            (y, widget.winfo_height(), self.canvas.winfo_height(),
+             self.content.winfo_height(), self.canvas.canvasy(0), self.canvas.yview_moveto),
+        ):
+            if start < current or size > viewport:
+                move(max(0, start - 20) / total)
+            elif start + size > current + viewport:
+                move(min(start, start + size + 8 - viewport) / total)
+
+
 class App(tk.Tk):
     """
     Main Tkinter window.
@@ -409,14 +692,19 @@ class App(tk.Tk):
 
         # Basic window setup.
         self.title(APP_TITLE)
-        self.geometry("1120x760")
-        self.minsize(980, 650)
+        width = min(1120, max(480, self.winfo_screenwidth() - 80))
+        height = min(760, max(320, self.winfo_screenheight() - 120))
+        self.geometry(f"{width}x{height}")
+        self.minsize(480, 320)
         self.configure(bg=COLORS["bg"])
 
         # Create helper objects used by the UI callbacks.
         self.w = SerialWorker()
+        self.role_worker = EspRoleWorker()
         self.store = ModelsStore(self.w)
         self.channel_labels = ChannelLabelStore()
+        self.firmware_release = None
+        self.firmware_busy = False
 
         # Tracks which slot was last loaded into the editor. The selected slot
         # in the list is still the source of truth when saving.
@@ -426,28 +714,15 @@ class App(tk.Tk):
         self._install_app_icon()
         self._install_style()
         self._build_ui()
+        self.protocol("WM_DELETE_WINDOW", self.on_close)
 
         # Populate the serial-port dropdown right away.
         self.refresh_ports()
 
     def _install_app_icon(self):
-        # Build a tiny icon using Tk's PhotoImage. This avoids needing a PNG/ICO
-        # file just to get a nice window icon during normal Python launches.
         try:
-            icon = tk.PhotoImage(width=64, height=64)
-
-            # PhotoImage.put fills rectangular regions. The result is a simple
-            # transmitter-like mark with an antenna and control body.
-            icon.put(COLORS["accent_dark"], to=(0, 0, 64, 64))
-            icon.put(COLORS["accent"], to=(6, 6, 58, 58))
-            icon.put("#ffffff", to=(14, 18, 50, 24))
-            icon.put("#ffffff", to=(20, 28, 44, 34))
-            icon.put("#ffffff", to=(26, 38, 38, 44))
-            icon.put("#d9f3f6", to=(12, 46, 52, 50))
-            icon.put(COLORS["accent_dark"], to=(28, 12, 36, 54))
-            icon.put("#f6c64f", to=(27, 10, 37, 18))
-            self._app_icon = icon
-            self.iconphoto(True, icon)
+            self._app_icon = tk.PhotoImage(file=resource_path("assets/altitude_unknown_icon.png"))
+            self.iconphoto(True, self._app_icon)
         except Exception:
             # Icons are nice-to-have. If a platform rejects this icon setup, the
             # app should still run normally.
@@ -495,15 +770,23 @@ class App(tk.Tk):
         # Header band across the top of the window.
         header = ttk.Frame(self, padding=(18, 14), style="Header.TFrame")
         header.pack(fill='x')
+        try:
+            self._header_logo = tk.PhotoImage(file=resource_path("assets/altitude_unknown_icon.png")).subsample(7, 7)
+            ttk.Label(header, image=self._header_logo, style="Header.TLabel").pack(side='left', padx=(0, 14))
+        except Exception:
+            pass
         title_area = ttk.Frame(header, style="Header.TFrame")
         title_area.pack(side='left', fill='x', expand=True)
         ttk.Label(title_area, text=APP_TITLE, style="Header.TLabel").pack(anchor='w')
-        ttk.Label(title_area, text="Model setup, channel tuning, and FRAM sync", style="HeaderSub.TLabel").pack(anchor='w', pady=(2, 0))
+        ttk.Label(title_area, text="Transmitter setup, receiver updates, and flight-system tools", style="HeaderSub.TLabel").pack(anchor='w', pady=(2, 0))
 
         # Serial connection controls. The user chooses a USB port, then connects
         # to the transmitter while it is in Config Mode.
-        top = ttk.Frame(self, padding=(14, 12), style="Panel.TFrame")
-        top.pack(fill='x', padx=14, pady=(14, 0))
+        self.connection_view = ScrollableTab(self, padding=(14, 12))
+        self.connection_view.pack(fill='x', padx=14, pady=(14, 0))
+        top = self.connection_view.content
+        top.bind("<Configure>", lambda _event: self.connection_view.canvas.configure(
+            height=top.winfo_reqheight()), add="+")
         ttk.Label(top, text="Serial Port:", style="Panel.TLabel").pack(side='left')
         self.port_var = tk.StringVar()
         self.port_cmb = ttk.Combobox(top, textvariable=self.port_var, width=30, state="readonly")
@@ -514,15 +797,17 @@ class App(tk.Tk):
         self.status_lbl = ttk.Label(header, text="Not connected", style="Status.TLabel")
         self.status_lbl.pack(side='right', padx=4)
 
-        # Notebook allows more tabs later. Right now it only contains Models.
+        # Each tab owns a two-axis viewport so controls remain reachable.
         self.nb = ttk.Notebook(self); self.nb.pack(fill='both', expand=True, padx=14, pady=14)
 
         # --- Models tab ---
-        self.tab_models = ttk.Frame(self.nb, padding=12, style="Panel.TFrame")
+        self.tab_models = ScrollableTab(self.nb, padding=12)
         self.nb.add(self.tab_models, text="Models")
+        self.models_canvas = self.tab_models.canvas
+        models_body = self.tab_models.content
 
         # Left side: list of all FRAM model slots.
-        left = ttk.Frame(self.tab_models, style="Panel.TFrame"); left.pack(side='left', fill='y', padx=(0,14))
+        left = ttk.Frame(models_body, style="Panel.TFrame"); left.pack(side='left', fill='y', padx=(0,14))
         ttk.Label(left, text="Model Slots", style="Panel.TLabel", font=("Helvetica", 12, "bold")).pack(anchor='w', pady=(0, 6))
         self.models_list = tk.Listbox(left, width=34, height=27, relief="flat", highlightthickness=1,
                                       highlightbackground=COLORS["border"], selectbackground=COLORS["accent"],
@@ -536,16 +821,24 @@ class App(tk.Tk):
         ttk.Button(btns, text="Set Active", command=self.on_set_active).grid(row=0, column=3, padx=2)
 
         # Right side: editor for the selected model's values.
-        right = ttk.Frame(self.tab_models, style="Panel.TFrame"); right.pack(side='left', fill='both', expand=True)
+        right = ttk.Frame(models_body, style="Panel.TFrame"); right.pack(side='left', fill='both', expand=True)
         form = ttk.Frame(right, style="Panel.TFrame"); form.pack(fill='x', pady=(0, 10))
 
         # Tk variables keep widget state synchronized with Python values.
         # For example, editing the Model Name entry changes self.name_var.
+        self.d10_function_var = tk.StringVar(value=D10_FUNCTIONS[0])
+        self.d7_function_var = tk.StringVar(value=D7_FUNCTIONS[0])
+        self.ch5_rate_mode_var = tk.StringVar(value=CH5_RATE_MODES[0])
+        self.button_status_var = tk.StringVar(value="D10 Trainer reserves the button for handoff. Channel 5 disables student control.")
+        self.aircraft_type_var = tk.StringVar(value=AIRCRAFT_TYPES[0])
+        self.vtail_rudder_reverse_var = tk.BooleanVar(value=False)
         self.name_var = tk.StringVar()
         self.bind_var = tk.StringVar(value="0")
         self.bind_changed = False
         self.dr_active_var = tk.BooleanVar(value=False)
         self.dr_switch_var = tk.StringVar(value="0")
+        self.ail_rud_mix_enabled_var = tk.BooleanVar(value=False)
+        self.ail_rud_mix_percent_var = tk.IntVar(value=30)
 
         ttk.Label(form, text="Model Name", style="Panel.TLabel").grid(row=0, column=0, sticky='e', pady=4)
         ttk.Entry(form, textvariable=self.name_var, width=24).grid(row=0, column=1, sticky='w', padx=6)
@@ -564,6 +857,54 @@ class App(tk.Tk):
         ttk.Label(form, text="DR Switch", style="Panel.TLabel").grid(row=0, column=5, sticky='e')
         ttk.Entry(form, textvariable=self.dr_switch_var, width=6).grid(row=0, column=6, sticky='w', padx=6)
         ttk.Checkbutton(form, text="High Rates Active", variable=self.dr_active_var).grid(row=0, column=7, sticky='w', padx=6)
+
+        ttk.Label(form, text="Aircraft Type", style="Panel.TLabel").grid(row=1, column=0, sticky='e', pady=4)
+        ttk.Combobox(form, textvariable=self.aircraft_type_var, values=AIRCRAFT_TYPES,
+                     state="readonly", width=26).grid(row=1, column=1, columnspan=3, sticky='w', padx=6)
+        ttk.Label(form, text="V-tail: RUD + ELE outputs · Elevons: AIL + ELE outputs",
+                  style="Muted.TLabel").grid(row=2, column=0, columnspan=8, sticky='w', pady=4)
+
+        ttk.Checkbutton(form, text="Reverse rudder input (V-tail only)",
+                        variable=self.vtail_rudder_reverse_var).grid(
+                            row=3, column=0, columnspan=8, sticky='w', pady=4)
+
+        button_frame = ttk.LabelFrame(right, text="Button channels", padding=(12, 8))
+        button_frame.pack(fill='x', pady=(0, 6))
+        ttk.Label(button_frame, text="D10 / Trainer:").grid(row=0, column=0, sticky='w')
+        self.d10_function_combo = ttk.Combobox(button_frame, textvariable=self.d10_function_var,
+            values=D10_FUNCTIONS, state="readonly", width=25)
+        self.d10_function_combo.grid(row=0, column=1, padx=8)
+        ttk.Label(button_frame, text="D7 / Aux:").grid(row=0, column=2, sticky='w')
+        ttk.Combobox(button_frame, textvariable=self.d7_function_var,
+            values=D7_FUNCTIONS, state="readonly", width=25).grid(row=0, column=3, padx=8)
+        ttk.Label(button_frame, textvariable=self.button_status_var, wraplength=680).grid(
+            row=1, column=0, columnspan=4, sticky='w', pady=4)
+        ttk.Label(button_frame, text="Momentary: hold high, release low. Toggle: press to change. Starts low at power-up.",
+            wraplength=680).grid(row=2, column=0, columnspan=4, sticky='w')
+        ttk.Label(button_frame, text="Mode-linked rates:").grid(row=3, column=0, sticky='w', pady=4)
+        self.ch5_rate_mode_combo = ttk.Combobox(button_frame, textvariable=self.ch5_rate_mode_var,
+            values=CH5_RATE_MODES, state="readonly", width=43)
+        self.ch5_rate_mode_combo.grid(row=3, column=1, columnspan=3, sticky='w', padx=8)
+        ttk.Label(button_frame, text="Other CH5 position restores selected rates. Throttle, trims and expo stay unchanged. "
+            "Match low/high to the FC mode settings; this radio does not receive FC mode feedback.",
+            wraplength=680).grid(row=4, column=0, columnspan=4, sticky='w')
+
+        mix_frame = ttk.LabelFrame(right, text="Control Mixing", padding=(12, 8))
+        mix_frame.pack(fill='x', pady=(0, 6))
+        ttk.Checkbutton(
+            mix_frame, text="Mix aileron into rudder",
+            variable=self.ail_rud_mix_enabled_var
+        ).pack(side='left')
+        ttk.Label(mix_frame, text="Rudder amount:", style="Panel.TLabel").pack(side='left', padx=(18, 5))
+        ttk.Spinbox(
+            mix_frame, from_=-100, to=100, increment=5, width=6,
+            textvariable=self.ail_rud_mix_percent_var
+        ).pack(side='left')
+        ttk.Label(
+            mix_frame,
+            text="%  (negative reverses the mix direction)",
+            style="Muted.TLabel"
+        ).pack(side='left', padx=5)
 
         # Editable channel table. A Treeview is normally read-only, so the
         # _install_cell_editor method below adds double-click editing behavior.
@@ -590,10 +931,458 @@ class App(tk.Tk):
         self._install_cell_editor(self.tree)
 
         bottom = ttk.Frame(right, style="Panel.TFrame"); bottom.pack(fill='x', pady=12)
-        ttk.Button(bottom, text="Load From FRAM", command=self.on_load_slot).pack(side='left')
-        ttk.Button(bottom, text="Save To FRAM", command=self.on_save_slot, style="Accent.TButton").pack(side='left', padx=6)
+        ttk.Button(bottom, text="Load From Radio", command=self.on_load_slot).pack(side='left')
+        ttk.Button(bottom, text="Save To Radio", command=self.on_save_slot, style="Accent.TButton").pack(side='left', padx=6)
         ttk.Button(bottom, text="Export Model (.json)", command=self.on_export_model).pack(side='left', padx=6)
         ttk.Button(bottom, text="Import Model (.json)", command=self.on_import_model).pack(side='left', padx=6)
+
+        self._build_role_tab()
+        self._build_firmware_tab()
+        self._build_speaker_tab()
+        for tab in (self.connection_view, self.tab_models, self.tab_roles, self.tab_firmware, self.tab_speaker):
+            tab.bind_content()
+
+    def _build_speaker_tab(self):
+        self.tab_speaker = ScrollableTab(self.nb, padding=22)
+        self.nb.add(self.tab_speaker, text="Speaker Test")
+        content = self.tab_speaker.content
+        ttk.Label(content, text="Transmitter speaker test", style="Panel.TLabel",
+                  font=("Helvetica", 16, "bold")).pack(anchor="w")
+        ttk.Label(content, text="Keep the aircraft powered off. Connect the transmitter M0 in USB Config Mode using Connect above.\n"
+                  "Tests play the flight alarm sounds without changing model settings or the flight timer.\n"
+                  "Listen to confirm the speaker works; command acceptance cannot confirm audible sound.",
+                  style="Panel.TLabel", wraplength=640).pack(anchor="w", pady=12)
+        for label, pattern in (("Play five-minute alarm (~6 seconds)", "FIVE_MIN"),
+                               ("Play one-minute reminder (~2 seconds)", "ONE_MIN"),
+                               ("Stop sound", "STOP")):
+            ttk.Button(content, text=label, command=lambda p=pattern: self.on_speaker_test(p)).pack(anchor="w", pady=5)
+        self.speaker_status = tk.StringVar(value="Ready. Requires TX firmware with speaker-test support.")
+        ttk.Label(content, textvariable=self.speaker_status, style="Panel.TLabel",
+                  wraplength=640).pack(anchor="w", pady=12)
+
+    def on_speaker_test(self, pattern):
+        try:
+            if self.firmware_busy:
+                raise RuntimeError("Wait for the firmware operation to finish before testing.")
+            self.w.test_speaker(pattern)
+            self.speaker_status.set("Stop command accepted." if pattern == "STOP" else
+                                    "Playback command accepted. Listen for the sound; it stops automatically.")
+        except Exception as exc:
+            self.speaker_status.set(str(exc))
+            messagebox.showerror("Speaker test", str(exc))
+
+    def _build_firmware_tab(self):
+        """Build the guided SAMD21/ESP32-C3 firmware updater."""
+        self.tab_firmware = ScrollableTab(self.nb, padding=22)
+        self.nb.add(self.tab_firmware, text="Firmware Update")
+        content = self.tab_firmware.content
+
+        ttk.Label(content, text="RC and Flight Controller Firmware Update", style="Panel.TLabel",
+                  font=("Helvetica", 16, "bold")).pack(anchor="w")
+        ttk.Label(
+            content,
+            text=("Download verified firmware from the latest Altitude Unknown GitHub release. "
+                  "Keep the aircraft powered off and remove its propeller before updating."),
+            style="Muted.TLabel", wraplength=850, justify="left"
+        ).pack(anchor="w", pady=(5, 16))
+
+        release_frame = ttk.LabelFrame(content, text="Latest release", padding=14)
+        release_frame.pack(fill="x")
+        release_row = ttk.Frame(release_frame, style="Panel.TFrame")
+        release_row.pack(fill="x")
+        self.firmware_release_var = tk.StringVar(value="Not checked")
+        ttk.Label(release_row, textvariable=self.firmware_release_var,
+                  style="Panel.TLabel", font=("Menlo", 11, "bold")).pack(side="left", fill="x", expand=True)
+        self.firmware_check_btn = ttk.Button(
+            release_row, text="Check GitHub", command=self.on_check_firmware)
+        self.firmware_check_btn.pack(side="right")
+
+        target_frame = ttk.LabelFrame(content, text="Processors to update", padding=14)
+        target_frame.pack(fill="x", pady=14)
+        self.firmware_target_var = tk.StringVar(value="tx_both")
+        for text, value in (("Transmitter — both processors (recommended)", "tx_both"),
+                            ("Transmitter M0 only", "tx_samd21"),
+                            ("Transmitter ESP32-C3 only", "tx_esp32c3"),
+                            ("Receiver (Rx V4 or ASCEND flight controller built-in receiver)", "receiver_samd21"),
+                            ("Flight controller (ArduPlane)", "flight_controller")):
+            ttk.Radiobutton(target_frame, text=text, value=value,
+                            variable=self.firmware_target_var,
+                            command=self._update_firmware_instructions).pack(anchor="w", pady=2)
+
+        samd_port_frame = ttk.LabelFrame(content, text="Transmitter M0 or receiver USB port", padding=14)
+        samd_port_frame.pack(fill="x")
+        samd_port_row = ttk.Frame(samd_port_frame, style="Panel.TFrame")
+        samd_port_row.pack(fill="x")
+        self.firmware_samd_port_var = tk.StringVar()
+        self.firmware_samd_port_cmb = ttk.Combobox(
+            samd_port_row, textvariable=self.firmware_samd_port_var, width=52, state="readonly")
+        self.firmware_samd_port_cmb.pack(side="left")
+        ttk.Button(samd_port_row, text="Refresh Ports", command=self.refresh_ports).pack(side="left", padx=8)
+        ttk.Label(
+            samd_port_frame,
+            text="Used for automatic bootloader entry; manual RESET remains available as a fallback.",
+            style="Muted.TLabel").pack(anchor="w", pady=(8, 0))
+
+        port_frame = ttk.LabelFrame(content, text="Transmitter ESP32-C3 USB port", padding=14)
+        port_frame.pack(fill="x", pady=(14, 0))
+        port_row = ttk.Frame(port_frame, style="Panel.TFrame")
+        port_row.pack(fill="x")
+        self.firmware_esp_port_var = tk.StringVar()
+        self.firmware_esp_port_cmb = ttk.Combobox(
+            port_row, textvariable=self.firmware_esp_port_var, width=52, state="readonly")
+        self.firmware_esp_port_cmb.pack(side="left")
+        ttk.Button(port_row, text="Refresh Ports", command=self.refresh_ports).pack(side="left", padx=8)
+        ttk.Label(
+            port_frame,
+            text="Use the small ESP USB connector. The Altitude RC TX M0 port is the other processor.",
+            style="Muted.TLabel").pack(anchor="w", pady=(8, 0))
+
+        fc_port_frame = ttk.LabelFrame(content, text="Flight controller USB port", padding=14)
+        fc_port_frame.pack(fill="x", pady=(14, 0))
+        fc_port_row = ttk.Frame(fc_port_frame, style="Panel.TFrame")
+        fc_port_row.pack(fill="x")
+        self.firmware_fc_port_var = tk.StringVar()
+        self.firmware_fc_port_devices = {}
+        self.firmware_fc_port_cmb = ttk.Combobox(
+            fc_port_row, textvariable=self.firmware_fc_port_var, width=52, state="readonly")
+        self.firmware_fc_port_cmb.pack(side="left")
+        ttk.Button(fc_port_row, text="Refresh Ports", command=self.refresh_ports).pack(side="left", padx=8)
+        ttk.Label(
+            fc_port_frame,
+            text=("Only ArduPilot flight controllers are listed. The board's own bootloader "
+                  "reports which board it is, and only firmware built for that board is written."),
+            style="Muted.TLabel", wraplength=850, justify="left").pack(anchor="w", pady=(8, 0))
+
+        guide = ttk.LabelFrame(content, text="Connection guide", padding=14)
+        guide.pack(fill="x", pady=14)
+        self.firmware_guide_var = tk.StringVar()
+        ttk.Label(guide, textvariable=self.firmware_guide_var, style="Panel.TLabel",
+                  wraplength=850, justify="left").pack(anchor="w")
+
+        action_row = ttk.Frame(content, style="Panel.TFrame")
+        action_row.pack(fill="x")
+        self.firmware_flash_btn = ttk.Button(
+            action_row, text="Download and Flash Latest", style="Accent.TButton",
+            command=self.on_flash_firmware, state="disabled")
+        self.firmware_flash_btn.pack(side="left")
+        self.firmware_progress_var = tk.StringVar(value="Check GitHub to begin.")
+        ttk.Label(action_row, textvariable=self.firmware_progress_var,
+                  style="Muted.TLabel").pack(side="left", padx=14)
+        self._update_firmware_instructions()
+
+    def _update_firmware_instructions(self):
+        target = self.firmware_target_var.get()
+        samd = ("SAMD21: select its USB port. The configurator will request bootloader mode "
+                "automatically; use a RESET double-tap only if automatic entry fails.")
+        esp = ("ESP32-C3: connect the small ESP USB connector and select it above. The updater "
+               "will enter its bootloader automatically; if asked, hold BOOT and tap RESET.")
+        receiver = ("Receiver: remove the propeller, select the receiver USB port, and update. "
+                    "The same firmware drives servos on a Rx V4 and sends SBUS to the flight "
+                    "controller on the ASCEND board, whose receiver has its own USB connector. "
+                    "Afterward, rebind it and verify controls and failsafe before flight.")
+        boards = ""
+        if self.firmware_release:
+            names = [entry["board"] for entry in
+                     self.firmware_release["manifest"].get("flight_controllers", [])]
+            boards = ("\n\nThis release supports: " + ", ".join(names) + "." if names else
+                      "\n\nThis release has no flight controller firmware.")
+        flight_controller = (
+            "Flight controller: remove the propeller, connect the flight controller's USB port and "
+            "select it above. The configurator restarts it into its bootloader, checks which board "
+            "it is, and writes the matching ArduPlane firmware. Parameters and calibrations are "
+            "kept. Afterward, check the sensors, controls and failsafe before flight." + boards)
+        if target == "tx_both": guide = samd + "\n\n" + esp
+        elif target == "tx_esp32c3": guide = esp
+        elif target == "receiver_samd21": guide = receiver
+        elif target == "flight_controller": guide = flight_controller
+        else: guide = samd
+        self.firmware_guide_var.set(guide)
+
+    def _set_firmware_busy(self, busy, status=None):
+        self.firmware_busy = busy
+        self.firmware_check_btn.config(state="disabled" if busy else "normal")
+        can_flash = (not busy and self.firmware_release is not None)
+        self.firmware_flash_btn.config(state="normal" if can_flash else "disabled")
+        if status:
+            self.firmware_progress_var.set(status)
+
+    def _firmware_thread(self, work, completed):
+        def runner():
+            try:
+                result = work()
+                self.after(0, lambda: completed(result, None))
+            except Exception as exc:
+                self.after(0, lambda exc=exc: completed(None, exc))
+        threading.Thread(target=runner, daemon=True).start()
+
+    def on_check_firmware(self):
+        if self.firmware_busy:
+            return
+        self._set_firmware_busy(True, "Checking GitHub…")
+
+        def completed(result, error):
+            self.firmware_release = result
+            self._set_firmware_busy(False, "Ready to update." if result else "Update check failed.")
+            if error:
+                messagebox.showerror("Firmware update", str(error))
+                return
+            published = result.get("published_at", "")[:10]
+            self.firmware_release_var.set(f"{result['name']}  •  {published}")
+            self._update_firmware_instructions()
+        self._firmware_thread(firmware_updater.fetch_latest_firmware, completed)
+
+    def _selected_firmware_esp_port(self):
+        selection = self.firmware_esp_port_var.get().strip()
+        return self.esp_port_devices.get(selection, selection)
+
+    def _selected_firmware_samd_port(self):
+        selection = self.firmware_samd_port_var.get().strip()
+        return self.firmware_samd_port_devices.get(selection, selection)
+
+    def _selected_firmware_fc_port(self):
+        selection = self.firmware_fc_port_var.get().strip()
+        return self.firmware_fc_port_devices.get(selection, "")
+
+    def on_flash_flight_controller(self):
+        release = self.firmware_release
+        if not release["manifest"].get("flight_controllers"):
+            messagebox.showerror("Firmware update", "This release has no flight controller firmware.")
+            return
+        fc_port = self._selected_firmware_fc_port()
+        if not fc_port:
+            messagebox.showerror(
+                "Firmware update",
+                "Connect the flight controller's USB port, click Refresh Ports, and select it.")
+            return
+        if not messagebox.askyesno(
+                "Confirm flight controller update",
+                "Remove the propeller and disconnect the flight battery. Do not unplug USB while "
+                "the flight controller is being written.\n\nThe flight controller restarts into its "
+                "bootloader, and only firmware built for that exact board is written. Parameters and "
+                "calibrations are kept.\n\nContinue with the latest verified firmware?"):
+            return
+        self._set_firmware_busy(True, "Downloading flight controller firmware…")
+
+        def progress(text):
+            self.after(0, lambda text=text: self.firmware_progress_var.set(text))
+
+        def work():
+            images = firmware_updater.download_flight_controller_firmware(release)
+            try:
+                progress("Restarting the flight controller into its bootloader…")
+                return firmware_updater.flash_flight_controller(images, fc_port, progress)
+            finally:
+                for path in images.values():
+                    try:
+                        os.unlink(path)
+                    except OSError:
+                        pass
+
+        def completed(result, error):
+            self._set_firmware_busy(False, "Update complete." if result else "Update stopped.")
+            self.refresh_ports()
+            if error:
+                messagebox.showerror("Flight controller update failed", str(error))
+                return
+            messagebox.showinfo(
+                "Firmware update complete",
+                f"Updated the {result['board']} flight controller. Reconnect your ground station and "
+                "check the sensors, control surface directions, and failsafe before flight.")
+        self._firmware_thread(work, completed)
+
+    def on_flash_firmware(self):
+        if self.firmware_busy or not self.firmware_release:
+            return
+        target = self.firmware_target_var.get()
+        if target == "flight_controller":
+            self.on_flash_flight_controller()
+            return
+        targets = {
+            "tx_both": ["samd21", "esp32c3"],
+            "tx_samd21": ["samd21"],
+            "tx_esp32c3": ["esp32c3"],
+            "receiver_samd21": ["receiver_samd21"],
+        }[target]
+        esp_port = self._selected_firmware_esp_port()
+        samd_port = self._selected_firmware_samd_port()
+        if "esp32c3" in targets and not esp_port:
+            messagebox.showerror("Firmware update", "Select the ESP32-C3 USB port before flashing.")
+            return
+        if any(item in targets for item in ("samd21", "receiver_samd21")) and not samd_port:
+            messagebox.showerror("Firmware update", "Select the transmitter M0 or receiver USB port before flashing.")
+            return
+        samd_selection = self.firmware_samd_port_var.get().strip()
+        samd_kind = self.firmware_samd_port_kinds.get(samd_selection, "unknown")
+        expected_kind = "receiver" if "receiver_samd21" in targets else "transmitter"
+        if any(item in targets for item in ("samd21", "receiver_samd21")) and \
+                samd_kind != "unknown" and samd_kind != expected_kind:
+            messagebox.showerror(
+                "Wrong SAMD21 device selected",
+                f"The selected USB port identifies as a {samd_kind}, but this update targets the "
+                f"{expected_kind}. Select the correct port before continuing.")
+            return
+        receiver_warning = ("\n\nReceiver firmware can clear its bind code. You must rebind and "
+                            "perform a complete control and failsafe check.") if "receiver_samd21" in targets else ""
+        if not messagebox.askyesno(
+                "Confirm firmware update",
+                "Keep the aircraft powered off and remove the propeller. Do not unplug USB while "
+                "a processor is being written." + receiver_warning +
+                "\n\nContinue with the latest verified firmware?"):
+            return
+        self.w.close()
+        self.role_worker.close()
+        self.connect_btn.config(text="Connect")
+        self.esp_connect_btn.config(text="Connect")
+        self._set_firmware_busy(True, "Preparing firmware…")
+
+        def work():
+            for current in targets:
+                label = {"samd21": "Transmitter M0", "esp32c3": "Transmitter ESP32-C3",
+                         "receiver_samd21": "Receiver"}[current]
+                self.after(0, lambda label=label: self.firmware_progress_var.set(f"Downloading {label} firmware…"))
+                image = firmware_updater.download_firmware(self.firmware_release, current)
+                try:
+                    if current == "receiver_samd21":
+                        self.after(0, lambda: self.firmware_progress_var.set(
+                            "Entering the receiver bootloader…"))
+                        try:
+                            mount = firmware_updater.enter_receiver_uf2(samd_port)
+                        except firmware_updater.FirmwareUpdateError:
+                            # Original Receiver V4 boards use SAM-BA rather than
+                            # the UF2 bootloader fitted to newer receivers.
+                            self.after(0, lambda: self.firmware_progress_var.set(
+                                "UF2 not detected; trying the legacy receiver bootloader…"))
+                            legacy_image = firmware_updater.download_firmware(
+                                self.firmware_release, current, serial_image=True)
+                            try:
+                                firmware_updater.flash_receiver_samba(legacy_image, samd_port)
+                            finally:
+                                try:
+                                    Path(legacy_image).unlink()
+                                except OSError:
+                                    pass
+                        else:
+                            self.after(0, lambda: self.firmware_progress_var.set(
+                                "Flashing receiver through its UF2 bootloader…"))
+                            firmware_updater.flash_samd_uf2(image, mount, "ALTITUDE_RX.UF2")
+                        time.sleep(2)
+                    elif current == "samd21":
+                        self.after(0, lambda label=label: self.firmware_progress_var.set(
+                            f"Requesting automatic bootloader mode on {label}…"))
+                        try:
+                            mount = firmware_updater.enter_samd_uf2(samd_port)
+                        except firmware_updater.FirmwareUpdateError as auto_error:
+                            before = firmware_updater.uf2_mounts()
+                            proceed = threading.Event()
+                            answer = {"yes": False}
+                            def prompt_samd():
+                                answer["yes"] = messagebox.askokcancel(
+                                    "Automatic bootloader entry failed",
+                                    f"{auto_error}\n\nDouble-tap the device RESET button, then click OK. "
+                                    "The configurator will continue waiting for its UF2 drive.")
+                                proceed.set()
+                            self.after(0, prompt_samd)
+                            proceed.wait()
+                            if not answer["yes"]:
+                                raise firmware_updater.FirmwareUpdateError("Firmware update cancelled.")
+                            mount = firmware_updater.wait_for_new_uf2_mount(before)
+                        firmware_updater.flash_samd_uf2(image, mount, "ALTITUDE_TX.UF2")
+                        time.sleep(2)
+                    else:
+                        self.after(0, lambda: self.firmware_progress_var.set("Flashing ESP32-C3…"))
+                        firmware_updater.flash_esp32(image, esp_port)
+                finally:
+                    try:
+                        os.unlink(image)
+                    except OSError:
+                        pass
+            return targets
+
+        def completed(result, error):
+            self._set_firmware_busy(False, "Update complete." if result else "Update stopped.")
+            self.refresh_ports()
+            if error:
+                messagebox.showerror(
+                    "Firmware update failed",
+                    f"{error}\n\nNo other processor will be flashed. If this was the ESP32-C3, "
+                    "hold BOOT, tap RESET, release BOOT, and try again.")
+                return
+            names = " and ".join({"samd21": "Transmitter M0", "esp32c3": "Transmitter ESP32-C3",
+                                  "receiver_samd21": "Receiver"}[item] for item in result)
+            followup = (" Rebind the receiver, then verify every control and failsafe before flight."
+                        if "receiver_samd21" in result else
+                        " Power-cycle the transmitter, reconnect, and verify its models and controls before flight.")
+            messagebox.showinfo(
+                "Firmware update complete",
+                f"Updated {names}." + followup)
+        self._firmware_thread(work, completed)
+
+    def _build_role_tab(self):
+        """Build the guarded ESP32 instructor/student role controls."""
+        self.tab_roles = ScrollableTab(self.nb, padding=22)
+        self.nb.add(self.tab_roles, text="Instructor / Student")
+        content = self.tab_roles.content
+
+        ttk.Label(content, text="Transmitter Role", style="Panel.TLabel",
+                  font=("Helvetica", 16, "bold")).pack(anchor="w")
+        ttk.Label(
+            content,
+            text=("Connect the transmitter's ESP32-C3 USB port here. This is the small "
+                  "ESP USB connector, not the M0 model-configurator connector."),
+            style="Muted.TLabel", wraplength=820, justify="left"
+        ).pack(anchor="w", pady=(5, 18))
+
+        connection = ttk.LabelFrame(content, text="ESP32-C3 connection", padding=14)
+        connection.pack(fill="x")
+        row = ttk.Frame(connection, style="Panel.TFrame")
+        row.pack(fill="x")
+        ttk.Label(row, text="ESP Port:", style="Panel.TLabel").pack(side="left")
+        self.esp_port_var = tk.StringVar()
+        self.esp_port_cmb = ttk.Combobox(row, textvariable=self.esp_port_var, width=46, state="readonly")
+        self.esp_port_cmb.pack(side="left", padx=7)
+        ttk.Button(row, text="Refresh", command=self.refresh_role_ports).pack(side="left")
+        self.esp_connect_btn = ttk.Button(row, text="Connect", command=self.on_role_connect)
+        self.esp_connect_btn.pack(side="left", padx=7)
+
+        details = ttk.LabelFrame(content, text="Detected transmitter", padding=14)
+        details.pack(fill="x", pady=16)
+        self.role_vars = {
+            "mac": tk.StringVar(value="—"), "role": tk.StringVar(value="—"),
+            "mode": tk.StringVar(value="—"), "student_link": tk.StringVar(value="—"),
+            "authority": tk.StringVar(value="—"),
+            "link": tk.StringVar(value="—"),
+        }
+        labels = (("ESP MAC address", "mac"), ("Current role", "role"),
+                  ("M0 operating mode", "mode"), ("Current authority", "authority"),
+                  ("Student link (last read)", "student_link"), ("Link counters", "link"))
+        for row_number, (caption, key) in enumerate(labels):
+            ttk.Label(details, text=caption + ":", style="Panel.TLabel").grid(
+                row=row_number, column=0, sticky="e", padx=(0, 10), pady=4)
+            ttk.Label(details, textvariable=self.role_vars[key], style="Panel.TLabel",
+                      font=("Menlo", 11, "bold")).grid(row=row_number, column=1, sticky="w", pady=4)
+
+        actions = ttk.LabelFrame(content, text="Assign role", padding=14)
+        actions.pack(fill="x")
+        self.role_safety_var = tk.StringVar(
+            value="Connect to the ESP32-C3 to read its role before making changes.")
+        ttk.Label(actions, textvariable=self.role_safety_var, style="Muted.TLabel",
+                  wraplength=820, justify="left").pack(anchor="w", pady=(0, 12))
+        buttons = ttk.Frame(actions, style="Panel.TFrame")
+        buttons.pack(anchor="w")
+        self.master_role_btn = ttk.Button(
+            buttons, text="Set as Instructor (Master)",
+            command=lambda: self.on_set_role("MASTER"), state="disabled")
+        self.master_role_btn.pack(side="left")
+        self.student_role_btn = ttk.Button(
+            buttons, text="Set as Student", command=lambda: self.on_set_role("STUDENT"),
+            state="disabled")
+        self.student_role_btn.pack(side="left", padx=8)
+        ttk.Button(buttons, text="Read Status Again", command=self.on_role_refresh).pack(side="left")
+
+    def on_close(self):
+        self.w.close()
+        self.role_worker.close()
+        self.destroy()
 
     # ---------- Editable Treeview ----------
     def _install_cell_editor(self, tree: ttk.Treeview):
@@ -607,8 +1396,8 @@ class App(tk.Tk):
             "Rate%":   (0, 100),
             "Expo%":   (-100, 100),
             "Subtrim": (-500, 500),
-            "Min us":  (700, 2300),
-            "Max us":  (700, 2300),
+            "Min us":  (800, 2200),
+            "Max us":  (800, 2200),
         }
 
         def start_edit(event):
@@ -692,12 +1481,222 @@ class App(tk.Tk):
     # --- Serial ---
     def refresh_ports(self):
         # Ask pyserial for all currently visible serial ports and place their
-        # device names in the dropdown. On macOS these often look like
-        # /dev/cu.usbmodem101.
-        ports = [p.device for p in list_ports.comports()]
-        self.port_cmb["values"] = ports
-        if ports:
+        # device names in the dropdown. Prefer the SAMD21 by its assigned USB
+        # identity so the V3 ESP32 diagnostic port is not selected by mistake.
+        detected = list(list_ports.comports())
+        detected.sort(key=lambda p: 0 if (p.vid == 0x03EB and p.pid == 0x2402) else 1)
+        self.port_devices = {}
+        labels = []
+        for p in detected:
+            name = p.product or p.description or "Serial device"
+            label = f"{name} — {p.device}"
+            self.port_devices[label] = p.device
+            labels.append(label)
+        self.port_cmb["values"] = labels
+        if labels:
             self.port_cmb.current(0)
+        self.refresh_role_ports(detected)
+
+    def refresh_role_ports(self, detected=None):
+        detected = list(detected if detected is not None else list_ports.comports())
+
+        def esp_priority(port):
+            text = " ".join(filter(None, (port.product, port.description, port.manufacturer))).lower()
+            return 0 if (port.vid == 0x303A or "esp32" in text or "espressif" in text) else 1
+
+        detected.sort(key=esp_priority)
+        self.esp_port_devices = {}
+        labels = []
+        for port in detected:
+            name = port.product or port.description or "Serial device"
+            label = f"{name} — {port.device}"
+            self.esp_port_devices[label] = port.device
+            labels.append(label)
+        self.esp_port_cmb["values"] = labels
+        if labels and self.esp_port_var.get() not in labels:
+            self.esp_port_cmb.current(0)
+        if hasattr(self, "firmware_esp_port_cmb"):
+            self.firmware_esp_port_cmb["values"] = labels
+            if labels and self.firmware_esp_port_var.get() not in labels:
+                self.firmware_esp_port_cmb.current(0)
+        if hasattr(self, "firmware_samd_port_cmb"):
+            # The user may deliberately flash either the transmitter M0 or the
+            # receiver, so retain all detected ports and show their USB names.
+            def samd_priority(port):
+                text = " ".join(filter(None, (port.product, port.description, port.manufacturer))).lower()
+                return 0 if (port.vid in (0x03EB, 0x239A) or "samd" in text or
+                             "feather" in text or "altitude rc tx" in text) else 1
+            samd_ports = sorted(detected, key=samd_priority)
+            self.firmware_samd_port_devices = {}
+            self.firmware_samd_port_kinds = {}
+            samd_labels = []
+            for port in samd_ports:
+                name = port.product or port.description or "Serial device"
+                label = f"{name} — {port.device}"
+                text = " ".join(filter(None, (port.product, port.description, port.manufacturer))).lower()
+                kind = ("transmitter" if "altitude rc tx" in text else
+                        "receiver" if ("receiver" in text or "feather m0" in text) else "unknown")
+                self.firmware_samd_port_devices[label] = port.device
+                self.firmware_samd_port_kinds[label] = kind
+                samd_labels.append(label)
+            self.firmware_samd_port_cmb["values"] = samd_labels
+            if samd_labels and self.firmware_samd_port_var.get() not in samd_labels:
+                self.firmware_samd_port_cmb.current(0)
+        if hasattr(self, "firmware_fc_port_cmb"):
+            # Only ArduPilot USB devices: the flight controller updater must
+            # never open the transmitter or receiver ports.
+            self.firmware_fc_port_devices = {}
+            fc_labels = []
+            for port in detected:
+                if (port.vid, port.pid) not in firmware_updater.ARDUPILOT_USB_IDS:
+                    continue
+                name = port.product or port.description or "ArduPilot"
+                label = f"{name} — {port.device}"
+                self.firmware_fc_port_devices[label] = port.device
+                fc_labels.append(label)
+            self.firmware_fc_port_cmb["values"] = fc_labels
+            if fc_labels and self.firmware_fc_port_var.get() not in fc_labels:
+                self.firmware_fc_port_cmb.current(0)
+            elif not fc_labels:
+                self.firmware_fc_port_var.set("")
+
+    def _update_button_role(self):
+        role = self.w.device_info.get("radio_role", "UNKNOWN")
+        student = role == "STUDENT"
+        self.d10_function_combo.config(state="disabled" if student else "readonly")
+        self.ch5_rate_mode_combo.config(state="disabled" if student else "readonly")
+        if student:
+            self.d10_function_var.set(D10_FUNCTIONS[0])
+            self.ch5_rate_mode_var.set(CH5_RATE_MODES[0])
+            self.button_status_var.set("Student radio: D10 is reserved. The master controls aircraft Channels 5 and 6.")
+        else:
+            self.button_status_var.set("D10 Trainer reserves the button for handoff. Channel 5 disables student control.")
+
+    def _show_role_status(self, status):
+        self.role_vars["student_link"].set(status.get("student_link", "Not reported by older firmware"))
+        self.role_vars["mac"].set(status.get("mac", "—"))
+        self.role_vars["role"].set(status.get("role", "—"))
+        self.role_vars["mode"].set(status.get("mode", "Not reported by older firmware"))
+        self.role_vars["authority"].set(status.get("authority", "—"))
+        counters = [f"{key}={status[key]}" for key in ("sent", "received", "forwarded") if key in status]
+        self.role_vars["link"].set("   ".join(counters) or "—")
+        # A role button performs its own two-sample activity test before it
+        # writes. Do not lock solely from authority: the ESP can retain the
+        # last authority string after the SAMD enters Config Mode and stops
+        # sending heartbeats.
+        self.master_role_btn.config(state="normal")
+        self.student_role_btn.config(state="normal")
+        if status.get("mode") in ("CONFIG", "SIMULATOR", "SETUP"):
+            self.role_safety_var.set(
+                f"The M0 reports safe {status['mode']} mode. Keep the aircraft powered off while changing roles.")
+        elif status.get("mode"):
+            self.role_safety_var.set(
+                f"Role changes are locked in {status['mode']} mode. Restart in Config or Simulator mode.")
+        elif status.get("authority") == "UNKNOWN":
+            self.role_safety_var.set(
+                "No flight authority is currently reported. A final M0 activity check will run "
+                "before saving. Keep the aircraft powered off.")
+        else:
+            self.role_safety_var.set(
+                "The displayed authority may be live or stale. Select a role to run the final "
+                "M0 activity check; saving remains blocked if messages are still arriving.")
+
+    def _clear_role_status(self):
+        for value in self.role_vars.values():
+            value.set("—")
+        self.master_role_btn.config(state="disabled")
+        self.student_role_btn.config(state="disabled")
+        self.role_safety_var.set("Connect to the ESP32-C3 to read its role before making changes.")
+
+    def on_role_connect(self):
+        if self.role_worker.ser:
+            self.role_worker.close()
+            self.esp_connect_btn.config(text="Connect")
+            self._clear_role_status()
+            return
+        selection = self.esp_port_var.get().strip()
+        port = self.esp_port_devices.get(selection, selection)
+        if not port:
+            messagebox.showerror("ESP role", "Select the ESP32-C3 serial port")
+            return
+        try:
+            status = self.role_worker.open(port)
+            self.esp_connect_btn.config(text="Disconnect")
+            self._show_role_status(status)
+        except Exception as exc:
+            messagebox.showerror(
+                "ESP connection failed",
+                f"{exc}\n\nSelect the ESP32-C3 USB port, not the Altitude RC TX M0 port.")
+
+    def on_role_refresh(self):
+        if not self.role_worker.ser:
+            messagebox.showerror("ESP role", "Connect the ESP32-C3 port first")
+            return
+        try:
+            self._show_role_status(self.role_worker.status())
+        except Exception as exc:
+            messagebox.showerror("Status failed", str(exc))
+
+    def on_set_role(self, role):
+        friendly = "Instructor (Master)" if role == "MASTER" else "Student"
+        try:
+            # Two readings more than one firmware heartbeat apart close the
+            # short startup window before the M0 reports active authority.
+            first = self.role_worker.status()
+            time.sleep(1.1)
+            second = self.role_worker.status()
+            self._show_role_status(second)
+            try:
+                first_lines = int(first["samd_lines"])
+                second_lines = int(second["samd_lines"])
+            except (KeyError, TypeError, ValueError):
+                raise RuntimeError(
+                    "The ESP status did not include its M0 message counter. Reflash the current "
+                    "TxV3 Buddy ESP32 firmware before changing roles with the GUI.")
+            mode = second.get("mode")
+            try:
+                mode_fresh = int(second.get("mode_age_ms", "999999")) <= 1500
+            except ValueError:
+                mode_fresh = False
+            if mode and mode_fresh:
+                if mode not in ("CONFIG", "SIMULATOR", "SETUP"):
+                    raise RuntimeError(
+                        f"The M0 reports {mode} mode, so role changes are locked. Keep the aircraft "
+                        "powered off and restart in Config or Simulator mode.")
+            elif second_lines != first_lines:
+                # A master M0 sends AUTHORITY heartbeats even in Config Mode,
+                # although that mode returns before LoRa initialization. Older
+                # firmware has no MODE field, so prove its safe branch through
+                # the independent M0 USB config service.
+                config_verified = False
+                try:
+                    config_verified = self.w.verify_config_mode()
+                except Exception:
+                    config_verified = False
+                if not config_verified:
+                    raise RuntimeError(
+                        "M0 messages are arriving and Config Mode has not been verified. Connect "
+                        "the same transmitter's M0 USB port using the Models connection at the "
+                        "top of this window, then try again. Keep the aircraft powered off.")
+            current = second.get("role", "UNKNOWN")
+            mac = second.get("mac", "unknown")
+            if current == role:
+                messagebox.showinfo("Role unchanged", f"This transmitter is already {friendly}.")
+                return
+            confirmed = messagebox.askyesno(
+                "Confirm transmitter role",
+                f"ESP {mac}\n\nChange role from {current} to {friendly}?\n\n"
+                "Confirm the aircraft is powered off. Assign exactly one radio as Master; "
+                "incorrect role assignments can prevent control.")
+            if not confirmed:
+                return
+            verified = self.role_worker.set_role(role)
+            self._show_role_status(verified)
+            messagebox.showinfo(
+                "Role saved",
+                f"ESP {verified.get('mac', mac)} is now {friendly}.\n\nRestart the transmitter before flight.")
+        except Exception as exc:
+            messagebox.showerror("Role change failed", str(exc))
 
     def on_connect(self):
         # The same button handles both connecting and disconnecting.
@@ -708,14 +1707,17 @@ class App(tk.Tk):
             return
 
         # If we are not already connected, open the selected serial port.
-        port = self.port_var.get().strip()
+        selection = self.port_var.get().strip()
+        port = self.port_devices.get(selection, selection)
         if not port:
             messagebox.showerror("Error", "Select a serial port")
             return
         try:
             self.w.open(port)
             self.connect_btn.config(text="Disconnect")
-            self.status_lbl.config(text=f"Connected to {port}")
+            backend = self.w.device_info.get("storage", "transmitter memory").replace("_", " ")
+            self.status_lbl.config(text=f"Connected • {backend}")
+            self._update_button_role()
             self.refresh_model_list()
         except Exception as e:
             messagebox.showerror("Connect failed", str(e))
@@ -784,7 +1786,9 @@ class App(tk.Tk):
             active_rates=False,
             subtrim=[0,0,0,0],
             endpoints=[[1000,2000],[1000,2000],[1000,2000],[1000,2000]],
-            reverse=[False, False, False, False]
+            reverse=[False, False, False, False],
+            ail_to_rud_mix_enabled=False,
+            ail_to_rud_mix_percent=30
         )
 
         # Write the model, then set the used bit for this slot in the header.
@@ -831,11 +1835,19 @@ class App(tk.Tk):
 
     def populate_editor(self, m, slot=None):
         # Copy a model dictionary into the visible editor widgets.
+        self.d10_function_var.set(D10_FUNCTIONS[m.get("d10_function", 0)])
+        self.d7_function_var.set(D7_FUNCTIONS[m.get("d7_function", 0)])
+        self.ch5_rate_mode_var.set(CH5_RATE_MODES[m.get("ch5_rate_mode", 0)])
+        self._update_button_role()
+        self.aircraft_type_var.set(AIRCRAFT_TYPES[m.get("aircraft_type", 0)])
+        self.vtail_rudder_reverse_var.set(bool(m.get("vtail_rudder_reverse", False)))
         self.name_var.set(m["name"])
         self.bind_var.set(str(m["bind_code"]))
         self.bind_changed = False
         self.dr_switch_var.set(str(m["dr_switch"]))
         self.dr_active_var.set(bool(m["active_rates"]))
+        self.ail_rud_mix_enabled_var.set(bool(m.get("ail_to_rud_mix_enabled", False)))
+        self.ail_rud_mix_percent_var.set(int(m.get("ail_to_rud_mix_percent", 30)))
 
         # Channel names can come from imported JSON, local GUI preferences, or
         # defaults if neither is available.
@@ -861,9 +1873,16 @@ class App(tk.Tk):
         # the inverse of populate_editor.
         model = dict(
             name=self.name_var.get().strip()[:16],
+            aircraft_type=AIRCRAFT_TYPES.index(self.aircraft_type_var.get()),
+            d10_function=D10_FUNCTIONS.index(self.d10_function_var.get()),
+            d7_function=D7_FUNCTIONS.index(self.d7_function_var.get()),
+            ch5_rate_mode=CH5_RATE_MODES.index(self.ch5_rate_mode_var.get()),
+            vtail_rudder_reverse=bool(self.vtail_rudder_reverse_var.get()),
             bind_code=int(self.bind_var.get() or "0"),
             dr_switch=int(self.dr_switch_var.get() or "0"),
             active_rates=bool(self.dr_active_var.get()),
+            ail_to_rud_mix_enabled=bool(self.ail_rud_mix_enabled_var.get()),
+            ail_to_rud_mix_percent=max(-100, min(100, int(self.ail_rud_mix_percent_var.get()))),
             rates=[0]*4, expo=[0]*4, subtrim=[0]*4, endpoints=[[0,0] for _ in range(4)],
             channel_names=[""]*4
         )
@@ -918,15 +1937,7 @@ class App(tk.Tk):
             # collect_editor converts text to numbers, but this final pass makes
             # sure imported/edited values are inside known-safe bounds before
             # they reach ModelsStore.write_model.
-            for i in range(4):
-                m["rates"][i]   = max(0, min(100, m["rates"][i]))
-                m["expo"][i]    = max(-100, min(100, m["expo"][i]))
-                m["subtrim"][i] = max(-500, min(500, m["subtrim"][i]))
-                mn, mx = m["endpoints"][i]
-                mn = max(700, min(2300, mn))
-                mx = max(700, min(2300, mx))
-                if mn > mx: mx = mn
-                m["endpoints"][i] = [mn, mx]
+            validate_model_controls(m)
 
             # Firmware-compatible model bytes go to FRAM. GUI-only channel names
             # go to the local JSON preferences file.
@@ -995,7 +2006,7 @@ class App(tk.Tk):
             hdr["used_bitmap"] |= (1<<slot)
             self.store.write_header(hdr)
             self.refresh_model_list()
-            messagebox.showinfo("Imported", "Model written to FRAM")
+            messagebox.showinfo("Imported", "Model written to transmitter memory")
         except Exception as e:
             messagebox.showerror("Import failed", str(e))
 

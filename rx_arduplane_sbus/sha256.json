@@ -1,0 +1,14 @@
+{
+  "spare-running-status.txt": "4af059a74ec4188c56b8b05a0be663f06b9d8a5e78b47324a7c5edc7b437d747",
+  "spare-autolevel-backup.bin": "1c3a77631b77af06c912b64a1c0b6853725420bba43ca57a5eafbd6784e06ddd",
+  "upload.log": "69af0adbde320a96f2dd0966cfb5f7554408bd14fcb8f7b35c720b5abef6ea62",
+  "fc-connected-status.json": "8b8f6e00f4bc837ddd1653474a6687fdc6d1a977477e2119e1950a2cf8d2b493",
+  "receiver-before-sbus.bin": "4ddac4562c11c5d61b6e14a3c1464ce6ca27277bd947ea56d7feadeb88d27105",
+  "aux_channels.h": "c121bb458648f72db3f10e65be16c639b2104b43bc31670bb07379d42d593f1b",
+  "README.md": "ac0f952ec02fd097b0284aaffcb72d452a720315fe58289b144a2b3fbed3efdc",
+  "receiver-sbus.bin": "a404df330880b0c6162534140dd9586e790584853082a3cf6241d23d88dfb42b",
+  "rx_arduplane_sbus.ino": "6fe3d6e0a70007e8642231463487de8eec58aef5eb3606bdf3dfbf4f75329525",
+  "fc-channel-movement.json": "743d2e23fca526754c6d16520ed2540f3cc23a77fae5f10e373178410753b1e6",
+  "fc-link-loss-test.json": "0777e3bbc85d0aaee22081e6aa1e8f2f14a5a0d00d27ed5232a0a6ad06426791",
+  "build.log": "9c0b74b2c81474ad7e7d67a55d284c0445815a5f4d5b8bd62e1dbcb33802384a"
+}

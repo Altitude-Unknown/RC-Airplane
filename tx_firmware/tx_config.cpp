@@ -121,6 +121,40 @@ int16_t channelToUs(float x, int ch, const txcf_model_v1_t &m, bool highRates) {
   return (int16_t)tmp;
 }
 
+void controlsToUs(float rud, float ail, float ele, float thr,
+                  const txcf_model_v1_t &m, bool highRates, uint16_t out[4]) {
+  if (m.reserved[1] & 1) {
+    float source = (m.reserved[0] & 2) ? -ail : ail;
+    int amount = constrain((int)(int8_t)m.reserved[2], -100, 100);
+    rud = constrain(rud + source * amount / 100.0f, -1.0f, 1.0f);
+  }
+  float axes[4] = {rud, ail, ele, thr};
+  for (int ch = 0; ch < 4; ++ch) out[ch] = channelToUs(axes[ch], ch, m, highRates);
+  uint8_t type = m.reserved[3];
+  if (type != 1 && type != 2) return; // Legacy/unknown types use conventional mapping.
+
+  // Shape logical controls before combining them. Trims follow the same axes,
+  // so elevator trim moves both surfaces and roll/yaw trim moves them oppositely.
+  float shaped[3];
+  for (int ch = 0; ch < 3; ++ch) {
+    float rate = highRates ? 1.0f : constrain((int)m.rates_pct[ch], 0, 100) / 100.0f;
+    shaped[ch] = applyExpo(axes[ch], m.expo_pct[ch]) * rate + m.subtrim_us[ch] / 500.0f;
+  }
+  int first = type == 1 ? 0 : 1;
+  // Reverse the complete yaw contribution, including yaw trim and coordinated mix.
+  if (type == 1 && (m.reserved[4] & 1)) shaped[0] = -shaped[0];
+  float mixed[2] = {shaped[2] + shaped[first], shaped[2] - shaped[first]};
+  int channels[2] = {first, 2};
+  for (int i = 0; i < 2; ++i) {
+    int ch = channels[i];
+    float x = constrain(mixed[i], -1.0f, 1.0f);
+    if (m.reserved[0] & (1 << ch)) x = -x;
+    uint16_t mn = m.endpoints_us[ch][0], mx = m.endpoints_us[ch][1];
+    if (mn > mx) { uint16_t t = mn; mn = mx; mx = t; }
+    out[ch] = (uint16_t)roundf((mn + mx) * 0.5f + x * (mx - mn) * 0.5f);
+  }
+}
+
 // ---------- Raw FRAM access used by USB Config Mode ----------
 bool rawRead(uint16_t addr, uint8_t* data, size_t len)  { return framRead(addr, data, len); }
 bool rawWrite(uint16_t addr, const uint8_t* data, size_t len) { return framWrite(addr, data, len); }

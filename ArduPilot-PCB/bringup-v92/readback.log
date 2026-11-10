@@ -1,0 +1,19 @@
+dfu-util 0.11-arduino4
+
+Copyright 2005-2009 Weston Schmidt, Harald Welte and OpenMoko Inc.
+Copyright 2010-2021 Tormod Volden and Stefan Schmidt
+This program is Free Software and has ABSOLUTELY NO WARRANTY
+Please report bugs to http://sourceforge.net/p/dfu-util/tickets/
+
+Opening DFU capable USB device...
+Device ID 0483:df11
+Device DFU version 011a
+Claiming USB DFU Interface...
+Setting Alternate Interface #0 ...
+Determining device status...
+DFU state(2) = dfuIDLE, status(0) = No error condition is present
+DFU mode device DFU version 011a
+Device returned transfer size 1024
+DfuSe interface name: "Internal Flash   "
+Upload	[                         ]   0%            0 bytesUpload	[                         ]   1%        17408 bytesUpload	[=                        ]   4%        58368 bytesUpload	[==                       ]   8%       115712 bytesUpload	[===                      ]  12%       174080 bytesUpload	[===                      ]  15%       222208 bytesUpload	[====                     ]  16%       231424 bytesUpload	[=====                    ]  20%       288768 bytesUpload	[======                   ]  24%       347136 bytesUpload	[=======                  ]  28%       404480 bytesUpload	[=======                  ]  29%       427008 bytesUpload	[========                 ]  32%       461824 bytesUpload	[=========                ]  36%       520192 bytesUpload	[==========               ]  40%       577536 bytesUpload	[==========               ]  43%       631808 bytesUpload	[===========              ]  44%       635904 bytesUpload	[============             ]  48%       693248 bytesUpload	[=============            ]  52%       750592 bytesUpload	[==============           ]  56%       808960 bytesUpload	[==============           ]  57%       833536 bytesUpload	[===============          ]  60%       866304 bytesUpload	[================         ]  64%       923648 bytesUpload	[=================        ]  68%       982016 bytesUpload	[=================        ]  71%      1038336 bytesUpload	[==================       ]  72%      1039360 bytesUpload	[===================      ]  76%      1096704 bytesUpload	[====================     ]  80%      1155072 bytesUpload	[=====================    ]  84%      1212416 bytesUpload	[=====================    ]  86%      1242112 bytesUpload	[======================   ]  88%      1270784 bytesUpload	[=======================  ]  92%      1328128 bytesUpload	[======================== ]  96%      1385472 bytesUpload	[=========================] 100%      1443024 bytes
+Upload done.

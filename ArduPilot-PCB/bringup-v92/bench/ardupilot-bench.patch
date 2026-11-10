@@ -1,0 +1,130 @@
+diff --git a/libraries/AP_BoardConfig/AP_BoardConfig.cpp b/libraries/AP_BoardConfig/AP_BoardConfig.cpp
+index 763902a..9777e93 100644
+--- a/libraries/AP_BoardConfig/AP_BoardConfig.cpp
++++ b/libraries/AP_BoardConfig/AP_BoardConfig.cpp
+@@ -29,7 +29,18 @@
+ #include <GCS_MAVLink/GCS_MAVLink.h>
+ #include <AP_InertialSensor/AP_InertialSensor_rate_config.h>
+ 
++#if defined(HAL_BOREALIS_BENCH_TEST)
++#include <AP_Baro/AP_Baro.h>
++#include <RC_Channel/RC_Channel.h>
++extern void borealis_bench_output_timeout();
++#endif
++
+ #include <stdio.h>
++#include <string.h>
++
++#if defined(HAL_BOREALIS_BENCH_TEST)
++bool borealis_bench_ready;
++#endif
+ 
+ #ifndef BOARD_TYPE_DEFAULT
+ #define BOARD_TYPE_DEFAULT PX4_BOARD_AUTO
+@@ -503,6 +514,13 @@ bool AP_BoardConfig::_in_error_loop;
+ void AP_BoardConfig::throw_error(const char *err_type, const char *fmt, va_list arg)
+ {
+     _in_error_loop = true;
++#if defined(HAL_BOREALIS_BENCH_TEST)
++    // This image is only for bench checks before the IMU is populated.
++    // No flight loop runs, and PWM is enabled only by a bounded test command.
++    borealis_bench_ready = strstr(fmt, "INS: unable to initialise driver") != nullptr;
++    hal.rcout->force_safety_on();
++    uint32_t last_bench_read_ms = 0;
++#endif
+     /*
+       to give the user the opportunity to connect to USB we keep
+       repeating the error.  The mavlink delay callback is initialised
+@@ -512,6 +530,14 @@ void AP_BoardConfig::throw_error(const char *err_type, const char *fmt, va_list
+     uint32_t last_print_ms = 0;
+     while (true) {
+         uint32_t now = AP_HAL::millis();
++#if defined(HAL_BOREALIS_BENCH_TEST)
++        borealis_bench_output_timeout();
++        if (borealis_bench_ready && now - last_bench_read_ms >= 20) {
++            last_bench_read_ms = now;
++            AP::baro().update();
++            rc().read_input();
++        }
++#endif
+         if (now - last_print_ms >= 5000) {
+             last_print_ms = now;
+             char printfmt[MAVLINK_MSG_STATUSTEXT_FIELD_TEXT_LEN+2];
+@@ -530,6 +556,11 @@ void AP_BoardConfig::throw_error(const char *err_type, const char *fmt, va_list
+                 gcs().send_textv(MAV_SEVERITY_CRITICAL, printfmt, arg_copy);
+                 va_end(arg_copy);
+             }
++#if defined(HAL_BOREALIS_BENCH_TEST)
++            if (borealis_bench_ready) {
++                gcs().send_text(MAV_SEVERITY_WARNING, "BOREALIS BENCH: outputs test-only");
++            }
++#endif
+ #endif
+         }
+ #if HAL_GCS_ENABLED
+diff --git a/libraries/GCS_MAVLink/GCS_ServoRelay.cpp b/libraries/GCS_MAVLink/GCS_ServoRelay.cpp
+index c624268..050b85f 100644
+--- a/libraries/GCS_MAVLink/GCS_ServoRelay.cpp
++++ b/libraries/GCS_MAVLink/GCS_ServoRelay.cpp
+@@ -2,6 +2,26 @@
+ 
+ #include "AP_ServoRelayEvents/AP_ServoRelayEvents.h"
+ 
++#if defined(HAL_BOREALIS_BENCH_TEST)
++#include <AP_BoardConfig/AP_BoardConfig.h>
++
++extern const AP_HAL::HAL& hal;
++extern bool borealis_bench_ready;
++void borealis_bench_output_timeout();
++static uint8_t borealis_bench_channel;
++static uint32_t borealis_bench_last_command_ms;
++
++void borealis_bench_output_timeout()
++{
++    if (borealis_bench_channel != 0 &&
++        AP_HAL::millis() - borealis_bench_last_command_ms >= 2500) {
++        hal.rcout->disable_ch(borealis_bench_channel - 1);
++        hal.rcout->force_safety_on();
++        borealis_bench_channel = 0;
++    }
++}
++#endif
++
+ #if AP_MAVLINK_SERVO_RELAY_ENABLED
+ 
+ MAV_RESULT GCS_MAVLINK::handle_servorelay_message(const mavlink_command_int_t &packet)
+@@ -15,6 +35,34 @@ MAV_RESULT GCS_MAVLINK::handle_servorelay_message(const mavlink_command_int_t &p
+ 
+     switch (packet.command) {
+     case MAV_CMD_DO_SET_SERVO:
++#if defined(HAL_BOREALIS_BENCH_TEST)
++        if (AP_BoardConfig::in_config_error()) {
++            if (!borealis_bench_ready || packet.param1 < 1 || packet.param1 > 6) {
++                return MAV_RESULT_DENIED;
++            }
++            const uint8_t channel = uint8_t(packet.param1);
++            const uint16_t pwm = uint16_t(packet.param2);
++            if (fabsf(packet.param1 - channel) > 0.001f ||
++                fabsf(packet.param2 - pwm) > 0.001f) {
++                return MAV_RESULT_DENIED;
++            }
++            // The motor-connected throttle is restricted to low pulses;
++            // servo rows retain their small movement test range.
++            if ((channel == 1 && (pwm < 1000 || pwm > 1150)) ||
++                (channel != 1 && (pwm < 1300 || pwm > 1700))) {
++                return MAV_RESULT_DENIED;
++            }
++            if (borealis_bench_channel != 0 && borealis_bench_channel != channel) {
++                hal.rcout->disable_ch(borealis_bench_channel - 1);
++            }
++            hal.rcout->enable_ch(channel - 1);
++            hal.rcout->force_safety_off();
++            hal.rcout->write(channel - 1, pwm);
++            borealis_bench_channel = channel;
++            borealis_bench_last_command_ms = AP_HAL::millis();
++            return MAV_RESULT_ACCEPTED;
++        }
++#endif
+         if (handler->do_set_servo(packet.param1, packet.param2)) {
+             result = MAV_RESULT_ACCEPTED;
+         }

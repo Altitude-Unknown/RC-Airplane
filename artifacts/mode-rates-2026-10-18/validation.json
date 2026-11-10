@@ -1,0 +1,67 @@
+{
+  "status": "installed and enabled; pilot bench test passed; post-update flight test pending",
+  "date": "2026-10-18",
+  "target": "V3 M0",
+  "tests": {
+    "command": "python3 -B -m unittest test_mode_rates test_button_channels test_aircraft_mixing test_gui_model_codec",
+    "passed": 14
+  },
+  "build": {
+    "fqbn": "adafruit:samd:adafruit_feather_m0_express",
+    "core": "adafruit:samd@1.7.10",
+    "program_bytes": 69448
+  },
+  "files": {
+    "samd/TxV3_Full_M0.ino.bin": {
+      "bytes": 70312,
+      "sha256": "a17d86607275e13206fefa946e126aa875eb843a84164dbdd5acd691683fb204"
+    },
+    "altitude-tx-v3-mode-rates.uf2": {
+      "bytes": 140800,
+      "sha256": "f4211c4c744b318be3b07049d34834142c00a676a8a18661bae2fe33cd11e2a4"
+    }
+  },
+  "gui_layout": {
+    "command": "python3 -B -m unittest test_gui_scrolling",
+    "passed": 1
+  },
+  "packaged_gui": {
+    "path": "gui/Altitude Unknown RC Configurator.app",
+    "startup_smoke": "passed; no serial connection opened"
+  },
+  "installation": {
+    "serial": "89CB5B3050304C59502E3120FF101E44",
+    "port": "/dev/cu.usbmodem1301",
+    "image_sha256": "f4211c4c744b318be3b07049d34834142c00a676a8a18661bae2fe33cd11e2a4",
+    "bootloader": "UF2 Bootloader v4.0.0 SFHWRO\nModel: RC Airplane TX M0\nBoard-ID: SAMD21G18A-Altitude-RC-TX-M0-v0\n",
+    "rollback_sha256": "c2d530922cf69ea4c5c2b2d61aca222417a46b140a11b95f01d6a4641c678032",
+    "status": "TX enumerated; mode-rate capability and complete model storage verified afterward"
+  },
+  "on_radio": {
+    "ch5_low": "full surface rates; saved FBWA mapping",
+    "ch5_high": "selected model rates; saved MANUAL mapping",
+    "manual_rates": {
+      "aileron": 30,
+      "elevator": 80,
+      "rudder": 50
+    },
+    "throttle_rate": 100,
+    "fc_connected": false,
+    "fc_bench_test": "pilot reports good bench test; surface deflections look similar in FBWA and MANUAL; no numerical telemetry collected"
+  },
+  "storage_verification": {
+    "all_bytes_preserved_after_flash": true,
+    "changed_after_enable": [
+      313,
+      314,
+      315
+    ],
+    "bytes_compared": 32768
+  },
+  "pilot_bench_test": {
+    "reported_on": "2026-10-18",
+    "result": "looks good; surface deflections in FBWA and MANUAL look close to the same",
+    "evidence": "user report; no numerical FC range capture"
+  },
+  "post_update_flight_test": "pending"
+}

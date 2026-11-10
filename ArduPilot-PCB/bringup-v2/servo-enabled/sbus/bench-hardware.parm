@@ -1,0 +1,6 @@
+# Applied and read back on 2026-10-09; absent hardware, no arming checks skipped.
+COMPASS_ENABLE 0
+GPS1_TYPE 0
+LOG_BACKEND_TYPE 0
+ARMING_SKIPCHK 0
+SERIAL2_PROTOCOL 23

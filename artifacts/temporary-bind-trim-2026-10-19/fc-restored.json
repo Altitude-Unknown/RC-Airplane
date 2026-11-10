@@ -1,0 +1,24 @@
+{
+  "RC6_OPTION": 155.0,
+  "trims_unchanged": true,
+  "trims": {
+    "RC1_MIN": 1073.0,
+    "RC1_MAX": 2000.0,
+    "RC1_TRIM": 1565.0,
+    "RC2_MIN": 1000.0,
+    "RC2_MAX": 1922.0,
+    "RC2_TRIM": 1420.0,
+    "RC3_MIN": 1003.0,
+    "RC3_MAX": 1998.0,
+    "RC3_TRIM": 1003.0,
+    "RC4_MIN": 1000.0,
+    "RC4_MAX": 1961.0,
+    "RC4_TRIM": 1466.0,
+    "SERVO1_TRIM": 1100.0,
+    "SERVO2_TRIM": 1500.0,
+    "SERVO3_TRIM": 1500.0,
+    "SERVO4_TRIM": 1500.0,
+    "SERVO5_TRIM": 1500.0,
+    "SERVO6_TRIM": 1500.0
+  }
+}

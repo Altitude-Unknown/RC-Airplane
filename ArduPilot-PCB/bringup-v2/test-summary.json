@@ -1,0 +1,134 @@
+{
+  "date": "2026-10-09",
+  "firmware_bytes": 1312352,
+  "firmware_sha256": "d95cbb9f619008ace4d7a048aa86f523ed36180e627e08492da1b525e5148f83",
+  "upload_method": "ArduPilot bootloader",
+  "upload_exit_code": 0,
+  "bootloader_crc_verification_passed": true,
+  "speaker": "User confirmed two beeps",
+  "imu_status": "Initialization succeeds after user reflow, cleaning and drying; live acceleration and gyro motion on all axes confirmed",
+  "imu_spi_pins": {
+    "SCK": "PD3 (MCU pin 83)",
+    "MISO": "PC2_C (MCU pin 17)",
+    "MOSI": "PC3_C (MCU pin 18)",
+    "CS": "PD5 (MCU pin 86)"
+  },
+  "imu_hardware_spi_clock_hz": 100000,
+  "imu_expected_id": "0x6c",
+  "stm32_syscfg_pmcr": "0x03000000 (PC2/PC3 switches closed)",
+  "pressure_samples": 88,
+  "pressure_hpa_min_mean_max": [
+    841.044189453125,
+    841.0833781849254,
+    841.1423950195312
+  ],
+  "temperature_c_min_mean_max": [
+    26.16,
+    26.209431818181816,
+    26.22
+  ],
+  "board_disarmed": true,
+  "flight_ready": false,
+  "user_measured_imu_supplies_v": {
+    "C2_VDD": 3.28,
+    "C24_VDDIO": 3.28
+  },
+  "pre_reflow_diagnostics_file": "pre-reflow-test-summary.json",
+  "imu_identity_verification": "Successful driver initialization requires WHO_AM_I 0x6c and control-register readback checks; those exact raw bytes were not separately telemetered on successful boot.",
+  "post_reflow": {
+    "date": "2026-10-09",
+    "port": "/dev/cu.usbmodem101",
+    "after": "User reflowed IMU solder, cleaned PCB and allowed it to dry/cool",
+    "status_text": [],
+    "imu_samples": 190,
+    "acceleration_g_min_mean_max": [
+      1.0160851342284267,
+      1.0252756444202922,
+      1.0281264513667567
+    ],
+    "gyro_rad_s_min_max": {
+      "x": [
+        -0.002,
+        0.0
+      ],
+      "y": [
+        -0.01,
+        0.015
+      ],
+      "z": [
+        -0.001,
+        0.0
+      ]
+    },
+    "sensor_health_all_samples": {
+      "gyro": true,
+      "accelerometer": true,
+      "barometer": true
+    },
+    "parameters": {
+      "INS_ACC_ID": 15729170.0,
+      "INS_GYR_ID": 15729170.0,
+      "BARO1_DEVID": 721162.0
+    },
+    "pressure_hpa_min_mean_max": [
+      840.8256225585938,
+      840.856978567023,
+      840.8907470703125
+    ],
+    "baro_temperature_c_min_max": [
+      22.41,
+      22.73
+    ],
+    "board_disarmed": true,
+    "flight_ready": false,
+    "motion_test": {
+      "samples": 440,
+      "gyro_degrees_per_second_min_max": {
+        "x": [
+          -198.3006928947779,
+          267.34210720804214
+        ],
+        "y": [
+          -151.60463259161583,
+          157.39150632243712
+        ],
+        "z": [
+          -67.95279450251563,
+          28.246819299949586
+        ]
+      },
+      "acceleration_g_min_max": {
+        "x": [
+          -0.861,
+          0.905
+        ],
+        "y": [
+          -0.898,
+          0.868
+        ],
+        "z": [
+          0.368,
+          1.151
+        ]
+      },
+      "sensor_health_all_samples": {
+        "gyro": true,
+        "accelerometer": true,
+        "barometer": true
+      },
+      "status_text": [
+        "PreArm: 3D Accel calibration needed",
+        "PreArm: Compass 1 not healthy",
+        "PreArm: AHRS: waiting for home",
+        "PreArm: Logging failed",
+        "PreArm: Waiting for RC"
+      ],
+      "board_disarmed": true
+    }
+  },
+  "sensor_tests_passed": [
+    "speaker audible startup tones",
+    "MS5611 live pressure and temperature",
+    "LSM6DSO32 initialization, stationary readings and three-axis motion response"
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "RC6_OPTION": 155.0,
+  "FLTMODE_CH": 5.0,
+  "FLTMODE1": 5.0,
+  "FLTMODE2": 11.0,
+  "FLTMODE3": 5.0,
+  "FLTMODE4": 5.0,
+  "FLTMODE5": 0.0,
+  "FLTMODE6": 0.0,
+  "RCMAP_ROLL": 1.0,
+  "RCMAP_PITCH": 2.0,
+  "RCMAP_THROTTLE": 3.0,
+  "RCMAP_YAW": 4.0,
+  "SERVO_AUTO_TRIM": 0.0
+}

@@ -1,0 +1,22 @@
+{
+  "COMPASS_ENABLE": {
+    "value": 1.0,
+    "type": 2
+  },
+  "GPS1_TYPE": {
+    "value": 1.0,
+    "type": 2
+  },
+  "LOG_BACKEND_TYPE": {
+    "value": 2.0,
+    "type": 2
+  },
+  "ARMING_SKIPCHK": {
+    "value": 0.0,
+    "type": 6
+  },
+  "SERIAL2_PROTOCOL": {
+    "value": 23.0,
+    "type": 2
+  }
+}

@@ -1,0 +1,55 @@
+{
+  "samples": 361,
+  "ranges": {
+    "1": [
+      1345,
+      1792
+    ],
+    "2": [
+      1000,
+      1922
+    ],
+    "3": [
+      1001,
+      2000
+    ],
+    "4": [
+      1000,
+      1962
+    ],
+    "5": [
+      1000,
+      2000
+    ],
+    "6": [
+      1000,
+      1000
+    ]
+  },
+  "latest": {
+    "mavpackettype": "RC_CHANNELS",
+    "time_boot_ms": 1503125,
+    "chancount": 16,
+    "chan1_raw": 1567,
+    "chan2_raw": 1420,
+    "chan3_raw": 1002,
+    "chan4_raw": 1466,
+    "chan5_raw": 1000,
+    "chan6_raw": 1000,
+    "chan7_raw": 1500,
+    "chan8_raw": 1500,
+    "chan9_raw": 1500,
+    "chan10_raw": 1500,
+    "chan11_raw": 1500,
+    "chan12_raw": 1500,
+    "chan13_raw": 1500,
+    "chan14_raw": 1500,
+    "chan15_raw": 1500,
+    "chan16_raw": 1500,
+    "chan17_raw": 0,
+    "chan18_raw": 0,
+    "rssi": 255
+  },
+  "healthy_samples": 362,
+  "health_samples": 362
+}

@@ -20,3 +20,16 @@ dist/
 
 # Logs
 *.log
+tools/bossac
+tools/bossac.exe
+
+# Local mode-rate app packages and compiler intermediates; keep validation/images.
+/artifacts/mode-rates-2026-10-18/gui/
+/artifacts/mode-rates-2026-10-18/gui-build/
+/artifacts/mode-rates-2026-10-18/samd/*.elf
+/artifacts/mode-rates-2026-10-18/samd/*.hex
+/artifacts/mode-rates-2026-10-18/samd/*.map
+
+# Published release packages live on GitHub Releases; keep only the notes.
+/artifacts/release-*/*
+!/artifacts/release-*/release-notes.md

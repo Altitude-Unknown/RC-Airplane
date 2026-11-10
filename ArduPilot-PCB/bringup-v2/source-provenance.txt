@@ -1,0 +1,14 @@
+4cd6ac6dcbd4f996ea32f9e0c699c814a1fe6106
+
+diff --git a/libraries/AP_InertialSensor/AP_InertialSensor.cpp b/libraries/AP_InertialSensor/AP_InertialSensor.cpp
+index 2bee64d..397f467 100644
+--- a/libraries/AP_InertialSensor/AP_InertialSensor.cpp
++++ b/libraries/AP_InertialSensor/AP_InertialSensor.cpp
+@@ -23,6 +23,7 @@
+ #include <GCS_MAVLink/GCS.h>
+ 
+ #include "AP_InertialSensor_BMI160.h"
++#include "AP_InertialSensor_LSM6DSO32.h"
+ #include "AP_InertialSensor_BMI270.h"
+ #include "AP_InertialSensor_Backend.h"
+ #include "AP_InertialSensor_L3G4200D.h"

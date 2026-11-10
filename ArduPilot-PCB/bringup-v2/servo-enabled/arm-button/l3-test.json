@@ -1,0 +1,79 @@
+{
+  "gpio": 90,
+  "pin": "PC12",
+  "restored": true,
+  "events": [
+    {
+      "parameter": "RELAY1_FUNCTION",
+      "value": 1
+    },
+    {
+      "parameter": "RELAY1_PIN",
+      "value": 90
+    },
+    {
+      "parameter": "RELAY1_DEFAULT",
+      "value": 0
+    },
+    {
+      "parameter": "RELAY1_INVERTED",
+      "value": 0
+    },
+    {
+      "parameter": "NTF_LED_TYPES",
+      "value": 123078
+    },
+    {
+      "l3_on": true,
+      "ack": 0
+    },
+    {
+      "l3_on": false,
+      "ack": 0
+    },
+    {
+      "parameter": "RELAY1_PIN",
+      "value": -1.0
+    },
+    {
+      "parameter": "RELAY1_DEFAULT",
+      "value": 0.0
+    },
+    {
+      "parameter": "RELAY1_INVERTED",
+      "value": 0.0
+    },
+    {
+      "parameter": "RELAY1_FUNCTION",
+      "value": 0.0
+    },
+    {
+      "parameter": "NTF_LED_TYPES",
+      "value": 123079.0
+    }
+  ],
+  "original": {
+    "RELAY1_FUNCTION": {
+      "value": 0.0,
+      "type": 2
+    },
+    "NTF_LED_TYPES": {
+      "value": 123079.0,
+      "type": 6
+    },
+    "RELAY1_PIN": {
+      "value": -1.0,
+      "type": 4
+    },
+    "RELAY1_DEFAULT": {
+      "value": 0.0,
+      "type": 2
+    },
+    "RELAY1_INVERTED": {
+      "value": 0.0,
+      "type": 2
+    }
+  },
+  "user_observation": "L3 stays dark during steady-on test",
+  "pin_voltage_measured": false
+}
