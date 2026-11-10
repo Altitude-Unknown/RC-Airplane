@@ -1,13 +1,13 @@
 # Button channels — implementation and bench setup
 
-Status: implemented on 2026-09-15; GUI reviewed by the user. Hardware testing
-is deferred until a receiver exposing the new signals is available. Not flashed
-or published.
-This feature is not in release `transmitter-gui-v2026.09.14`.
+Status: implemented on 2026-09-15 and published in release
+`transmitter-gui-v2026.09.22` (not in 2026.09.14). CH5 has been used on the
+BOREALIS V2 and ASCEND FC Rev.2 flight controllers for MANUAL/FBWA selection.
 
-## CH5 mode-linked surface rates — 2026-10-18 source update
+## CH5 mode-linked surface rates — released in 2026.10.19
 
-The updated V3 M0 firmware and source configurator add an opt-in per-model
+Transmitter V3 M0 firmware and the configurator from release
+`transmitter-gui-v2026.10.19` add an opt-in per-model
 **Mode-linked rates** selector under **Button channels**. Select whether FBWA
 corresponds to CH5 low or CH5 high, after checking the actual FC mode mapping.
 That CH5 position uses 100% rudder, aileron and elevator rates; the other
@@ -23,7 +23,7 @@ source can select a different mode without changing the radio's rate profile.
 CH5 starts low at reset, so the selected low-position rate profile also applies
 at startup. USB simulator mode follows the same mapping for bench checks.
 
-Use the updated source GUI and matching M0 firmware together. The GUI refuses
+Use a configurator and M0 firmware from 2026.10.19 or later together. The GUI refuses
 to enable the feature on firmware without the `mode_rates` capability. Older
 GUIs clear this new setting when saving a model. The ESP and receiver packet
 layouts are unchanged; neither requires an update for this feature.
