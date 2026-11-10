@@ -4,6 +4,27 @@ Board: "Arduplane Compatible Flight Controller and LoRa Rx", Rev.2, schematic
 `ASCEND-Flight_Controller v70.pdf` (copied here). STM32H743VIT6, 8 MHz crystal.
 ArduPilot target `ASCENDFCRev2` (private APJ_BOARD_ID 65093).
 
+## Current state of the flight-test board (2026-11-09)
+
+> **Do not use the configurator's Download and Flash Latest on this board.**
+> It runs a test build, not the release image. The configurator would replace
+> it with release 2026.11.09 (ardupilot `5c10c497`), which has neither fix
+> below and no I2C GPS driver. Parameters would be kept.
+
+- Running since 2026-11-07: ArduPlane built from ardupilot `2719570b` (I2C GPS
+  driver) plus two test fixes for flight with no GPS and no airspeed sensor.
+  The roll controller falls back to an assumed airspeed (flashed 2026-11-06).
+  DCM assumes 12 m/s true airspeed while armed for its turn correction
+  (flashed 2026-11-07, apj sha256 `20378f90…`). Both were flashed with
+  `ardupilot_uploader.py`.
+- **Both fixes are uncommitted** edits on the local ardupilot
+  `borealis-v92-bringup` checkout, alongside unrelated BOREALIS RC-bench edits.
+  Commit them before the checkout changes, or they exist only as the flashed
+  images.
+- They are in flight testing (AUTOTUNE "snaps right" diagnostic flight
+  pending). Add an image to `flight_controller_firmware/` and cut a release
+  only after it is committed, built clean and flown.
+
 ## Differences from BOREALIS V2 that matter for firmware
 
 - Outputs 1–4 are PE9/PE11/PE13/PE14 = throttle/aileron/elevator/rudder
