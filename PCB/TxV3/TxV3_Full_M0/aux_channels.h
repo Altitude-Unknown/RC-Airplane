@@ -5,8 +5,10 @@
 // bits 2..3 D7 (0=disabled,1=momentary,2=toggle). Invalid values default off.
 // Existing control/ESP packets retain their length. Bit 7 marks the new
 // encoding; bits 4/5 carry CH5/6. Old experimental low bits are never decoded.
+// Bit 6 carries CH7, the Bind trim-save pulse (no model setting). Receivers
+// without CH7 support ignore it; transmitters without it never set it.
 namespace AuxChannels {
-static const uint8_t MARKER = 0x80, CH5 = 0x10, CH6 = 0x20;
+static const uint8_t MARKER = 0x80, CH5 = 0x10, CH6 = 0x20, CH7 = 0x40;
 inline uint8_t mode(uint8_t config, uint8_t shift) {
   uint8_t value = (config >> shift) & 3;
   return value <= 2 ? value : 0;

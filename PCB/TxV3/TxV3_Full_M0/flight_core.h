@@ -42,14 +42,10 @@
 #include "aux_channels.h"
 #include "mode_rates.h"
 
-// Opt-in only for the temporary V3 image, never the standard release build.
-#ifndef TXV3_TEMP_BIND_TRIM_SAVE
-#define TXV3_TEMP_BIND_TRIM_SAVE 0
-#endif
-#if TXV3_TEMP_BIND_TRIM_SAVE && defined(TXV3_BUDDY_BUILD)
-#include "temp_bind_trim.h"
-TempBindTrim::Button temporaryBindTrim;
-#endif
+// Bind = trim-save button (CH7 pulse) in every standard build.
+#include "bind_trim_save.h"
+BindTrimSave::Button bindTrimSave;
+bool bindTrimSaveWasPulsing = false;
 
 #ifdef TXV3_BUDDY_BUILD
 void txv3BuddyBegin();
@@ -86,8 +82,8 @@ RH_RF95 rf95(RFM95_CS, RFM95_INT);
 #ifndef LED_BUILTIN
   #define LED_BUILTIN 13
 #endif
-// Boot combinations select operating modes. The temporary V3 trim-save build
-// also reads Bind during normal operation; see temp_bind_trim.h.
+// Boot combinations select operating modes. In normal operation a 1 s Bind
+// hold is the trim-save button (CH7); see bind_trim_save.h.
 // Holding different combinations
 // chooses a different operating mode before normal control packets start.
 #define PIN_BIND_BTN 9   // Bind Mode (hold at boot)
@@ -149,6 +145,13 @@ const BeepStep ONE_MIN_PATTERN[] = {
   {2600, 360, 360},
   {2600, 360, 240},
   {2600, 360, 0},
+};
+
+// Two short high chirps: the Bind trim-save pulse was sent. This confirms the
+// transmitter sent it, not that the FC accepted it (the FC LED shows that).
+const BeepStep TRIM_SENT_PATTERN[] = {
+  {3400, 70, 70},
+  {3400, 70, 0},
 };
 
 // ---------------- OLED Setup Menu -----------------
@@ -339,9 +342,10 @@ static void processConfigLine(const String &line) {
   if (cmd == "INFO") {
     Serial.print("{\"mcu\":\"SAMD21G18\",\"fram_size\":");
     Serial.print(TXCF::framSize());
-#if TXV3_TEMP_BIND_TRIM_SAVE && defined(TXV3_BUDDY_BUILD)
-    Serial.print(",\"temp_bind_trim_save\":true,\"trim_save_channel\":6,\"trim_save_hold_ms\":2000,\"trim_save_pulse_ms\":500");
-#endif
+    Serial.print(",\"bind_trim_save\":true,\"trim_save_channel\":7,\"trim_save_hold_ms\":");
+    Serial.print(BindTrimSave::HOLD_MS);
+    Serial.print(",\"trim_save_pulse_ms\":");
+    Serial.print(BindTrimSave::PULSE_MS);
     Serial.print(",\"storage\":\"");
     Serial.print(TXCF::storageName());
     Serial.print("\",\"proto\":\"1.1\",\"role\":\"TX\",\"button_channels\":true,\"mode_rates\":true,\"buzzer_test\":true,\"radio_role\":\"");
@@ -1050,17 +1054,25 @@ void loop() {
   uint8_t localAux = AuxChannels::encode(
       channel5Button.update(digitalRead(10) == LOW, mode5, millis()),
       channel6Button.update(digitalRead(7) == LOW, mode6, millis()));
-#if TXV3_TEMP_BIND_TRIM_SAVE && defined(TXV3_BUDDY_BUILD)
-  // TEMPORARY: Bind drives CH6 only with this model's known CH5 mapping:
-  // low=FBWA, high=MANUAL. Require toggle CH5; this does not change the
-  // independently selected surface-rate profile. Never enable for trainer/student,
-  // simulator or throttle-lock operation. Boot Bind/Config branches stay intact.
-  const bool trimPermitted = !student && !simulatorMode && !txLocked &&
-      mode5 == 2 &&
-      (localAux & AuxChannels::CH5);
-  localAux = AuxChannels::encode((localAux & AuxChannels::CH5) != 0,
-      temporaryBindTrim.update(digitalRead(PIN_BIND_BTN) == LOW, trimPermitted, loopNow));
+  // Bind trim-save: a 1 s Bind hold sends one 0.5 s CH7 pulse. The FC decides
+  // whether to save (MANUAL only, sticks near centre, not rotating fast), so
+  // the transmitter does not guess the flight mode from CH5. Inhibited on a
+  // student radio, while a student has control (the FC would save the
+  // student's sticks), in simulator mode and during the boot throttle lock.
+  // CH5/CH6 and the surface-rate selection below are unaffected.
+  bool trimHandoff = false;
+#ifdef TXV3_BUDDY_BUILD
+  trimHandoff = txv3StudentGranted;
 #endif
+  const bool trimPermitted = !student && !trimHandoff && !simulatorMode && !txLocked;
+  const bool trimPulse = bindTrimSave.update(digitalRead(PIN_BIND_BTN) == LOW,
+                                             trimPermitted, loopNow);
+  if (trimPulse) localAux |= AuxChannels::CH7;
+  if (trimPulse && !bindTrimSaveWasPulsing) {
+    startBuzzerPattern(TRIM_SENT_PATTERN,
+                       sizeof(TRIM_SENT_PATTERN) / sizeof(TRIM_SENT_PATTERN[0]), loopNow);
+  }
+  bindTrimSaveWasPulsing = trimPulse;
   // Use the same debounced CH5 state that is placed in this control packet.
   const bool fullSurfaceRates = ModeRates::fullSurfaces(buttonConfig, localAux, student);
 

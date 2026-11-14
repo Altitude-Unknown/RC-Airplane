@@ -266,6 +266,8 @@ static void sendCrsfChannels() {
   channels[3] = rcMicrosecondsToCrsf(channelRudder);
   channels[4] = rcMicrosecondsToCrsf(AuxChannels::pulse(lastAuxFlags, AuxChannels::CH5));
   channels[5] = rcMicrosecondsToCrsf(AuxChannels::pulse(lastAuxFlags, AuxChannels::CH6));
+  // CH7: Bind trim-save pulse from the transmitter (ArduPlane RC7_OPTION 155).
+  channels[6] = rcMicrosecondsToCrsf(AuxChannels::pulse(lastAuxFlags, AuxChannels::CH7));
 
   uint8_t frame[CRSF_FRAME_SIZE];
   frame[0] = CRSF_ADDRESS_FLIGHT_CONTROLLER;

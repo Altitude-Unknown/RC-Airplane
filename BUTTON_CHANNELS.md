@@ -57,6 +57,7 @@ Load the model in **Models**, then choose the **Button channels** settings:
 | D7 / Aux | Disabled (existing-model default) | Channel 6 stays low |
 | D7 / Aux | Channel 6 — Momentary | Hold for 2000 µs; release for 1000 µs |
 | D7 / Aux | Channel 6 — Toggle | Each press changes between 1000 and 2000 µs |
+| D9 / Bind | Trim-save (fixed, not a model setting) | 1 s hold sends one 0.5 s Channel 7 pulse (2000 µs), otherwise 1000 µs |
 
 Momentary is the first enabled choice for either button. Save with **Save To
 Radio**, select **Set Active** if needed, then restart in flight mode. Settings
@@ -100,6 +101,7 @@ ESP status does not associate an unrelated M0 USB device with that ESP.
 | --- | --- | --- |
 | Channel 5 (D10) | D21 / SCL | Channel 5 |
 | Channel 6 (D7) | D20 / SDA | Channel 6 |
+| Channel 7 (Bind trim-save) | not output | Channel 7 (also SBUS channel 7 on the FC) |
 
 Use signal plus common ground and suitable servo power. These are GPIO signal
 pins; they are not servo power sources. The current PCB needs access to the
@@ -136,8 +138,8 @@ included in the configurator's standard Receiver download.
   does not implement the V3 ESP buddy link.
 
 The LoRa control packet remains 13 bytes and the existing buddy packet layout
-is unchanged. `aux_flags` bit 7 marks this encoding; bits 4 and 5 are CH5 and
-CH6 high states. Low bits from historical experimental packets are ignored.
+is unchanged. `aux_flags` bit 7 marks this encoding; bits 4, 5 and 6 are CH5,
+CH6 and CH7 (Bind trim-save) high states. Low bits from historical experimental packets are ignored.
 Older receivers ignore the switch byte and continue operating the first four
 channels. New receivers interpret old unmarked packets as CH5/6 low.
 

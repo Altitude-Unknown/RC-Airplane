@@ -1,10 +1,13 @@
 #pragma once
 #include <stdint.h>
 
-// TEMPORARY V3 bench/flight-test workaround. REMOVE when TX V4 is ready.
-// CH6 is reserved for this action; never combine with D7's old assignment.
-namespace TempBindTrim {
-static constexpr uint32_t HOLD_MS = 2000, PULSE_MS = 500, DEBOUNCE_MS = 25;
+// Bind button as the ArduPlane trim-save button (permanent, Tx V3 and V4).
+// Holding Bind for HOLD_MS in normal flight operation sends one PULSE_MS pulse
+// on CH7; the FC (RC7_OPTION 155) saves the trims only in MANUAL and confirms
+// by blinking its status LED. Bind held at power-up still enters bind mode.
+// CH5/CH6 (D10/D7, AUX1/AUX2) stay free for other functions.
+namespace BindTrimSave {
+static constexpr uint32_t HOLD_MS = 1000, PULSE_MS = 500, DEBOUNCE_MS = 25;
 struct Button {
     bool raw = false, stable = false, ready = false, fired = false;
     uint32_t changedAt = 0, pressedAt = 0, firedAt = 0;
@@ -12,7 +15,7 @@ struct Button {
         if (pressed != raw) { raw = pressed; changedAt = now; }
         if (!permitted) {
             ready = false; fired = false;
-            // A held button cannot arm when switching into MANUAL.
+            // A button held while inhibited stays inert until released.
             stable = raw;
             return false;
         }
@@ -30,4 +33,4 @@ struct Button {
         return fired && (uint32_t)(now - firedAt) < PULSE_MS;
     }
 };
-} // namespace TempBindTrim
+} // namespace BindTrimSave

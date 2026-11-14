@@ -449,6 +449,8 @@ void sendSbusFrame() {
   channels[3] = rcMicrosecondsToSbus(sbus_r);
   channels[4] = rcMicrosecondsToSbus(AuxChannels::pulse(sbusAuxFlags, AuxChannels::CH5));
   channels[5] = rcMicrosecondsToSbus(AuxChannels::pulse(sbusAuxFlags, AuxChannels::CH6));
+  // CH7: Bind trim-save pulse from the transmitter (ArduPlane RC7_OPTION 155).
+  channels[6] = rcMicrosecondsToSbus(AuxChannels::pulse(sbusAuxFlags, AuxChannels::CH7));
 
   uint8_t frame[SBUS_FRAME_SIZE] = {0};
   frame[0] = 0x0F;

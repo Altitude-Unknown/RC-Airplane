@@ -952,41 +952,51 @@ and pitch trim can request a different nose attitude. The FC cannot identify
 trim-button input separately from stick movement. FBWA holds attitude, not
 altitude. Rudder remains a manual input plus configured coordination/mixing.
 
-Prefer establishing the aircraft's basic trim through linkages and FC
-`SERVOx_TRIM` output settings. ArduPlane also supports auxiliary function
-**155, TRIM RC/SERVO Save**: in MANUAL it saves the present surface outputs
-and the corresponding roll, pitch and yaw RC input centers. Thus a released
-stick at the trimmed transmitter setting becomes the new recognized neutral,
-while retaining the surface correction. This built-in function requires no
-transmitter or FC code change and no GPS.
+Get the basic trim right with the linkages first. After that, trim with the
+transmitter trims as usual and save them to the FC with the **Bind button**.
+The FC's arming check and FBWA both treat a stick that is away from its saved
+centre as a command. A trim that has not been saved therefore stops the FC
+arming ("Roll (RC1) is not neutral") and makes FBWA bank or pitch by itself.
 
-If using trim-save, assign it to a separate unused RC channel, not a control
-axis or flight-mode channel. Keep sticks released at the intended trimmed
-centers; the current firmware rejects invalid RC, non-MANUAL operation, large
-roll/pitch inputs or excessive rotation. Bench-verify the function and saved
-input/output values before flight use. It is not yet assigned or hardware
-validated on this installation. After saving, leave the transmitter trims at
-the saved positions; zeroing them changes the inputs again. Further trim
-changes need another deliberate save before they become the new FBWA neutral.
-Do not automatically run trim-save on every mode-button press.
+**Trim-save with the Bind button.** Hold Bind for **1 second** while flying
+or on the ground. The transmitter sends one pulse on Channel 7 and plays two
+short chirps. The FC (ArduPlane `RC7_OPTION 155`, set in the ASCEND board
+defaults) then saves, at the same moment:
 
-On a transmitter with a working D7 button, the trim-save control is
-**D7 / Aux -> Channel 6, Momentary** in the transmitter model, with
-**RC6_OPTION=155** in ArduPlane. Keep Channel 5 for MANUAL/FBWA selection.
-With the propeller removed, first verify CH6 reads about 1000 µs released and
-2000 µs held, and that the mode channel does not change; then bench-check the
-save with sticks released in MANUAL.
+- the present surface positions as the new servo centres (`SERVOx_TRIM`), and
+- the present stick positions, trims included, as the new stick centres
+  (`RCx_TRIM` for roll, pitch and yaw; not throttle).
 
-The old BOREALIS transmitter's D7 connection was removed during PCB repair,
-so it runs a **temporary** build instead (`TXV3_TEMP_BIND_TRIM_SAVE=1`, not in
-any release): in MANUAL, holding Bind for 2 seconds sends one 0.5-second CH6
-pulse. It is disabled in FBWA, trainer, Simulator and throttle lock. The
-BOREALIS V2 FC has `RC6_OPTION=155`, and two MANUAL pulses and the FBWA
-lockout were verified on the bench on 2026-10-19. The pilot believed it
-worked in flight on 2026-10-20, but the saved trims were not read back; only
-the FC's "trim complete" message confirms a save. Remove this temporary
-feature when Transmitter V4 replaces V3
-([details](memory/2026-10-19-temporary-bind-trim-save.md)).
+Nothing moves when you press it, and afterwards the centred sticks count as
+neutral. **Leave the transmitter trims where they are after a save. Do not
+zero them**: that would put the aircraft out of trim and fail the arming check
+again.
+
+When the save is accepted, the FC's **status LED blinks fast for 3 seconds**
+(faster than the start-up blink) and a ground station shows "trim complete".
+The chirps only mean the transmitter sent the request; in flight, check the
+LED after landing. The FC rejects the save, without saving anything, when:
+
+- it is not in **MANUAL**,
+- a stick is more than 20% of its travel away from centre,
+- the aircraft is rotating faster than 30°/s, or
+- the radio link is in failsafe.
+
+Ground trim before a first flight: power up in MANUAL (the FC moves the
+surfaces while disarmed, throttle stays off), set the surfaces neutral with
+the transmitter trims, release the sticks, keep the aircraft still, and hold
+Bind for 1 second. Wait for the fast LED blink. In the air: trim in MANUAL
+until it flies straight hands-off, then hold Bind for 1 second in level
+flight with the sticks released. Each save replaces the previous one. A
+surface that needs more than 20% of stick travel as trim is a linkage
+problem; fix it mechanically.
+
+The transmitter ignores Bind for trim-save on a student radio, while a
+student has control in trainer mode, in Simulator mode and during the
+power-up throttle lock. Bind held at power-up still enters bind mode. D10
+(Channel 5) and D7 (Channel 6) are not used by trim-save. Receivers need the
+2026-11-14 or later firmware to pass Channel 7; with older receiver firmware
+the button does nothing.
 
 `SERVO_AUTO_TRIM` is another built-in option for suitable installations, but
 requires adequate ground-speed and airspeed estimates. Do not assume it will
