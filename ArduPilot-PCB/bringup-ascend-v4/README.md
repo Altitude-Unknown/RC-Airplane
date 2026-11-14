@@ -177,3 +177,18 @@ RC7_OPTION 155), props off, disarmed. Evidence: `2026-11-14/trim-save-bench-test
 - Full snapshot after the test: `2026-11-14/params-after-trim-save-bench-test.json`. Only the four
   trims (and COMPASS_DEC from GPS) changed since the flash. The AUTOTUNE `.param` profile still
   holds the pre-tail-change trims; use this snapshot for this airframe's current trims.
+
+## 2026-11-14: production release image on the V4 board
+
+- Built from a clean worktree of mwalach76/ardupilot `ascend-airplane-release` at 02d6a7b9:
+  f05fc066 (the flown base) + GPS-ready LED + trim-save LED + the flight-tested defaults, with no
+  quad commits. `2026-11-14/release/arduplane-release-02d6a7b9.apj` (sha256 7440c2d1…8efb), also
+  installed as `flight_controller_firmware/ASCENDFCRev2/arduplane.apj`.
+- Flashed on this board (fe45, verify 100%). Every saved parameter kept
+  (`release/params-before/after-release-flash.json`). The firmware's own defaults over MAVLink FTP
+  (`release/fc-defaults-ftp.param`) match all 35 lines of the board `defaults.parm`, including
+  ARSPD_TYPE 0 (now also the compile-time default).
+- Not done: a full parameter reset to show the defaults on this flown board (avoided over the
+  intermittent USB link). Check the first new PCB with a default-parameter readback.
+- J2 USB dropped out several times during the session. The Mac and cable were fine (a phone
+  enumerated on the same port), and the board came back after replugging. Inspect J2.

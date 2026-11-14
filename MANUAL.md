@@ -1033,25 +1033,48 @@ the airplane before flight.
 **Receiver**, then rebind; the update clears the bind code. ArduPlane reads
 the SBUS on `SERIAL2` (`SERIAL2_PROTOCOL=23`, the default).
 
-**Limits of the current board.**
+**Flight setup built in.** From release 2026.11.14 a new board comes up with
+the setup flown on 2026-11-14 (ASCEND FC V4, FBWA and AUTOTUNE, no airspeed
+sensor):
 
-- GPS is not supported. The onboard u-blox module (it reports as NEO-M9V)
-  connects over I2C only; a test driver detects it but has not obtained a
-  fix, which is attributed to the antenna layout. Keep `GPS1_TYPE=0`.
-- There is no SD card, so there are no onboard flight logs. Record a MAVLink
-  telemetry log from a ground station if you need one.
-- With no GPS and no airspeed sensor, ArduPlane has no airspeed estimate. In
-  November flight tests, FBWA and AUTOTUNE gave weak roll response and
-  AUTOTUNE did not learn roll gains. Firmware changes for this are being
-  flight-tested and are not in the release image.
+| Setting | Value |
+| --- | --- |
+| Mode switch | `FLTMODE_CH 5`: low `FLTMODE1 5` (FBWA), high `FLTMODE6 0` (MANUAL) |
+| Limits | `ROLL_LIMIT_DEG 55`, `PTCH_LIM_MAX_DEG 30` |
+| Response | `RLL2SRV_TCONST 0.3`, `PTCH2SRV_TCONST 0.45`, `RLL2SRV_RMAX 90`, `PTCH2SRV_RMAX_UP 90`, `PTCH2SRV_RMAX_DN 90`, `AUTOTUNE_LEVEL 7` |
+| Roll rate gains | `RLL_RATE_P 0.0590127`, `RLL_RATE_I 0.0590127`, `RLL_RATE_D 0.0032653`, `RLL_RATE_FF 0.0900232`, `RLL_RATE_FLTT 5.30516`, `RLL_RATE_FLTD 10` |
+| Pitch rate gains | `PTCH_RATE_P 0.125405`, `PTCH_RATE_I 0.667278`, `PTCH_RATE_D 0.0034061`, `PTCH_RATE_FF 0.667278`, `PTCH_RATE_FLTT 3.53678`, `PTCH_RATE_FLTD 10` |
+| Trim-save | `RC7_OPTION 155` (Bind button, see [Aircraft Trim And FBWA](#aircraft-trim-and-fbwa)) |
+| GPS / AHRS | `GPS1_TYPE 1` (onboard u-blox over I2C), `AHRS_EKF_TYPE 3`, full arming checks |
+| No airspeed sensor, no SD card | `ARSPD_TYPE 0`, `LOG_BACKEND_TYPE 0` |
+
+The mode switch pairs with the transmitter model's full surface rates at CH5
+low (`ch5_rate_mode 1`). The gains were tuned on one airframe; a different
+airplane should run AUTOTUNE starting from them.
+
+**What a builder still does:** accelerometer calibration, compass
+calibration, Level Horizon with the airplane level in its flying attitude,
+radio calibration and bind, then trims with the Bind trim-save button.
+
+**Updating an existing board:** firmware defaults only apply to settings that
+were never saved, so a board that is already set up keeps its own values.
+Set the values in the table by hand if you want this setup on such a board,
+and check `RC7_OPTION`.
+
+**GPS LED:** off = no 3D fix; blinking = fix, but the AHRS is not yet ready
+to arm; solid = GPS will not block arming. Arming requires a GPS lock.
+
+**Limits of the board.** There is no SD card, so there are no onboard flight
+logs; record a MAVLink telemetry log from a ground station if you need one.
+There is no airspeed sensor input on the standard build.
 
 **Arming.** The PCB ARM button works only in MANUAL or FBWA, with healthy RC,
 idle throttle and a two-second hold. If a switch position is set to another
 mode (for example AUTOTUNE), arm in MANUAL and then switch.
 
-The first flight was reported on 2026-11-03 with this transmitter: takeoff
-and landing in MANUAL, with short AUTOTUNE segments. Pilot report only; no
-flight-ready claim is made for the board.
+The first flight was reported on 2026-11-03. The built-in setup above was
+flown on a V4 board on 2026-11-14 in FBWA and AUTOTUNE (pilot report: smooth
+FBWA levelling, good response).
 
 ## Troubleshooting
 
