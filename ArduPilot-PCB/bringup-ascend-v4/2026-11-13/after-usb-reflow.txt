@@ -1,0 +1,16 @@
+firmware git 3237313935 sw 0x40701ff
+unhealthy: ['MAV_SYS_STATUS_SENSOR_GPS', 'MAV_SYS_STATUS_PREARM_CHECK']
+baro 840.5 hPa 30.6 C
+imu acc (65, -21, -999) mag (-44, -47, 573)
+gps fix 1 sats 0
+MSG RCInput: decoding SBUS (Bytes)
+MSG Initialising ArduPilot
+MSG Calibrating barometer
+MSG Initialising ArduPilot
+MSG Barometer 1 calibration complete
+MSG No airspeed sensor
+MSG ArduPilot Ready
+MSG AHRS: DCM active
+MSG GPS 1: specified as u-blox
+MSG RCOut: PWM:1-6
+MSG GPS 1: detected u-blox

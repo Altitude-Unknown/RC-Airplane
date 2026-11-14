@@ -1,0 +1,24 @@
+   0s sats 6 hdop 7.45 hacc 51.6 m EKF ?
+   0s MANUAL disarmed
+   0s MSG PreArm: AHRS: not using configured AHRS type
+   6s MSG PreArm: AHRS: not using configured AHRS type
+   8s sats 6 hdop 7.44 hacc 56.1 m EKF 0xa7
+   8s MSG PreArm: AHRS: not using configured AHRS type
+  16s sats 6 hdop 7.43 hacc 56.3 m EKF 0xa7
+  16s MSG PreArm: AHRS: not using configured AHRS type
+  24s sats 6 hdop 7.43 hacc 56.4 m EKF 0xa7
+  24s MSG PreArm: AHRS: not using configured AHRS type
+  32s sats 6 hdop 7.42 hacc 56.2 m EKF 0xa7
+  32s MSG PreArm: AHRS: not using configured AHRS type
+  37s MSG PreArm: AHRS: not using configured AHRS type
+  40s sats 6 hdop 7.42 hacc 53.3 m EKF 0xa7
+  40s MSG PreArm: AHRS: not using configured AHRS type
+  48s sats 6 hdop 7.41 hacc 56.1 m EKF 0xa7
+  48s MSG PreArm: AHRS: not using configured AHRS type
+  56s sats 6 hdop 7.40 hacc 56.2 m EKF 0xa7
+  56s MSG PreArm: AHRS: not using configured AHRS type
+  64s sats 7 hdop 5.25 hacc 22.9 m EKF 0xa7
+  64s MSG PreArm: AHRS: not using configured AHRS type
+  68s MSG PreArm: AHRS: not using configured AHRS type
+  72s sats 7 hdop 5.22 hacc 22.0 m EKF 0xa7
+  72s MSG PreArm: AHRS: not using configured AHRS type

@@ -2,10 +2,10 @@
   "board": "ASCENDFCRev2",
   "board_id": 65093,
   "vehicle": "ArduPlane",
-  "source_repository": "https://github.com/mwalach76/ardupilot (branch borealis-v92-bringup)",
-  "source_commit": "5c10c497a4c06c7711cd748ef02e66b42438dd2d",
-  "built": "2026-11-01",
+  "source_repository": "https://github.com/mwalach76/ardupilot (branch ascend-airplane-release)",
+  "source_commit": "02d6a7b964935d7c0183b92f8e50036e9c22fc0b",
+  "built": "2026-11-14",
   "build": "Clean worktree at source_commit; ./waf configure --board ASCENDFCRev2 && ./waf plane; arm-none-eabi-gcc 10-2020-q4-major",
-  "sha256": "7c73c1dbc0269f44018ea6d41b2d1b4bbed85ac77d3b054c33a8f68211308515",
-  "notes": "IMU and compass rotations declared in hwdef: AHRS_ORIENTATION=0 is the standard mounting (components up, I2C header forward). Bench-tested 2026-11-01: level attitude, six-position accel cal, compass cal good orientation, heading checked against north, all pre-arm checks pass."
+  "sha256": "7440c2d1370add2c97d1dc76829833754bc0d890c1bf2ae4a2a0756cac428efb",
+  "notes": "ASCEND FC V4 (board target ASCENDFCRev2). Onboard u-blox GPS over I2C with EKF3; GPS readiness LED; Bind trim-save (RC7_OPTION 155) with status-LED fast blink; flight-tested airplane setup in the board defaults (mode switch FBWA/MANUAL, limits, response, AUTOTUNE gains) and no-airspeed default. Same source as the image flown 2026-11-14 plus the new defaults. Bench-checked 2026-11-14 on the flown V4 board: flash verified, all saved parameters kept, all 35 board defaults reported by the firmware over MAVLink FTP; trim-save accepted in MANUAL and rejected in FBWA on the preceding build."
 }

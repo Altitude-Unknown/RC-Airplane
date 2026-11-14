@@ -1,0 +1,3 @@
+GPS fix 3 sats 8 hdop 2.05 hacc 12.9 m  EKF 0xa7
+MSG PreArm: AHRS: not using configured AHRS type
+MSG PreArm: Check mag field (xy diff:135>100)

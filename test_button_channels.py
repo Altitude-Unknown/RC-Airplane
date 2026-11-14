@@ -120,7 +120,8 @@ int main(){
  lastAuxFlags=AuxChannels::encode(a,b);sendCrsfChannels();
  assert(channel(0)==172 && channel(1)==992 && channel(2)==172 && channel(3)==1811);
  assert(channel(4)==(a?1811:172));assert(channel(5)==(b?1811:172));
- for(int ch=6;ch<16;ch++)assert(channel(ch)==992);
+ assert(channel(6)==172); // CH7 trim-save low when not pulsed
+ for(int ch=7;ch<16;ch++)assert(channel(ch)==992);
  assert(pixhawkSerial.data[25]==crsfCrc8(&pixhawkSerial.data[2],23));
  }
  lastAuxFlags=3;sendCrsfChannels();assert(channel(4)==172 && channel(5)==172);

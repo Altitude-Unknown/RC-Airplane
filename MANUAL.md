@@ -952,41 +952,51 @@ and pitch trim can request a different nose attitude. The FC cannot identify
 trim-button input separately from stick movement. FBWA holds attitude, not
 altitude. Rudder remains a manual input plus configured coordination/mixing.
 
-Prefer establishing the aircraft's basic trim through linkages and FC
-`SERVOx_TRIM` output settings. ArduPlane also supports auxiliary function
-**155, TRIM RC/SERVO Save**: in MANUAL it saves the present surface outputs
-and the corresponding roll, pitch and yaw RC input centers. Thus a released
-stick at the trimmed transmitter setting becomes the new recognized neutral,
-while retaining the surface correction. This built-in function requires no
-transmitter or FC code change and no GPS.
+Get the basic trim right with the linkages first. After that, trim with the
+transmitter trims as usual and save them to the FC with the **Bind button**.
+The FC's arming check and FBWA both treat a stick that is away from its saved
+centre as a command. A trim that has not been saved therefore stops the FC
+arming ("Roll (RC1) is not neutral") and makes FBWA bank or pitch by itself.
 
-If using trim-save, assign it to a separate unused RC channel, not a control
-axis or flight-mode channel. Keep sticks released at the intended trimmed
-centers; the current firmware rejects invalid RC, non-MANUAL operation, large
-roll/pitch inputs or excessive rotation. Bench-verify the function and saved
-input/output values before flight use. It is not yet assigned or hardware
-validated on this installation. After saving, leave the transmitter trims at
-the saved positions; zeroing them changes the inputs again. Further trim
-changes need another deliberate save before they become the new FBWA neutral.
-Do not automatically run trim-save on every mode-button press.
+**Trim-save with the Bind button.** Hold Bind for **1 second** while flying
+or on the ground. The transmitter sends one pulse on Channel 7 and plays two
+short chirps. The FC (ArduPlane `RC7_OPTION 155`, set in the ASCEND board
+defaults) then saves, at the same moment:
 
-On a transmitter with a working D7 button, the trim-save control is
-**D7 / Aux -> Channel 6, Momentary** in the transmitter model, with
-**RC6_OPTION=155** in ArduPlane. Keep Channel 5 for MANUAL/FBWA selection.
-With the propeller removed, first verify CH6 reads about 1000 µs released and
-2000 µs held, and that the mode channel does not change; then bench-check the
-save with sticks released in MANUAL.
+- the present surface positions as the new servo centres (`SERVOx_TRIM`), and
+- the present stick positions, trims included, as the new stick centres
+  (`RCx_TRIM` for roll, pitch and yaw; not throttle).
 
-The old BOREALIS transmitter's D7 connection was removed during PCB repair,
-so it runs a **temporary** build instead (`TXV3_TEMP_BIND_TRIM_SAVE=1`, not in
-any release): in MANUAL, holding Bind for 2 seconds sends one 0.5-second CH6
-pulse. It is disabled in FBWA, trainer, Simulator and throttle lock. The
-BOREALIS V2 FC has `RC6_OPTION=155`, and two MANUAL pulses and the FBWA
-lockout were verified on the bench on 2026-10-19. The pilot believed it
-worked in flight on 2026-10-20, but the saved trims were not read back; only
-the FC's "trim complete" message confirms a save. Remove this temporary
-feature when Transmitter V4 replaces V3
-([details](memory/2026-10-19-temporary-bind-trim-save.md)).
+Nothing moves when you press it, and afterwards the centred sticks count as
+neutral. **Leave the transmitter trims where they are after a save. Do not
+zero them**: that would put the aircraft out of trim and fail the arming check
+again.
+
+When the save is accepted, the FC's **status LED blinks fast for 3 seconds**
+(faster than the start-up blink) and a ground station shows "trim complete".
+The chirps only mean the transmitter sent the request; in flight, check the
+LED after landing. The FC rejects the save, without saving anything, when:
+
+- it is not in **MANUAL**,
+- a stick is more than 20% of its travel away from centre,
+- the aircraft is rotating faster than 30°/s, or
+- the radio link is in failsafe.
+
+Ground trim before a first flight: power up in MANUAL (the FC moves the
+surfaces while disarmed, throttle stays off), set the surfaces neutral with
+the transmitter trims, release the sticks, keep the aircraft still, and hold
+Bind for 1 second. Wait for the fast LED blink. In the air: trim in MANUAL
+until it flies straight hands-off, then hold Bind for 1 second in level
+flight with the sticks released. Each save replaces the previous one. A
+surface that needs more than 20% of stick travel as trim is a linkage
+problem; fix it mechanically.
+
+The transmitter ignores Bind for trim-save on a student radio, while a
+student has control in trainer mode, in Simulator mode and during the
+power-up throttle lock. Bind held at power-up still enters bind mode. D10
+(Channel 5) and D7 (Channel 6) are not used by trim-save. Receivers need the
+2026-11-14 or later firmware to pass Channel 7; with older receiver firmware
+the button does nothing.
 
 `SERVO_AUTO_TRIM` is another built-in option for suitable installations, but
 requires adequate ground-speed and airspeed estimates. Do not assume it will
@@ -1023,25 +1033,48 @@ the airplane before flight.
 **Receiver**, then rebind; the update clears the bind code. ArduPlane reads
 the SBUS on `SERIAL2` (`SERIAL2_PROTOCOL=23`, the default).
 
-**Limits of the current board.**
+**Flight setup built in.** From release 2026.11.14 a new board comes up with
+the setup flown on 2026-11-14 (ASCEND FC V4, FBWA and AUTOTUNE, no airspeed
+sensor):
 
-- GPS is not supported. The onboard u-blox module (it reports as NEO-M9V)
-  connects over I2C only; a test driver detects it but has not obtained a
-  fix, which is attributed to the antenna layout. Keep `GPS1_TYPE=0`.
-- There is no SD card, so there are no onboard flight logs. Record a MAVLink
-  telemetry log from a ground station if you need one.
-- With no GPS and no airspeed sensor, ArduPlane has no airspeed estimate. In
-  November flight tests, FBWA and AUTOTUNE gave weak roll response and
-  AUTOTUNE did not learn roll gains. Firmware changes for this are being
-  flight-tested and are not in the release image.
+| Setting | Value |
+| --- | --- |
+| Mode switch | `FLTMODE_CH 5`: low `FLTMODE1 5` (FBWA), high `FLTMODE6 0` (MANUAL) |
+| Limits | `ROLL_LIMIT_DEG 55`, `PTCH_LIM_MAX_DEG 30` |
+| Response | `RLL2SRV_TCONST 0.3`, `PTCH2SRV_TCONST 0.45`, `RLL2SRV_RMAX 90`, `PTCH2SRV_RMAX_UP 90`, `PTCH2SRV_RMAX_DN 90`, `AUTOTUNE_LEVEL 7` |
+| Roll rate gains | `RLL_RATE_P 0.0590127`, `RLL_RATE_I 0.0590127`, `RLL_RATE_D 0.0032653`, `RLL_RATE_FF 0.0900232`, `RLL_RATE_FLTT 5.30516`, `RLL_RATE_FLTD 10` |
+| Pitch rate gains | `PTCH_RATE_P 0.125405`, `PTCH_RATE_I 0.667278`, `PTCH_RATE_D 0.0034061`, `PTCH_RATE_FF 0.667278`, `PTCH_RATE_FLTT 3.53678`, `PTCH_RATE_FLTD 10` |
+| Trim-save | `RC7_OPTION 155` (Bind button, see [Aircraft Trim And FBWA](#aircraft-trim-and-fbwa)) |
+| GPS / AHRS | `GPS1_TYPE 1` (onboard u-blox over I2C), `AHRS_EKF_TYPE 3`, full arming checks |
+| No airspeed sensor, no SD card | `ARSPD_TYPE 0`, `LOG_BACKEND_TYPE 0` |
+
+The mode switch pairs with the transmitter model's full surface rates at CH5
+low (`ch5_rate_mode 1`). The gains were tuned on one airframe; a different
+airplane should run AUTOTUNE starting from them.
+
+**What a builder still does:** accelerometer calibration, compass
+calibration, Level Horizon with the airplane level in its flying attitude,
+radio calibration and bind, then trims with the Bind trim-save button.
+
+**Updating an existing board:** firmware defaults only apply to settings that
+were never saved, so a board that is already set up keeps its own values.
+Set the values in the table by hand if you want this setup on such a board,
+and check `RC7_OPTION`.
+
+**GPS LED:** off = no 3D fix; blinking = fix, but the AHRS is not yet ready
+to arm; solid = GPS will not block arming. Arming requires a GPS lock.
+
+**Limits of the board.** There is no SD card, so there are no onboard flight
+logs; record a MAVLink telemetry log from a ground station if you need one.
+There is no airspeed sensor input on the standard build.
 
 **Arming.** The PCB ARM button works only in MANUAL or FBWA, with healthy RC,
 idle throttle and a two-second hold. If a switch position is set to another
 mode (for example AUTOTUNE), arm in MANUAL and then switch.
 
-The first flight was reported on 2026-11-03 with this transmitter: takeoff
-and landing in MANUAL, with short AUTOTUNE segments. Pilot report only; no
-flight-ready claim is made for the board.
+The first flight was reported on 2026-11-03. The built-in setup above was
+flown on a V4 board on 2026-11-14 in FBWA and AUTOTUNE (pilot report: smooth
+FBWA levelling, good response).
 
 ## Troubleshooting
 

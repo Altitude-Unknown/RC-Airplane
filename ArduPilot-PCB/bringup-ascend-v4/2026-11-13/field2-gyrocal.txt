@@ -1,0 +1,4 @@
+ 0.0s MSG Initialising ArduPilot
+ 2.1s gyro cal ACK result 0 (0 = accepted)
+prearm check ACK 0
+pre-arm messages after cal: none

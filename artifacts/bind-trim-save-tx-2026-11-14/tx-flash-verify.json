@@ -1,0 +1,19 @@
+{
+ "after_firmware_sha256": "b1139cfba80bd4afbd484312fb3797d8d10258975bf1f80f2c8bd704bfb6de46",
+ "candidate_bin_sha256": "1bdabf9008b178e3e4295b5f264ecb377aa4e8cf43578de1a735f64b7b283132",
+ "bytes_compared": 70824,
+ "mismatches_outside_excluded": 0,
+ "excluded": [
+  {
+   "start": "0x2000",
+   "end": "0x2100",
+   "reason": "first app page reads as FF from this UF2 bootloader (also in both earlier backups)"
+  },
+  {
+   "start": "0x10a00",
+   "end": "0x10b00",
+   "reason": "_dataBIND_STORE: legacy flash bind record written by the firmware at runtime"
+  }
+ ],
+ "note": "The application booted after the write, so the vector table is valid."
+}

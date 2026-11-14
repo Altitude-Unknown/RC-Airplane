@@ -1,5 +1,9 @@
 # TEMPORARY TX V3 Bind -> ArduPlane trim-save — 2026-10-19
 
+> **Superseded 2026-11-14:** the user made Bind the permanent trim-save button
+> (CH7, 1 s hold, Tx V3 and V4). Do not remove it for V4. See
+> `2026-11-14-bind-trim-save-permanent.md`. The history below is kept as evidence.
+
 ## REQUIRED REMOVAL WHEN TX V4 IS READY
 User explicitly authorized this only as a temporary workaround to test the FC.
 REMOVE Bind-as-trim-save when V4 is built/ready. Do not carry it into V4 firmware

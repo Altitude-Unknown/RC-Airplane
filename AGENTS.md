@@ -24,13 +24,25 @@ firmware, configurator model storage, or updating the connected flight-test TX.
 - Keep `test_mode_rates.py` and the release workflow's control-regression gate.
   Run codec/rate tests for relevant changes and resolve failures before release.
 
-## Temporary V3 Bind trim-save: remove for V4
+## Bind button = trim-save (permanent, Tx V3 and V4)
 
-`TXV3_TEMP_BIND_TRIM_SAVE=1` is a temporary V3-only test image, default OFF in
-standard builds. It reserves CH6 for a deliberate Bind hold in MANUAL. Remove
-this Bind feature when TX V4 is ready, review the FC's `RC6_OPTION=155`, and
-validate the corrected V4 AUX pin map before assigning a replacement button.
-Details: `memory/2026-10-19-temporary-bind-trim-save.md`.
+User decision 2026-11-14: the Bind button is the permanent trim-save button
+on every transmitter, including Tx V4. This supersedes the earlier "remove for
+V4" instruction. AUX1/CH5 (D10) and AUX2/CH6 (D7) stay free for other uses.
 
-Do not conflate that temporary feature with the permanent FBWA full-rate
-requirement. Removing Bind trim-save must NOT remove mode-linked rates.
+- In normal operation, a 1 s Bind hold sends one 0.5 s pulse on CH7 (aux bit
+  0x40) and the Tx plays a short double chirp ("sent", not "accepted"). Bind
+  held at power-up still enters bind mode; Config Mode combinations unchanged.
+- The Tx does not gate on flight mode. It is inhibited on a student radio,
+  while a student has control, in simulator mode and during throttle lock.
+- Receivers output CH7 over SBUS (`rx_firmware`) and CRSF (`rx_pixhawk_crsf`).
+- ArduPlane: `RC7_OPTION 155` (in the ASCEND board defaults). It saves only in
+  MANUAL with sticks near centre and low rotation, then blinks the status LED
+  fast for 3 s (AP_Notify `trim_saved` event). Leave Tx trims as they are after
+  a save; do not zero them.
+- Keep `test_bind_trim_save.py` in the release gate. Do not give CH7 to another
+  function, and do not put trim-save back on CH6.
+Details: `memory/2026-11-14-bind-trim-save-permanent.md`.
+
+Do not conflate trim-save with the permanent FBWA full-rate requirement.
+Changing trim-save must NOT remove mode-linked rates.

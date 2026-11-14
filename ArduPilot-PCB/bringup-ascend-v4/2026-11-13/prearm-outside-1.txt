@@ -1,0 +1,12 @@
+ACK prearm 0
+MSG PreArm: AHRS: not using configured AHRS type
+MSG EKF3 IMU0 origin set
+MSG EKF3 IMU0 is using GPS
+MSG AHRS: EKF3 active
+MSG Field Elevation Set: 1506m
+mode MANUAL armed 0
+GPS fix_type 3 sats 11 hdop 0.97 hacc 4.0 m
+unhealthy: none
+battery 0.00 V
+EKF flags 0x33f vel 0.05 pos 0.03 compass 0.03
+RC [1452, 1627, 1002, 1486, 1000] rssi 255

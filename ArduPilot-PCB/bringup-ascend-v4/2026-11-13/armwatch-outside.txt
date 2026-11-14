@@ -1,0 +1,14 @@
+  0.0s RC [1452, 1627, 1002, 1486, 1000]
+  0.0s mode MANUAL disarmed
+  5.2s RC [1452, 1627, 1002, 1486, 1000]
+ 10.5s RC [1452, 1627, 1002, 1486, 1000]
+ 15.7s RC [1452, 1627, 1002, 1486, 1000]
+ 18.4s MSG Arm: Roll (RC1) is not neutral
+ 18.4s MSG Arm: Pitch (RC2) is not neutral
+ 20.7s RC [1452, 1627, 1003, 1486, 1000]
+ 25.7s RC [1452, 1627, 1002, 1486, 1000]
+ 30.7s RC [1452, 1627, 1002, 1486, 1000]
+ 34.7s MSG Arm: Roll (RC1) is not neutral
+ 34.7s MSG Arm: Pitch (RC2) is not neutral
+ 36.0s RC [1452, 1628, 1002, 1486, 1000]
+ 41.0s RC [1452, 1627, 1002, 1486, 1000]

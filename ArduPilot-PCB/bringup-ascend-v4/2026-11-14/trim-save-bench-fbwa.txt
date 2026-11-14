@@ -1,0 +1,10 @@
+BEFORE {'RC1_TRIM': 1466.0, 'RC2_TRIM': 1522.0, 'RC4_TRIM': 1685.0, 'SERVO2_TRIM': 1483.0, 'SERVO3_TRIM': 1521.0, 'SERVO4_TRIM': 1649.0}
+  0.40 MODE FBWA
+  5.40 CH7 HIGH CH5 1000
+  5.48 TEXT trim failed, not in manual mode
+  5.90 CH7 LOW  pulse 0.50 s
+ 34.60 TEXT EKF3 IMU0 initialised
+ 36.54 TEXT EKF3 IMU0 tilt alignment complete
+ 36.62 TEXT EKF3 IMU0 MAG0 initial yaw alignment complete
+AFTER {'RC1_TRIM': 1466.0, 'RC2_TRIM': 1522.0, 'RC4_TRIM': 1685.0, 'SERVO2_TRIM': 1483.0, 'SERVO3_TRIM': 1521.0, 'SERVO4_TRIM': 1649.0}
+pulses 1 trims unchanged True

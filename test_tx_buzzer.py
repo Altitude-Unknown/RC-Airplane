@@ -99,6 +99,20 @@ int main() {
   const size_t count = tones.size();
   processBuzzerCommand("INVALID");
   assert(!buzzerActive() && tones.size() == count);
+
+  // Bind trim-save chirp: two short 3.4 kHz tones, done in 210 ms, and it
+  // never interrupts a flight-time warning that is already playing.
+  const uint8_t trimCount = sizeof(TRIM_SENT_PATTERN) / sizeof(TRIM_SENT_PATTERN[0]);
+  reset(); clockMs = 1000;
+  startBuzzerPattern(TRIM_SENT_PATTERN, trimCount, clockMs);
+  assert(activeBeepPattern == TRIM_SENT_PATTERN && activeHz == 3400);
+  for (uint32_t t = 1010; t <= 1300; t += 10) { clockMs = t; updateBuzzer(t); }
+  assert(!buzzerActive() && activeHz == 0 && tones.size() == 2);
+  assert(tones[1].hz == 3400 && tones[1].at == 1140);
+  reset(); clockMs = 100; processBuzzerCommand("FIVE_MIN");
+  startBuzzerPattern(TRIM_SENT_PATTERN, trimCount, clockMs);
+  assert(activeBeepPattern == FIVE_MIN_PATTERN && tones.size() == 1);
+  processBuzzerCommand("STOP");
 }
 '''
         with tempfile.TemporaryDirectory() as directory:

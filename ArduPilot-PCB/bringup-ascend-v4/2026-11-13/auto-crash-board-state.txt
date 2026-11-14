@@ -1,0 +1,18 @@
+param changes since clean flash:
+  FLTMODE1           5.0 -> 10.0
+  MIS_TOTAL          1.0 -> 6.0
+  STAT_FLTTIME 516.0 -> 678.0
+  STAT_RUNTIME 13051.0 -> 15766.0
+  STAT_BOOTCNT 40.0 -> 43.0
+mission items on board: 6
+  0 cmd 16 frame 0 p1 0 lat 45.664430 lon -111.065438 alt 1489.4
+  1 cmd 22 frame 3 p1 15 lat 45.663794 lon -111.080343 alt 22.9
+  2 cmd 16 frame 3 p1 0 lat 45.663263 lon -111.080439 alt 22.9
+  3 cmd 16 frame 3 p1 0 lat 45.663660 lon -111.082045 alt 22.9
+  4 cmd 16 frame 3 p1 0 lat 45.662761 lon -111.082113 alt 22.9
+  5 cmd 16 frame 3 p1 0 lat 45.662742 lon -111.080901 alt 22.9
+mode MANUAL armed 0 unhealthy: ['MAV_SYS_STATUS_AHRS', 'MAV_SYS_STATUS_PREARM_CHECK']
+attitude roll 0.8 pitch 8.9
+raw accel (169, -12, -988) |a| mg 1002 gyro (-10, -1, -4) mag (-31, -177, 513) |B| 544
+vibe (0.022, 0.028, 0.024) clip (0, 0)
+baro 838.9 hPa 29.4 C

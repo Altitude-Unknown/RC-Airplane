@@ -1,0 +1,7 @@
+mode AUTOTUNE armed False
+  0.0s Started autotune
+  0.0s Autotuning roll pitch yaw
+ACK 401 0
+mode AUTOTUNE
+enabled-but-unhealthy bits: 0x0 prearm bit healthy: True
+RC [1522, 1348, 1002, 1451, 1000, 1000, 1500, 1500] rssi 255
