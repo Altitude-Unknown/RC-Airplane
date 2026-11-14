@@ -1,2 +1,4 @@
 171bc1c60d0a28e5f2a12ee1531e4d5003a6f7bff89fd2a35bc6face90943582  params-after-autotune-flight.json
-563eb0a4e8b4905893735fead65c105c81e8c632115caab21de113976a881e62  ascend-v4-plane-autotuned-2026-11-14.param
+d309f37e7ef645fb261e3f2b01e5b7d7e41d18cd9503f39ea6dfc09270ecc55c  ascend-v4-plane-autotuned-2026-11-14.param
+4768beaaa7cee5337b4fdb09ecf203b57473b12990346c785693fdd7c356ae2b  params-before-trim-save-flash.json
+9618747b75636e647e1252877ecfe7c65ec24a73460911f010e502bbf421b206  params-after-trim-save-flash.json

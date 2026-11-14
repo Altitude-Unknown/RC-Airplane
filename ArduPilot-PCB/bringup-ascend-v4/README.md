@@ -119,3 +119,61 @@ Firmware defaults: GPS1_TYPE 1, AHRS_EKF_TYPE 3, ARMING_SKIPCHK 0, ARSPD_TYPE 0,
   with home set.
 - Note: AUTOTUNE stays on switch low. Each time AUTOTUNE is flown, it keeps adjusting the gains and
   saves them, so this profile is the reference to compare against or restore.
+
+## 2026-11-14: trim-save candidate image (not flashed)
+
+- `2026-11-14/arduplane-trim-save-led.apj` (sha256 976beb79…1435): the flown image's source
+  plus the trim-save LED (status LED blinks fast for 3 s after "trim complete") and the board
+  default `RC7_OPTION 155`. Pairs with the Tx/receiver Bind trim-save on CH7
+  (`memory/2026-11-14-bind-trim-save-permanent.md`). Back up first. After flashing, read back
+  and set `RC7_OPTION` to 155 if it was not picked up from the new default. Then re-verify the
+  AUTOTUNE profile against `ascend-v4-plane-autotuned-2026-11-14.param`.
+
+## 2026-11-14 bench: FC onboard receiver flashed with CH7 trim-save support
+
+- Device: the FC's onboard SAMD21 receiver, USB serial 8EACFE7950304C59502E3120FF0E1005. Before:
+  `rx-v7-pwm-sbus`, radio OK, bound to 7741.
+- Backup: full 256 KB flash read twice with BOSSA, both reads identical
+  (`2026-11-14/receiver/receiver-before-full.bin`, sha256 89296a06…fa42). Bind record at 0xC600:
+  magic BIND, code 7741.
+- Image: `rx_firmware` from the Bind trim-save change (SBUS CH7 = aux bit 0x40). The new build's
+  BIND_STORE is also at 0xC600, so the 8-byte record was copied into the empty store
+  (`receiver/rx-v7-ch7-bind7741.bin`, sha256 a834793d…406d; unbound build kept beside it).
+- Flashed with BOSSA (offset 0x2000, erase/write/verify, reset): "Verify successful". After the
+  reset, STATUS: radio OK, stored 7741, firmware rx-v7-pwm-sbus. The ID string did not change, so
+  the BOSSA verify is the evidence of the new image.
+- SBUS CH7 now idles at 1000 µs (was neutral 1500). The FC currently has RC7_OPTION 0, so this has
+  no effect until the FC update.
+- Still to do: Tx firmware, FC firmware `arduplane-trim-save-led.apj` + RC7_OPTION 155, then the
+  bench check (CH7 pulse, chirp, MANUAL-only save, LED blink, trim readback).
+
+## 2026-11-14 bench: FC flashed with the trim-save LED image
+
+- Before: ArduPlane 4.7.1 git f05fc066 (`2026-11-13/arduplane-clean-gps-led.apj`), disarmed,
+  MANUAL. Params backed up: `2026-11-14/params-before-trim-save-flash.json` (877). Since the field
+  readback, Mike set FLTMODE1 8 → 5 (FBWA on switch low). Gains are unchanged.
+- Flashed `2026-11-14/arduplane-trim-save-led.apj` (sha256 checked) with `ardupilot_uploader.py`.
+  Board fe45, chip sn 003c00243034510332333739, verify 100% (`flash-trim-save-led.log`).
+- After: git 243905c9, disarmed. Indoor pre-arm messages only (no GPS fix, RC off, EKF yaw).
+  Baro 843.6 hPa. `params-after-trim-save-flash.json`: the only changes are RC7_OPTION 0 → 155
+  (picked up from the new board default; never saved before) and boot-time gyro/baro values.
+  All 74 tuning/limit/AHRS-trim/RC/servo-trim parameters match the AUTOTUNE profile.
+- The profile `.param` now has RC7_OPTION 155, so restoring it keeps trim-save enabled.
+- Next: Tx firmware (back up firmware and model memory first), then the bench trim-save check.
+
+## 2026-11-14 bench: Bind trim-save end-to-end test — PASSED
+
+Setup: Tx (new firmware, Research model), FC onboard receiver (CH7 firmware), FC (243905c9,
+RC7_OPTION 155), props off, disarmed. Evidence: `2026-11-14/trim-save-bench-test.txt`,
+`trim-save-bench-fbwa.txt`.
+
+- Idle CH7 1000 µs. A 1 s Bind hold gave one CH7 pulse of 0.50 s each time.
+- MANUAL: "trim complete" 0.1 s after the pulse. Mike saw the FC LED blink fast and heard the Tx
+  chirp. Saved: RC1_TRIM 1452 → 1466, RC4_TRIM 1486 → 1685, SERVO2_TRIM 1472 → 1483,
+  SERVO4_TRIM 1489 → 1649; elevator unchanged (stick at its trim). New RC centres = stick positions
+  at the save, so centred sticks read neutral.
+- The rudder offset is the Tx rudder subtrim of +185, which Mike confirmed is correct (new tail).
+- FBWA: pulse → "trim failed, not in manual mode"; all six trims unchanged.
+- Full snapshot after the test: `2026-11-14/params-after-trim-save-bench-test.json`. Only the four
+  trims (and COMPASS_DEC from GPS) changed since the flash. The AUTOTUNE `.param` profile still
+  holds the pre-tail-change trims; use this snapshot for this airframe's current trims.

@@ -1,6 +1,6 @@
 # ASCEND FC V4 airplane profile after the AUTOTUNE flight, 2026-11-14.
 # Firmware: arduplane-clean-gps-led.apj (ardupilot f05fc066 + GPS LED).
-# Read from the board without changes. STAT_*, *_GND_PRESS, FORMAT_VERSION omitted.
+# Read from the board without changes, except RC7_OPTION 155 (Bind trim-save, added 2026-11-14 bench). STAT_*, *_GND_PRESS, FORMAT_VERSION omitted.
 ACRO_LOCKING,0
 ACRO_PITCH_RATE,180
 ACRO_ROLL_RATE,180
@@ -586,7 +586,7 @@ RC6_TRIM,1500
 RC7_DZ,0
 RC7_MAX,2000
 RC7_MIN,1000
-RC7_OPTION,0
+RC7_OPTION,155
 RC7_REVERSED,0
 RC7_TRIM,1500
 RC8_DZ,0

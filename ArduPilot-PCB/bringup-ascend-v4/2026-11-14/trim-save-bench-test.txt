@@ -1,0 +1,25 @@
+BEFORE {'RC1_TRIM': 1452.0, 'RC2_TRIM': 1522.0, 'RC4_TRIM': 1486.0, 'SERVO2_TRIM': 1472.0, 'SERVO3_TRIM': 1521.0, 'SERVO4_TRIM': 1489.0, 'RC7_OPTION': 155.0}
+  0.30 MODE FBWA
+ 15.90 TEXT PreArm: AHRS: EKF3 Yaw inconsistent 166 deg. Wait 
+ 15.90 TEXT or reboot
+ 15.90 TEXT PreArm: GPS 1: Bad fix
+ 42.16 MODE MANUAL
+ 46.90 TEXT PreArm: AHRS: EKF3 Yaw inconsistent 166 deg. Wait 
+ 46.90 TEXT or reboot
+ 46.90 TEXT PreArm: GPS 1: Bad fix
+ 47.80 CH7 HIGH 2000 sticks 1466 1522 1685
+ 47.90 TEXT trim complete
+ 48.30 CH7 LOW  pulse 0.50 s
+ 76.04 MODE FBWA
+ 77.90 TEXT PreArm: AHRS: EKF3 Yaw inconsistent 167 deg. Wait 
+ 77.90 TEXT or reboot
+ 77.90 TEXT PreArm: GPS 1: Bad fix
+108.90 TEXT PreArm: AHRS: EKF3 Yaw inconsistent 160 deg. Wait 
+108.90 TEXT or reboot
+108.90 TEXT PreArm: GPS 1: Bad fix
+117.34 MODE MANUAL
+139.90 TEXT PreArm: AHRS: EKF3 Yaw inconsistent 153 deg. Wait 
+139.90 TEXT or reboot
+139.90 TEXT PreArm: GPS 1: Bad fix
+AFTER {'RC1_TRIM': 1466.0, 'RC2_TRIM': 1522.0, 'RC4_TRIM': 1685.0, 'SERVO2_TRIM': 1483.0, 'SERVO3_TRIM': 1521.0, 'SERVO4_TRIM': 1649.0, 'RC7_OPTION': 155.0}
+LAST RC [1466, 1522, 1002, 1685, 2000, 1000, 1000]

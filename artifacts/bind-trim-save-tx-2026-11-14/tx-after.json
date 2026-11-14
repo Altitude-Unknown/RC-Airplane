@@ -1,0 +1,198 @@
+{
+  "port": "/dev/cu.usbmodem11301",
+  "serial": "89CB5B3050304C59502E3120FF101E44",
+  "info": {
+    "mcu": "SAMD21G18",
+    "fram_size": 32768,
+    "bind_trim_save": true,
+    "trim_save_channel": 7,
+    "trim_save_hold_ms": 1000,
+    "trim_save_pulse_ms": 500,
+    "storage": "fram",
+    "proto": "1.1",
+    "role": "TX",
+    "button_channels": true,
+    "mode_rates": true,
+    "buzzer_test": true,
+    "radio_role": "MASTER"
+  },
+  "header": {
+    "magic": 1415070534,
+    "ver": 1,
+    "total_slots": 16,
+    "active_slot": 0,
+    "used_bitmap": 7
+  },
+  "models": {
+    "0": {
+      "name": "Research",
+      "bind_code": 7741,
+      "rates": [
+        50,
+        25,
+        100,
+        100
+      ],
+      "expo": [
+        40,
+        40,
+        40,
+        0
+      ],
+      "dr_switch": 0,
+      "active_rates": 0,
+      "subtrim": [
+        185,
+        -30,
+        30,
+        0
+      ],
+      "endpoints": [
+        [
+          1000,
+          2000
+        ],
+        [
+          1000,
+          2000
+        ],
+        [
+          1000,
+          2000
+        ],
+        [
+          1000,
+          2000
+        ]
+      ],
+      "reverse": [
+        true,
+        false,
+        true,
+        false
+      ],
+      "aircraft_type": 0,
+      "vtail_rudder_reverse": false,
+      "d10_function": 2,
+      "d7_function": 2,
+      "ch5_rate_mode": 1,
+      "ail_to_rud_mix_enabled": false,
+      "ail_to_rud_mix_percent": 50,
+      "crc_ok": true
+    },
+    "1": {
+      "name": "FlyingWing",
+      "bind_code": 32400,
+      "rates": [
+        100,
+        100,
+        100,
+        100
+      ],
+      "expo": [
+        40,
+        40,
+        40,
+        0
+      ],
+      "dr_switch": 0,
+      "active_rates": 0,
+      "subtrim": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "endpoints": [
+        [
+          1000,
+          2000
+        ],
+        [
+          1000,
+          2000
+        ],
+        [
+          1000,
+          2000
+        ],
+        [
+          1000,
+          2000
+        ]
+      ],
+      "reverse": [
+        false,
+        false,
+        false,
+        false
+      ],
+      "aircraft_type": 2,
+      "vtail_rudder_reverse": false,
+      "d10_function": 0,
+      "d7_function": 0,
+      "ch5_rate_mode": 0,
+      "ail_to_rud_mix_enabled": false,
+      "ail_to_rud_mix_percent": 30,
+      "crc_ok": true
+    },
+    "2": {
+      "name": "T-Tail",
+      "bind_code": 25877,
+      "rates": [
+        100,
+        100,
+        100,
+        100
+      ],
+      "expo": [
+        40,
+        40,
+        40,
+        0
+      ],
+      "dr_switch": 0,
+      "active_rates": 0,
+      "subtrim": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "endpoints": [
+        [
+          1000,
+          2000
+        ],
+        [
+          1000,
+          2000
+        ],
+        [
+          1000,
+          2000
+        ],
+        [
+          1000,
+          2000
+        ]
+      ],
+      "reverse": [
+        false,
+        false,
+        false,
+        false
+      ],
+      "aircraft_type": 0,
+      "vtail_rudder_reverse": false,
+      "d10_function": 0,
+      "d7_function": 0,
+      "ch5_rate_mode": 0,
+      "ail_to_rud_mix_enabled": false,
+      "ail_to_rud_mix_percent": 30,
+      "crc_ok": true
+    }
+  },
+  "storage_bytes": 32768,
+  "storage_sha256": "75f8359d3debeb473ae3d0d438bc5ed009a25a760d1028c7c509ac97dd69d393"
+}

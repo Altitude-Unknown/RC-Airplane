@@ -1,0 +1,8 @@
+type 1 armed False mode 0
+fw 4.7.1 git 243905c9 board 0xfe450000
+STATUSTEXT PreArm: AHRS: EKF3 Yaw inconsistent 63 deg. Wait o
+STATUSTEXT r reboot
+STATUSTEXT PreArm: GPS 1: Bad fix
+STATUSTEXT PreArm: Waiting for RC
+sensors present/enabled/health 0x1220fc2f 0x1000802f 0x210800f
+baro 843.5910034179688 att ATTITUDE {time_boot_ms : 30806, roll : -0.02063829079270363, pitch : -0.09646841138601303, yaw : 1.1109596490859985, rollspeed : 0.0011940929107367992, pitchspeed : 0.0007924726232886314, yawspeed : -0.0008252784609794617}

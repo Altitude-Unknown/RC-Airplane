@@ -1,0 +1,2 @@
+type 1 autopilot 3 armed False mode 0
+fw 4.7.1 type 255 git 66303566 board_version 0xfe450000

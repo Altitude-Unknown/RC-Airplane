@@ -1,0 +1,7 @@
+{
+  "build": "standard (no temporary define)",
+  "feature": "Bind trim-save CH7, 1 s hold, chirp",
+  "bin_sha256": "1bdabf9008b178e3e4295b5f264ecb377aa4e8cf43578de1a735f64b7b283132",
+  "uf2_sha256": "9fd9c81d092d535015d3fc82feee4231df20b82db091eaa72942440a9a26f7b1",
+  "program_bytes": 71336
+}
