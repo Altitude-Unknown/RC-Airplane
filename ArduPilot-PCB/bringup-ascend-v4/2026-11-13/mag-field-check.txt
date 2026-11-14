@@ -1,0 +1,3 @@
+raw mag body (mG, after offsets): 85 -255 260  |B| = 374
+attitude roll 2.6 pitch -1.3 yaw 100.3
+pos (45.6636424, -111.0797106)

@@ -1,0 +1,2 @@
+171bc1c60d0a28e5f2a12ee1531e4d5003a6f7bff89fd2a35bc6face90943582  params-after-autotune-flight.json
+563eb0a4e8b4905893735fead65c105c81e8c632115caab21de113976a881e62  ascend-v4-plane-autotuned-2026-11-14.param

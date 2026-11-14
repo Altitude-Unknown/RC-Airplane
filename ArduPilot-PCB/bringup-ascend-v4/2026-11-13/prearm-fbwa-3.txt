@@ -1,0 +1,13 @@
+   0s mode FBWA GPS fix 1 sats 0 EKF ? RC [1457, 1522, 1002, 1486, 1000]
+   0s MANUAL disarmed
+   0s MSG Arm: AHRS: not using configured AHRS type
+   0s MSG PreArm: AHRS: not using configured AHRS type
+   0s MSG PreArm: AHRS: not using configured AHRS type
+  10s mode MANUAL GPS fix 3 sats 5 EKF 0xa7 RC [1466, 1522, 1003, 1485, 2000]
+  10s MSG PreArm: AHRS: not using configured AHRS type
+  20s mode MANUAL GPS fix 3 sats 6 EKF 0xa7 RC [1466, 1523, 1002, 1485, 2000]
+  20s MSG PreArm: AHRS: not using configured AHRS type
+  26s MSG PreArm: AHRS: not using configured AHRS type
+  30s mode MANUAL GPS fix 3 sats 6 EKF 0xa7 RC [1466, 1522, 1002, 1485, 2000]
+  30s MSG PreArm: AHRS: not using configured AHRS type
+  40s mode MANUAL GPS fix 3 sats 6 EKF 0xa7 RC [1466, 1522, 1002, 1485, 2000]

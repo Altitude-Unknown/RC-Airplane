@@ -1,0 +1,9 @@
+   0s MSG Initialising ArduPilot
+   0s MSG PreArm: Gyros not calibrated
+   1s MSG Arm: Gyros not calibrated
+  10s MSG PreArm: Gyros not calibrated
+  20s MSG PreArm: Gyros not calibrated
+mode MANUAL armed 0
+GPS fix 3 sats 24 hdop 0.55 hacc 1.7 m
+EKF 0x33f
+RC [1466, 1522, 1002, 1485, 2000] rssi 255

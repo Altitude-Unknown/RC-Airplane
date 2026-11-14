@@ -1,0 +1,16 @@
+    0s sats 8 hdop 2.05 hacc 12.9 m
+    0s EKF flags 0xa7 abs position no
+    0s MSG PreArm: AHRS: not using configured AHRS type
+   10s sats 7 hdop 3.65 hacc 14.4 m
+   10s MSG PreArm: AHRS: not using configured AHRS type
+   20s sats 8 hdop 2.04 hacc 12.6 m
+   20s MSG PreArm: AHRS: not using configured AHRS type
+   30s sats 8 hdop 2.04 hacc 12.0 m
+   30s MSG PreArm: AHRS: not using configured AHRS type
+   40s sats 8 hdop 2.04 hacc 12.8 m
+   40s MSG PreArm: AHRS: not using configured AHRS type
+   50s sats 7 hdop 3.64 hacc 14.8 m
+   50s MSG PreArm: AHRS: not using configured AHRS type
+   50s MSG PreArm: Check mag field (xy diff:137>100)
+   55s MSG PreArm: Check mag field (xy diff:135>100)
+LINK LOST read failed: [Errno 6] Device not configured

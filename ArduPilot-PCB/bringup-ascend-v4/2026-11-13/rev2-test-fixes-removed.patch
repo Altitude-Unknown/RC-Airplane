@@ -1,0 +1,80 @@
+diff --git a/libraries/APM_Control/AP_RollController.cpp b/libraries/APM_Control/AP_RollController.cpp
+index 04ba21cfe5..0fed1f98ef 100644
+--- a/libraries/APM_Control/AP_RollController.cpp
++++ b/libraries/APM_Control/AP_RollController.cpp
+@@ -172,8 +172,11 @@ float AP_RollController::get_airspeed() const
+ {
+     float aspeed;
+     if (!AP::ahrs().airspeed_EAS(aspeed)) {
+-        // If no airspeed available use 0
+-        aspeed = 0.0;
++        // If no airspeed available use the average of min and max, as the
++        // pitch controller does. Using 0 made is_underspeed() always true on
++        // aircraft with neither an airspeed sensor nor GPS, which locked the
++        // roll integrator at zero for the whole flight.
++        aspeed = 0.5f*(float(aparm.airspeed_min) + float(aparm.airspeed_max));
+     }
+     return aspeed;
+ }
+diff --git a/libraries/AP_AHRS/AP_AHRS_DCM.cpp b/libraries/AP_AHRS/AP_AHRS_DCM.cpp
+index 23c2b29289..3331c34ba8 100644
+--- a/libraries/AP_AHRS/AP_AHRS_DCM.cpp
++++ b/libraries/AP_AHRS/AP_AHRS_DCM.cpp
+@@ -729,11 +729,31 @@ AP_AHRS_DCM::drift_correction(float deltat)
+         }
+ 
+         float airspeed_TAS = _last_airspeed_TAS;
++        bool have_airspeed_sensor = false;
+ #if AP_AIRSPEED_ENABLED
+         if (airspeed_sensor_enabled()) {
+             airspeed_TAS = AP::airspeed()->get_airspeed() * get_EAS2TAS();
++            have_airspeed_sensor = true;
+         }
+ #endif
++#ifdef AP_AHRS_DCM_NO_GPS_ASSUMED_TAS
++        // With neither GPS nor an airspeed sensor the velocity used for
++        // the centripetal correction is zero, so in a steady turn the
++        // estimator slowly accepts the bank as level. While armed, assume
++        // a forward airspeed so turning accelerations are compensated.
++        const bool assume_tas = fly_forward && !have_airspeed_sensor &&
++                                hal.util->get_soft_armed();
++        if (assume_tas) {
++            airspeed_TAS = AP_AHRS_DCM_NO_GPS_ASSUMED_TAS;
++        }
++        if (assume_tas != _assumed_tas_active) {
++            // avoid a false acceleration step when the assumption starts or stops
++            _assumed_tas_active = assume_tas;
++            _last_velocity = _dcm_matrix.colx() * airspeed_TAS + _wind;
++        }
++#else
++        (void)have_airspeed_sensor;
++#endif
+ 
+         // use airspeed to estimate our ground velocity in
+         // earth frame by subtracting the wind
+diff --git a/libraries/AP_AHRS/AP_AHRS_DCM.h b/libraries/AP_AHRS/AP_AHRS_DCM.h
+index 6588a3bdb7..889cd66d08 100644
+--- a/libraries/AP_AHRS/AP_AHRS_DCM.h
++++ b/libraries/AP_AHRS/AP_AHRS_DCM.h
+@@ -251,6 +251,8 @@ private:
+     Vector3f _last_vel;
+     uint32_t _last_wind_time;
+     float _last_airspeed_TAS;
++    // true while AP_AHRS_DCM_NO_GPS_ASSUMED_TAS is being used
++    bool _assumed_tas_active;
+     uint32_t _last_consistent_heading;
+ 
+     // estimated wind in m/s
+diff --git a/libraries/AP_HAL_ChibiOS/hwdef/ASCENDFCRev2/hwdef.dat b/libraries/AP_HAL_ChibiOS/hwdef/ASCENDFCRev2/hwdef.dat
+index 9954e50580..20b5217bee 100644
+--- a/libraries/AP_HAL_ChibiOS/hwdef/ASCENDFCRev2/hwdef.dat
++++ b/libraries/AP_HAL_ChibiOS/hwdef/ASCENDFCRev2/hwdef.dat
+@@ -90,3 +90,8 @@ PD13 TIM4_CH2 TIM4 PWM(6) GPIO(55) # AUX2, J3 pin 18
+ # No SD card and no ADC inputs on this board.
+ define HAL_OS_FATFS_IO 0
+ define HAL_USE_ADC FALSE
++
++# No airspeed sensor. Fallback for when DCM runs without a GPS fix (GPS lost
++# or EKF3 unavailable): assume 12 m/s while armed so turns do not slowly
++# become the "level" reference.
++define AP_AHRS_DCM_NO_GPS_ASSUMED_TAS 12.0f

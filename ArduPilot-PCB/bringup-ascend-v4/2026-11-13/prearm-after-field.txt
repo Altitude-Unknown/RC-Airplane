@@ -1,0 +1,12 @@
+ACK prearm 0
+MSG PreArm: AHRS: EKF3 Yaw inconsistent 103 deg. Wait 
+MSG or reboot
+MSG PreArm: GPS 1: Bad fix
+MSG PreArm: Waiting for RC
+MSG PreArm: AHRS: EKF3 Yaw inconsistent 102 deg. Wait 
+mode MANUAL armed 0
+GPS fix_type 1 sats 0 hdop 99.99 hacc 4294967.3 m
+unhealthy: ['MAV_SYS_STATUS_SENSOR_GPS', 'MAV_SYS_STATUS_PREARM_CHECK']
+battery 0.00 V
+EKF flags 0x400 vel 0.00 pos 0.00 compass 0.00
+RC [1487, 1493, 0, 1500, 0] rssi 255

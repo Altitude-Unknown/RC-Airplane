@@ -1,0 +1,3 @@
+firmware git f05fc066
+unhealthy: ['MAV_SYS_STATUS_PREARM_CHECK']
+attitude roll -2.1 pitch -2.7

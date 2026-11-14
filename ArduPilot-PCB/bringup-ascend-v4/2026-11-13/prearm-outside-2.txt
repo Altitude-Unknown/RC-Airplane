@@ -1,0 +1,7 @@
+ACK prearm 0
+mode MANUAL armed 0
+GPS fix_type 3 sats 11 hdop 0.97 hacc 3.0 m
+unhealthy: none
+battery 0.00 V
+EKF flags 0x33f vel 0.03 pos 0.01 compass 0.01
+RC [1471, 1627, 1003, 1486, 1000] rssi 255

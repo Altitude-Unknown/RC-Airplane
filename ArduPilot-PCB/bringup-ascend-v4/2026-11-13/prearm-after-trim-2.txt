@@ -1,0 +1,9 @@
+ACK prearm 0
+MSG PreArm: Check mag field (z diff:249>200)
+MSG PreArm: Check mag field (z diff:250>200)
+mode MANUAL armed 0
+GPS fix_type 3 sats 17 hdop 0.88 hacc 1.9 m
+unhealthy: ['MAV_SYS_STATUS_PREARM_CHECK']
+battery 0.00 V
+EKF flags 0x33f vel 0.02 pos 0.01 compass 0.01
+RC [1461, 1522, 1301, 1485, 2000] rssi 255

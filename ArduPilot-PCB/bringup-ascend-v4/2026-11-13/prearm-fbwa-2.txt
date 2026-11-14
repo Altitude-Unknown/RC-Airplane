@@ -1,0 +1,3 @@
+MSG PreArm: AHRS: not using configured AHRS type
+ACK prearm 0
+MSG Throttle armed

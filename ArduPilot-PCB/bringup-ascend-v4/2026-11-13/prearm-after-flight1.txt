@@ -1,0 +1,27 @@
+MSG RCInput: decoding SBUS (Bytes)
+MSG Barometer 1 calibration complete
+MSG No airspeed sensor
+MSG ArduPilot Ready
+MSG AHRS: DCM active
+MSG GPS 1: specified as u-blox
+MSG RCOut: PWM:1-6
+MSG Throttle failsafe off
+MSG GPS 1: detected u-blox
+MSG PreArm: AHRS: EKF3 Yaw inconsistent 54 deg. Wait o
+MSG r reboot
+MSG PreArm: Check mag field (z diff:253>200)
+MSG EKF3 IMU0 origin set
+MSG EKF3 IMU0 is using GPS
+MSG AHRS: EKF3 active
+MSG Field Elevation Set: 1520m
+ACK prearm 0
+MSG PreArm: AHRS: DCM Yaw inconsistent 29 deg. Wait or
+MSG  reboot
+MSG PreArm: Check mag field (xy diff:122>100)
+MSG PreArm: Check mag field (z diff:250>200)
+mode MANUAL armed 0
+GPS fix_type 3 sats 12 hdop 1.06 hacc 3.5 m
+unhealthy: ['MAV_SYS_STATUS_PREARM_CHECK']
+battery 0.00 V
+EKF flags 0x33f vel 0.05 pos 0.08 compass 0.03
+RC [1461, 1522, 1002, 1485, 2000] rssi 255
