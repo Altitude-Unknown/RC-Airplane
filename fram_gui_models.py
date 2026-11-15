@@ -20,6 +20,7 @@ updated to match it byte-for-byte.
 """
 
 import sys, os, binascii, json, time, struct, random, threading
+from pathlib import Path
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, simpledialog
 
@@ -704,6 +705,7 @@ class App(tk.Tk):
         self.store = ModelsStore(self.w)
         self.channel_labels = ChannelLabelStore()
         self.firmware_release = None
+        self.firmware_local = None  # validated info for a firmware file chosen from disk
         self.firmware_busy = False
 
         # Tracks which slot was last loaded into the editor. The selected slot
@@ -981,13 +983,42 @@ class App(tk.Tk):
                   font=("Helvetica", 16, "bold")).pack(anchor="w")
         ttk.Label(
             content,
-            text=("Download verified firmware from the latest Altitude Unknown GitHub release. "
-                  "Keep the aircraft powered off and remove its propeller before updating."),
+            text=("Download verified firmware from the latest Altitude Unknown GitHub release, or "
+                  "flash a firmware file from this computer. Keep the aircraft powered off and "
+                  "remove its propeller before updating."),
             style="Muted.TLabel", wraplength=850, justify="left"
         ).pack(anchor="w", pady=(5, 16))
 
+        source_frame = ttk.LabelFrame(content, text="Firmware source", padding=14)
+        source_frame.pack(fill="x", pady=(0, 14))
+        self.firmware_source_var = tk.StringVar(value="github")
+        for text, value in (("Latest GitHub release (recommended)", "github"),
+                            ("Local file on this computer", "local")):
+            ttk.Radiobutton(source_frame, text=text, value=value,
+                            variable=self.firmware_source_var,
+                            command=self._on_firmware_source_changed).pack(anchor="w", pady=2)
+
+        self.firmware_local_frame = ttk.LabelFrame(content, text="Local firmware file", padding=14)
+        local_row = ttk.Frame(self.firmware_local_frame, style="Panel.TFrame")
+        local_row.pack(fill="x")
+        self.firmware_local_var = tk.StringVar(value="No file selected")
+        ttk.Label(local_row, textvariable=self.firmware_local_var, style="Panel.TLabel",
+                  wraplength=650, justify="left").pack(side="left", fill="x", expand=True)
+        self.firmware_choose_btn = ttk.Button(
+            local_row, text="Choose File…", command=self.on_choose_local_firmware)
+        self.firmware_choose_btn.pack(side="right")
+        ttk.Label(
+            self.firmware_local_frame,
+            text=("Transmitter M0: .uf2   •   Transmitter ESP32-C3: merged .bin   •   "
+                  "Receiver: .uf2 (or .bin for the older SAM-BA bootloader)   •   "
+                  "Flight controller: ArduPilot .apj\n"
+                  "The file is checked for the selected processor before anything is written. "
+                  "Local files are not verified against a release checksum, so only use builds you trust."),
+            style="Muted.TLabel", wraplength=850, justify="left").pack(anchor="w", pady=(8, 0))
+
         release_frame = ttk.LabelFrame(content, text="Latest release", padding=14)
         release_frame.pack(fill="x")
+        self.firmware_release_frame = release_frame
         release_row = ttk.Frame(release_frame, style="Panel.TFrame")
         release_row.pack(fill="x")
         self.firmware_release_var = tk.StringVar(value="Not checked")
@@ -999,6 +1030,7 @@ class App(tk.Tk):
 
         target_frame = ttk.LabelFrame(content, text="Processors to update", padding=14)
         target_frame.pack(fill="x", pady=14)
+        self.firmware_target_frame = target_frame
         self.firmware_target_var = tk.StringVar(value="tx_both")
         for text, value in (("Transmitter — both processors (recommended)", "tx_both"),
                             ("Transmitter M0 only", "tx_samd21"),
@@ -1007,7 +1039,7 @@ class App(tk.Tk):
                             ("Flight controller (ArduPlane)", "flight_controller")):
             ttk.Radiobutton(target_frame, text=text, value=value,
                             variable=self.firmware_target_var,
-                            command=self._update_firmware_instructions).pack(anchor="w", pady=2)
+                            command=self._on_firmware_target_changed).pack(anchor="w", pady=2)
 
         samd_port_frame = ttk.LabelFrame(content, text="Transmitter M0 or receiver USB port", padding=14)
         samd_port_frame.pack(fill="x")
@@ -1070,6 +1102,79 @@ class App(tk.Tk):
                   style="Muted.TLabel").pack(side="left", padx=14)
         self._update_firmware_instructions()
 
+    def _firmware_is_local(self):
+        return self.firmware_source_var.get() == "local"
+
+    def _local_firmware_target(self):
+        """The single processor a local file is for, or None for 'both processors'."""
+        return {"tx_samd21": "samd21", "tx_esp32c3": "esp32c3",
+                "receiver_samd21": "receiver_samd21",
+                "flight_controller": "flight_controller"}.get(self.firmware_target_var.get())
+
+    def _on_firmware_source_changed(self):
+        if self._firmware_is_local():
+            self.firmware_release_frame.pack_forget()
+            self.firmware_local_frame.pack(fill="x", before=self.firmware_target_frame)
+            self.firmware_flash_btn.config(text="Flash Local File")
+            if self.firmware_target_var.get() == "tx_both":
+                self.firmware_target_var.set("tx_samd21")
+                self._on_firmware_target_changed()
+        else:
+            self.firmware_local_frame.pack_forget()
+            self.firmware_release_frame.pack(fill="x", before=self.firmware_target_frame)
+            self.firmware_flash_btn.config(text="Download and Flash Latest")
+        self._set_firmware_busy(self.firmware_busy, self._firmware_idle_status())
+        self._update_firmware_instructions()
+
+    def _on_firmware_target_changed(self):
+        # A local file is validated for one processor; re-check it for the new one.
+        if self.firmware_local is not None:
+            self._validate_local_firmware(self.firmware_local["path"], show_error=False)
+        self._set_firmware_busy(self.firmware_busy, self._firmware_idle_status())
+        self._update_firmware_instructions()
+
+    def _firmware_idle_status(self):
+        if self._firmware_is_local():
+            if self._local_firmware_target() is None:
+                return "Choose one processor to flash a local file."
+            return "Ready to flash the local file." if self.firmware_local else "Choose a firmware file."
+        return "Ready to update." if self.firmware_release else "Check GitHub to begin."
+
+    def on_choose_local_firmware(self):
+        if self.firmware_busy:
+            return
+        target = self._local_firmware_target()
+        if target is None:
+            messagebox.showerror("Firmware update",
+                                 "A local file holds one processor's firmware. Select a single processor first.")
+            return
+        filetypes = {
+            "samd21": [("UF2 firmware", "*.uf2")],
+            "esp32c3": [("Merged ESP32-C3 image", "*.bin")],
+            "receiver_samd21": [("Receiver firmware", "*.uf2 *.bin")],
+            "flight_controller": [("ArduPilot firmware", "*.apj")],
+        }[target] + [("All files", "*")]
+        path = filedialog.askopenfilename(title="Choose firmware file", filetypes=filetypes)
+        if path:
+            self._validate_local_firmware(path, show_error=True)
+            self._set_firmware_busy(False, self._firmware_idle_status())
+
+    def _validate_local_firmware(self, path, show_error):
+        target = self._local_firmware_target()
+        try:
+            if target is None:
+                raise firmware_updater.FirmwareUpdateError("Select a single processor for a local file.")
+            info = firmware_updater.validate_local_firmware(path, target)
+        except firmware_updater.FirmwareUpdateError as exc:
+            self.firmware_local = None
+            self.firmware_local_var.set(f"{Path(path).name}: not usable for this processor — {exc}")
+            if show_error:
+                messagebox.showerror("Firmware file rejected", str(exc))
+            return
+        self.firmware_local = info
+        self.firmware_local_var.set(
+            f"{info['name']}\n{info['summary']}\nSHA-256 {info['sha256'][:16]}…")
+
     def _update_firmware_instructions(self):
         target = self.firmware_target_var.get()
         samd = ("SAMD21: select its USB port. The configurator will request bootloader mode "
@@ -1101,7 +1206,12 @@ class App(tk.Tk):
     def _set_firmware_busy(self, busy, status=None):
         self.firmware_busy = busy
         self.firmware_check_btn.config(state="disabled" if busy else "normal")
-        can_flash = (not busy and self.firmware_release is not None)
+        self.firmware_choose_btn.config(state="disabled" if busy else "normal")
+        if self._firmware_is_local():
+            can_flash = not busy and self.firmware_local is not None and \
+                self._local_firmware_target() is not None
+        else:
+            can_flash = not busy and self.firmware_release is not None
         self.firmware_flash_btn.config(state="normal" if can_flash else "disabled")
         if status:
             self.firmware_progress_var.set(status)
@@ -1122,7 +1232,7 @@ class App(tk.Tk):
 
         def completed(result, error):
             self.firmware_release = result
-            self._set_firmware_busy(False, "Ready to update." if result else "Update check failed.")
+            self._set_firmware_busy(False, self._firmware_idle_status() if result else "Update check failed.")
             if error:
                 messagebox.showerror("Firmware update", str(error))
                 return
@@ -1143,9 +1253,15 @@ class App(tk.Tk):
         selection = self.firmware_fc_port_var.get().strip()
         return self.firmware_fc_port_devices.get(selection, "")
 
+    def _local_firmware_confirmation(self):
+        info = self.firmware_local
+        return (f"\n\nLocal file: {info['name']}\n{info['summary']}\nSHA-256: {info['sha256']}\n\n"
+                "This file has not been checked against a release checksum.")
+
     def on_flash_flight_controller(self):
         release = self.firmware_release
-        if not release["manifest"].get("flight_controllers"):
+        local = self.firmware_local if self._firmware_is_local() else None
+        if local is None and not release["manifest"].get("flight_controllers"):
             messagebox.showerror("Firmware update", "This release has no flight controller firmware.")
             return
         fc_port = self._selected_firmware_fc_port()
@@ -1159,14 +1275,26 @@ class App(tk.Tk):
                 "Remove the propeller and disconnect the flight battery. Do not unplug USB while "
                 "the flight controller is being written.\n\nThe flight controller restarts into its "
                 "bootloader, and only firmware built for that exact board is written. Parameters and "
-                "calibrations are kept.\n\nContinue with the latest verified firmware?"):
+                "calibrations are kept." +
+                (self._local_firmware_confirmation() + "\n\nFlash this file?" if local else
+                 "\n\nContinue with the latest verified firmware?")):
             return
-        self._set_firmware_busy(True, "Downloading flight controller firmware…")
+        self._set_firmware_busy(True, "Checking the local file…" if local else
+                                "Downloading flight controller firmware…")
 
         def progress(text):
             self.after(0, lambda text=text: self.firmware_progress_var.set(text))
 
         def work():
+            if local:
+                # Re-read the file in case it changed after it was chosen; never delete it.
+                info = firmware_updater.validate_local_firmware(local["path"], "flight_controller")
+                if info["sha256"] != local["sha256"]:
+                    raise firmware_updater.FirmwareUpdateError(
+                        "The firmware file changed after it was chosen. Choose it again. Nothing was flashed.")
+                progress("Restarting the flight controller into its bootloader…")
+                return firmware_updater.flash_flight_controller(
+                    {info["board_id"]: info["path"]}, fc_port, progress)
             images = firmware_updater.download_flight_controller_firmware(release)
             try:
                 progress("Restarting the flight controller into its bootloader…")
@@ -1191,9 +1319,14 @@ class App(tk.Tk):
         self._firmware_thread(work, completed)
 
     def on_flash_firmware(self):
-        if self.firmware_busy or not self.firmware_release:
+        local = self.firmware_local if self._firmware_is_local() else None
+        if self.firmware_busy or (local is None and not self.firmware_release):
             return
         target = self.firmware_target_var.get()
+        if self._firmware_is_local() and (local is None or self._local_firmware_target() is None):
+            messagebox.showerror("Firmware update",
+                                 "Select a single processor and choose a firmware file for it.")
+            return
         if target == "flight_controller":
             self.on_flash_flight_controller()
             return
@@ -1227,7 +1360,8 @@ class App(tk.Tk):
                 "Confirm firmware update",
                 "Keep the aircraft powered off and remove the propeller. Do not unplug USB while "
                 "a processor is being written." + receiver_warning +
-                "\n\nContinue with the latest verified firmware?"):
+                (self._local_firmware_confirmation() + "\n\nFlash this file?" if local else
+                 "\n\nContinue with the latest verified firmware?")):
             return
         self.w.close()
         self.role_worker.close()
@@ -1235,19 +1369,40 @@ class App(tk.Tk):
         self.esp_connect_btn.config(text="Connect")
         self._set_firmware_busy(True, "Preparing firmware…")
 
+        def obtain_image(current, label):
+            """Return (path, is_temporary). Local files are re-checked and never deleted."""
+            if local:
+                self.after(0, lambda: self.firmware_progress_var.set("Checking the local file…"))
+                info = firmware_updater.validate_local_firmware(local["path"], current)
+                if info["sha256"] != local["sha256"]:
+                    raise firmware_updater.FirmwareUpdateError(
+                        "The firmware file changed after it was chosen. Choose it again. Nothing was flashed.")
+                return info["path"], False
+            self.after(0, lambda label=label: self.firmware_progress_var.set(f"Downloading {label} firmware…"))
+            return firmware_updater.download_firmware(self.firmware_release, current), True
+
         def work():
             for current in targets:
                 label = {"samd21": "Transmitter M0", "esp32c3": "Transmitter ESP32-C3",
                          "receiver_samd21": "Receiver"}[current]
-                self.after(0, lambda label=label: self.firmware_progress_var.set(f"Downloading {label} firmware…"))
-                image = firmware_updater.download_firmware(self.firmware_release, current)
+                image, temporary = obtain_image(current, label)
                 try:
-                    if current == "receiver_samd21":
+                    if current == "receiver_samd21" and local and local["format"] == "sam-ba-bin":
+                        self.after(0, lambda: self.firmware_progress_var.set(
+                            "Flashing receiver through its SAM-BA bootloader…"))
+                        firmware_updater.flash_receiver_samba(image, samd_port)
+                        time.sleep(2)
+                    elif current == "receiver_samd21":
                         self.after(0, lambda: self.firmware_progress_var.set(
                             "Entering the receiver bootloader…"))
                         try:
                             mount = firmware_updater.enter_receiver_uf2(samd_port)
                         except firmware_updater.FirmwareUpdateError:
+                            if local:
+                                raise firmware_updater.FirmwareUpdateError(
+                                    "The receiver's UF2 bootloader did not appear. Older receivers use "
+                                    "the SAM-BA bootloader: choose the receiver's .bin file instead of "
+                                    "the .uf2. Nothing was flashed.")
                             # Original Receiver V4 boards use SAM-BA rather than
                             # the UF2 bootloader fitted to newer receivers.
                             self.after(0, lambda: self.firmware_progress_var.set(
@@ -1292,10 +1447,11 @@ class App(tk.Tk):
                         self.after(0, lambda: self.firmware_progress_var.set("Flashing ESP32-C3…"))
                         firmware_updater.flash_esp32(image, esp_port)
                 finally:
-                    try:
-                        os.unlink(image)
-                    except OSError:
-                        pass
+                    if temporary:
+                        try:
+                            os.unlink(image)
+                        except OSError:
+                            pass
             return targets
 
         def completed(result, error):

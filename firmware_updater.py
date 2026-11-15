@@ -1,4 +1,4 @@
-"""Download and flash signed-off transmitter, receiver and flight controller firmware.
+"""Download (or load from disk) and flash transmitter, receiver and flight controller firmware.
 
 The updater deliberately keeps hardware operations separate from Tkinter so
 the release parser, checksum checks, and drive detection can be unit tested.
@@ -15,6 +15,7 @@ import re
 import shutil
 import ssl
 import string
+import struct
 import subprocess
 import sys
 import tempfile
@@ -166,6 +167,125 @@ def _download_verified(url, checksum, label, suffix, destination, timeout):
         destination.unlink(missing_ok=True)
         raise FirmwareUpdateError("Firmware checksum did not match. Nothing was flashed.")
     return destination
+
+
+LOCAL_TARGETS = ("samd21", "esp32c3", "receiver_samd21", "flight_controller")
+UF2_MAGIC_START0 = 0x0A324655
+UF2_MAGIC_START1 = 0x9E5D5157
+UF2_MAGIC_END = 0x0AB16F30
+UF2_FLAG_NOT_MAIN_FLASH = 0x00000001
+UF2_FLAG_FAMILY_ID = 0x00002000
+SAMD21_FAMILY_ID = 0x68ED2B88
+SAMD21_APP_START = 0x2000          # the UF2/SAM-BA bootloader occupies 0x0000-0x1FFF
+SAMD21_FLASH_END = 0x40000         # 256 KiB SAMD21G18
+SAMD21_SRAM = (0x20000000, 0x20008000)
+ESP32C3_CHIP_ID = 5
+ESP_PARTITION_TABLE_OFFSET = 0x8000
+
+
+def _sha256_file(path):
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as handle:
+        for chunk in iter(lambda: handle.read(128 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _check_samd21_uf2(data):
+    if not data or len(data) % 512:
+        raise FirmwareUpdateError("This is not a valid UF2 file (its size is not a whole number of blocks).")
+    lowest = None
+    for offset in range(0, len(data), 512):
+        block = data[offset:offset + 512]
+        start0, start1, flags, address, size, _, _, family = struct.unpack_from("<8I", block)
+        (end,) = struct.unpack_from("<I", block, 508)
+        if start0 != UF2_MAGIC_START0 or start1 != UF2_MAGIC_START1 or end != UF2_MAGIC_END:
+            raise FirmwareUpdateError("This is not a valid UF2 file (bad block header).")
+        if flags & UF2_FLAG_NOT_MAIN_FLASH:
+            continue
+        if flags & UF2_FLAG_FAMILY_ID and family != SAMD21_FAMILY_ID:
+            raise FirmwareUpdateError("This UF2 file is built for a different chip family, not the SAMD21.")
+        if address < SAMD21_APP_START or address + size > SAMD21_FLASH_END:
+            raise FirmwareUpdateError(
+                f"This UF2 file writes to 0x{address:X}, outside the SAMD21 application area "
+                "(0x2000 onward). It could overwrite the bootloader, so it was rejected.")
+        lowest = address if lowest is None else min(lowest, address)
+    if lowest is None:
+        raise FirmwareUpdateError("This UF2 file contains no flash data.")
+    return f"UF2, {len(data) // 512} blocks from 0x{lowest:X}"
+
+
+def _check_samd21_bin(data):
+    """A raw SAM-BA image must be an ARM vector table linked at 0x2000."""
+    if len(data) < 8 or len(data) > SAMD21_FLASH_END - SAMD21_APP_START:
+        raise FirmwareUpdateError("This .bin file is the wrong size for a SAMD21 application.")
+    stack = int.from_bytes(data[0:4], "little")
+    reset = int.from_bytes(data[4:8], "little")
+    if not (SAMD21_SRAM[0] < stack <= SAMD21_SRAM[1]) or not reset & 1 or \
+            not (SAMD21_APP_START <= reset & ~1 < SAMD21_FLASH_END):
+        raise FirmwareUpdateError(
+            "This .bin file is not a SAMD21 application built to start at 0x2000. "
+            "Use the receiver's compiled .bin (not a bootloader or merged image).")
+    return f"SAM-BA binary, {len(data):,} bytes"
+
+
+def _check_esp32c3_merged(data):
+    if len(data) < ESP_PARTITION_TABLE_OFFSET + 2 or data[0] != 0xE9:
+        raise FirmwareUpdateError(
+            "This is not a merged ESP32-C3 image. Use the merged .bin that starts with the bootloader.")
+    chip_id = int.from_bytes(data[12:14], "little")
+    if chip_id != ESP32C3_CHIP_ID:
+        raise FirmwareUpdateError(f"This ESP image is built for another chip (chip ID {chip_id}), not the ESP32-C3.")
+    if data[ESP_PARTITION_TABLE_OFFSET:ESP_PARTITION_TABLE_OFFSET + 2] != b"\xAA\x50":
+        raise FirmwareUpdateError(
+            "This ESP32-C3 image has no partition table at 0x8000. It looks like an application-only "
+            ".bin; flashing it at 0x0 would leave the transmitter unable to boot. Use the merged image.")
+    return f"merged ESP32-C3 image, {len(data):,} bytes"
+
+
+def validate_local_firmware(path, target):
+    """Check a firmware file chosen from disk before anything is written.
+
+    Returns a description including the file's SHA-256. Local files are never
+    deleted by the updater.
+    """
+    if target not in LOCAL_TARGETS:
+        raise FirmwareUpdateError(f"Unknown firmware target: {target}")
+    path = Path(path)
+    if not path.is_file():
+        raise FirmwareUpdateError(f"Firmware file not found: {path}")
+    suffix = path.suffix.lower()
+    info = {"path": path, "name": path.name, "size": path.stat().st_size, "sha256": _sha256_file(path)}
+    if target == "flight_controller":
+        if suffix != ".apj":
+            raise FirmwareUpdateError("Flight controller firmware must be an ArduPilot .apj file.")
+        import ardupilot_uploader
+        try:
+            fw = ardupilot_uploader.firmware(str(path))
+        except Exception as exc:
+            raise FirmwareUpdateError(f"This .apj file could not be read: {exc}") from exc
+        board_id = fw.property("board_id")
+        if not isinstance(board_id, int):
+            raise FirmwareUpdateError("This .apj file does not state which board it is built for.")
+        board = fw.property("summary") or f"board {board_id}"
+        info.update(format="apj", board_id=board_id, board=board,
+                    summary=f"ArduPilot .apj for {board} (board ID {board_id})"
+                    + (f", git {fw.property('git_identity')}" if fw.property("git_identity") else ""))
+        return info
+    data = path.read_bytes()
+    if target == "esp32c3":
+        if suffix != ".bin":
+            raise FirmwareUpdateError("ESP32-C3 firmware must be a merged .bin image.")
+        info.update(format="merged-bin", summary=_check_esp32c3_merged(data))
+    elif suffix == ".uf2":
+        info.update(format="uf2", summary=_check_samd21_uf2(data))
+    elif suffix == ".bin" and target == "receiver_samd21":
+        info.update(format="sam-ba-bin", summary=_check_samd21_bin(data))
+    else:
+        raise FirmwareUpdateError(
+            "Transmitter M0 firmware must be a .uf2 file." if target == "samd21" else
+            "Receiver firmware must be a .uf2 file (UF2 bootloader) or a .bin file (older SAM-BA bootloader).")
+    return info
 
 
 def uf2_mounts():
@@ -440,7 +560,7 @@ def flash_flight_controller(images, port, progress=None, timeout=45):
                     if fw is None:
                         up._uploader__reboot()  # return to the existing application
                         raise FirmwareUpdateError(
-                            f"This release has no firmware for the connected flight controller "
+                            f"The selected firmware is not built for the connected flight controller "
                             f"(board ID {up.board_type}). Nothing was flashed.")
                     board = fw.property("summary") or f"board {up.board_type}"
                     if progress:

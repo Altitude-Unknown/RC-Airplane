@@ -678,6 +678,37 @@ ESP32-C3 stage, connect the small **ESP** USB
 connector, select its serial port, and follow the prompt. If automatic ESP
 bootloader entry fails, hold BOOT, tap RESET, release BOOT, and retry.
 
+#### Flashing a firmware file from this computer
+
+Under **Firmware source**, choose **Local file on this computer** to flash a
+build you already have, for example one you compiled yourself or an older
+release asset. **Latest GitHub release** remains the default and is unchanged.
+A local file holds one processor's firmware, so select a single processor
+(**Transmitter — both processors** is not available in this mode), then click
+**Choose File…**:
+
+| Processor | File |
+|---|---|
+| Transmitter M0 | `.uf2` |
+| Transmitter ESP32-C3 | merged `.bin` (bootloader + partition table + app, written at 0x0) |
+| Receiver | `.uf2` for the UF2 bootloader, or the raw `.bin` for an original SAM-BA Receiver V4 |
+| Flight controller | ArduPilot `.apj` |
+
+Before anything is written, the configurator checks that the file suits that
+processor. It rejects UF2 files for another chip family or any that would write
+the SAMD21 bootloader area. It rejects ESP images built for another chip and
+application-only ESP `.bin` files without a partition table. It rejects
+receiver `.bin` files that are not linked at 0x2000. For a flight controller,
+the board ID inside the `.apj` must match the board's own bootloader, as it
+must for releases. The confirmation shows the file name and its full SHA-256.
+The file is read again just before flashing and refused if it has changed.
+Local files have no release checksum to compare against, so use only builds
+you trust. The configurator never deletes a local file.
+
+After flashing a local transmitter build, read back the active model and check
+its rate selector (`ch5_rate_mode`), CRC, subtrims and mode mapping, exactly as
+after a release update.
+
 Receiver firmware older than the automatic-update bridge may require one final
 manual-reset/Arduino upload. Later receiver updates can then be completed from
 the configurator without reaching the RESET button.
