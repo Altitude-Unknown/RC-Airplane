@@ -1,51 +1,46 @@
-Makes the Bind button the trim-save button on every transmitter, and ships
-the flight-tested airplane setup in the ASCEND flight controller firmware.
+Adds flashing from a local firmware file to the configurator's Firmware
+Update tab. Firmware source code is unchanged from 2026.11.14.
 
-**Bind = trim-save.** Hold Bind for 1 second (in flight or on the ground) to
-save your transmitter trims to the flight controller. The transmitter plays
-two short chirps when it sends the request. In MANUAL the flight controller
-saves the surface trims and stick centres together, then blinks its status
-LED fast for 3 seconds. Outside MANUAL, with a stick far from centre or while
-the airplane is rotating, it rejects the save and nothing changes. Leave the
-transmitter trims where they are after a save. An unsaved trim stops the FC
-arming ("Roll (RC1) is not neutral") and makes FBWA bank or pitch by itself;
-the manual's trim section has the full procedure. This replaces the
-temporary V3 Bind trim-save build. Channel 5 (D10) and Channel 6 (D7) stay
-free.
+**Flash a file from your computer.** Under **Firmware source**, choose
+**Local file on this computer**, select one processor, then **Choose File…**.
+**Latest GitHub release** is still the default and works as before.
 
-**Flight-tested setup built in (ASCEND FC, ArduPilot `02d6a7b964`).** A
-new board now comes up with the setup flown on 2026-11-14: CH5 low = FBWA,
-high = MANUAL; roll limit 55°, pitch limit 30°; the AUTOTUNE roll and pitch
-gains; trim-save on Channel 7. A builder only does the accelerometer and
-compass calibrations, Level Horizon and the radio setup (bind, then trims
-with the Bind button). The gains were tuned on one airframe; a different
-airplane should run AUTOTUNE starting from them.
+| Processor | File |
+|---|---|
+| Transmitter M0 | `.uf2` |
+| Transmitter ESP32-C3 | merged `.bin` |
+| Receiver | `.uf2`, or `.bin` for an original SAM-BA Receiver V4 |
+| Flight controller | ArduPilot `.apj` |
 
-The flight controller image also adds the onboard GPS (u-blox over I2C,
-EKF3, GPS lock required to arm) and a GPS LED that shows readiness: off = no
-fix, blinking = fix but not yet ready to arm, solid = ready.
+A local file has no release checksum, so the configurator checks that it suits
+the selected processor before writing anything. It rejects:
 
-**Updating a board that is already set up:** firmware defaults only apply to
-settings that were never saved. Your calibrations, trims, gains and mode
-switch are kept. Check `RC7_OPTION` after updating and set it to 155 if it is
-not; to use the new flight setup on an existing board, set the values listed
-in the manual. Update all three: transmitter, receiver (the FC's built-in
-receiver and any Rx V4) and flight controller. A receiver with older firmware
-does not pass Channel 7, so the button does nothing. Re-bind the receiver
-after updating it.
+- UF2 files for another chip family, or ones that would overwrite the SAMD21
+  bootloader.
+- ESP images for another chip, and application-only ESP `.bin` files (no
+  partition table) that would leave the transmitter unable to boot.
+- Receiver `.bin` files not built to start at 0x2000.
+- Flight controller `.apj` files whose board ID does not match the connected
+  board.
+
+The confirmation shows the file name and its full SHA-256. The file is read
+again just before flashing and refused if it has changed. The configurator
+never deletes a local file. "Transmitter — both processors" needs two files,
+so it is only available for GitHub releases.
+
+After flashing a local transmitter build, read back the active model and check
+its rate selector, CRC, subtrims and mode mapping, as after any update.
+
+**Fix:** the fallback for original Receiver V4 boards (SAM-BA) could stop
+with an error after flashing because a Python import was missing. This is now
+fixed.
 
 Includes macOS Apple Silicon ARM64, Windows x64 and Raspberry Pi ARM64 apps,
-plus firmware and the SHA-256 manifest.
+plus firmware and the SHA-256 manifest. The firmware is rebuilt from the same
+source as 2026.11.14, and the flight controller image is the same
+ArduPilot `02d6a7b964` file.
 
-Validation: 37 release tests passed (including the new trim-save state
-machine, channel 7 mapping and chirp tests). On the flown V4 airplane on
-2026-11-14: transmitter, built-in receiver and flight controller updated with
-backups and readbacks (transmitter model memory byte-identical, Research
-model's full FBWA rates kept; receiver bind kept). Trim-save bench test:
-1 s hold gave one 0.5 s channel 7 pulse; in MANUAL "trim complete", LED fast
-blink and chirp; in FBWA rejected with trims unchanged. The release flight
-controller image kept every saved parameter, and the firmware reports all 35
-board defaults as listed.
-
-Not yet tested: trim-save in flight, a factory-new board starting from these
-defaults, and a standalone Rx V4 with this receiver firmware.
+Validation: 50 release tests passed, including 13 new tests of the
+local-file checks. A GUI check from source passed: the source and processor
+controls work, and the released ASCEND FC `.apj` is recognised as board ID
+65093. Not yet tested: flashing hardware from a local file.

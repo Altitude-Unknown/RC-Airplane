@@ -266,5 +266,106 @@ class FirmwareUpdaterTests(unittest.TestCase):
                 updater.flash_flight_controller({65093: self._fake_apj(folder, 65093)}, "/dev/rx")
 
 
+def _load_packager():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "package_transmitter_firmware", Path(__file__).parent / "tools" / "package_transmitter_firmware.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _samd21_app(size=1024):
+    # Vector table: initial stack in SRAM, Thumb reset handler inside the app area.
+    return (0x20008000).to_bytes(4, "little") + (0x2101).to_bytes(4, "little") + b"\x00" * (size - 8)
+
+
+def _esp32c3_merged(chip_id=5, partition_table=True):
+    image = bytearray(b"\xff" * 0x9000)
+    image[0] = 0xE9
+    image[12:14] = chip_id.to_bytes(2, "little")
+    if partition_table:
+        image[0x8000:0x8002] = b"\xAA\x50"
+    return bytes(image)
+
+
+class LocalFirmwareTests(unittest.TestCase):
+    def setUp(self):
+        self.folder = tempfile.TemporaryDirectory()
+        self.root = Path(self.folder.name)
+
+    def tearDown(self):
+        self.folder.cleanup()
+
+    def write(self, name, data):
+        path = self.root / name
+        path.write_bytes(data)
+        return path
+
+    def test_release_style_uf2_accepted_and_file_kept(self):
+        uf2 = _load_packager().bin_to_uf2(_samd21_app())
+        path = self.write("tx.uf2", uf2)
+        for target in ("samd21", "receiver_samd21"):
+            info = updater.validate_local_firmware(path, target)
+            self.assertEqual(info["format"], "uf2")
+            self.assertEqual(info["sha256"], hashlib.sha256(uf2).hexdigest())
+        self.assertTrue(path.exists())
+
+    def test_uf2_for_other_chip_family_rejected(self):
+        uf2 = bytearray(_load_packager().bin_to_uf2(_samd21_app()))
+        uf2[28:32] = (0xE48BFF56).to_bytes(4, "little")  # RP2040 family
+        with self.assertRaisesRegex(updater.FirmwareUpdateError, "chip family"):
+            updater.validate_local_firmware(self.write("x.uf2", bytes(uf2)), "samd21")
+
+    def test_uf2_writing_bootloader_region_rejected(self):
+        uf2 = _load_packager().bin_to_uf2(_samd21_app(), base_address=0x0)
+        with self.assertRaisesRegex(updater.FirmwareUpdateError, "bootloader"):
+            updater.validate_local_firmware(self.write("boot.uf2", uf2), "samd21")
+
+    def test_non_uf2_data_rejected(self):
+        with self.assertRaisesRegex(updater.FirmwareUpdateError, "UF2"):
+            updater.validate_local_firmware(self.write("junk.uf2", b"\x00" * 512), "samd21")
+
+    def test_transmitter_m0_requires_uf2(self):
+        with self.assertRaisesRegex(updater.FirmwareUpdateError, ".uf2"):
+            updater.validate_local_firmware(self.write("tx.bin", _samd21_app()), "samd21")
+
+    def test_receiver_samba_bin_accepted(self):
+        info = updater.validate_local_firmware(self.write("rx.bin", _samd21_app()), "receiver_samd21")
+        self.assertEqual(info["format"], "sam-ba-bin")
+
+    def test_receiver_bin_not_linked_at_0x2000_rejected(self):
+        bad = (0x20008000).to_bytes(4, "little") + (0x0101).to_bytes(4, "little") + b"\x00" * 64
+        with self.assertRaisesRegex(updater.FirmwareUpdateError, "0x2000"):
+            updater.validate_local_firmware(self.write("rx.bin", bad), "receiver_samd21")
+
+    def test_esp32c3_merged_image_accepted(self):
+        info = updater.validate_local_firmware(self.write("esp.bin", _esp32c3_merged()), "esp32c3")
+        self.assertEqual(info["format"], "merged-bin")
+
+    def test_esp32c3_app_only_image_rejected(self):
+        with self.assertRaisesRegex(updater.FirmwareUpdateError, "partition table"):
+            updater.validate_local_firmware(
+                self.write("app.bin", _esp32c3_merged(partition_table=False)), "esp32c3")
+
+    def test_esp_image_for_other_chip_rejected(self):
+        with self.assertRaisesRegex(updater.FirmwareUpdateError, "another chip"):
+            updater.validate_local_firmware(self.write("esp32.bin", _esp32c3_merged(chip_id=0)), "esp32c3")
+
+    def test_released_flight_controller_apj_accepted(self):
+        apj = Path(__file__).parent / "flight_controller_firmware" / "ASCENDFCRev2" / "arduplane.apj"
+        expected = json.loads(apj.read_text())["board_id"]
+        info = updater.validate_local_firmware(apj, "flight_controller")
+        self.assertEqual(info["board_id"], expected)
+
+    def test_flight_controller_requires_apj(self):
+        with self.assertRaisesRegex(updater.FirmwareUpdateError, ".apj"):
+            updater.validate_local_firmware(self.write("fc.bin", b"x"), "flight_controller")
+
+    def test_missing_file_rejected(self):
+        with self.assertRaisesRegex(updater.FirmwareUpdateError, "not found"):
+            updater.validate_local_firmware(self.root / "missing.uf2", "samd21")
+
+
 if __name__ == "__main__":
     unittest.main()

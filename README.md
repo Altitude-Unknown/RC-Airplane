@@ -31,7 +31,9 @@ elevons have automated test coverage and await hardware validation.
 
 The **Firmware Update** tab checks the project's latest GitHub release and can
 update the V3 transmitter's SAMD21/M0, ESP32-C3, or both, and can update the V4
-receiver. Firmware images are SHA-256 verified before flashing. The transmitter
+receiver. Firmware images are SHA-256 verified before flashing. It can also
+flash a single processor from a local `.uf2`, `.bin` or `.apj` file, which is
+format-checked for that processor first (see MANUAL.md). The transmitter
 M0 uses automatic 1200-baud UF2 bootloader entry. Newer receivers use their
 `RCRXBOOT` UF2 bootloader; original Receiver V4 boards use a guarded USB
 bootloader request and the bundled BOSSA programmer. A RESET double-tap remains
