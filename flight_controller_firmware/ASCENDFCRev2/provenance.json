@@ -3,9 +3,9 @@
   "board_id": 65093,
   "vehicle": "ArduPlane",
   "source_repository": "https://github.com/mwalach76/ardupilot (branch ascend-airplane-release)",
-  "source_commit": "02d6a7b964935d7c0183b92f8e50036e9c22fc0b",
-  "built": "2026-11-14",
+  "source_commit": "19befda7b6b1a06e43dca7a64ce9e8fb9d0adf11",
+  "built": "2026-11-19",
   "build": "Clean worktree at source_commit; ./waf configure --board ASCENDFCRev2 && ./waf plane; arm-none-eabi-gcc 10-2020-q4-major",
-  "sha256": "7440c2d1370add2c97d1dc76829833754bc0d890c1bf2ae4a2a0756cac428efb",
-  "notes": "ASCEND FC V4 (board target ASCENDFCRev2). Onboard u-blox GPS over I2C with EKF3; GPS readiness LED; Bind trim-save (RC7_OPTION 155) with status-LED fast blink; flight-tested airplane setup in the board defaults (mode switch FBWA/MANUAL, limits, response, AUTOTUNE gains) and no-airspeed default. Same source as the image flown 2026-11-14 plus the new defaults. Bench-checked 2026-11-14 on the flown V4 board: flash verified, all saved parameters kept, all 35 board defaults reported by the firmware over MAVLink FTP; trim-save accepted in MANUAL and rejected in FBWA on the preceding build."
+  "sha256": "460c03f26a6ad58caf024e9d56133b86008a6097393b4ec123b821dcb3ed1c1b",
+  "notes": "ASCEND FC V4 (board target ASCENDFCRev2). Same source as the 2026-11-14 release (02d6a7b964) plus one board default: RC6_OPTION 16, so CH6 (transmitter D7 button, Channel 6 toggle) selects AUTO and CH6 low returns to the CH5 mode (FBWA/MANUAL). Onboard u-blox GPS over I2C with EKF3; GPS readiness LED; Bind trim-save (RC7_OPTION 155); flight-tested airplane setup in the board defaults. Build verified: board_id 65093 and RC6_OPTION 16 present in processed_defaults.parm. Not yet flashed to hardware."
 }

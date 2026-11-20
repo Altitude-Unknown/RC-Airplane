@@ -4,8 +4,8 @@ Living manual for the Altitude Unknown RC transmitter, receiver, and configurato
 
 Last updated: 2026-11-19
 
-This manual describes release `transmitter-gui-v2026.11.19`.
-[Download the configurator and matching firmware](https://github.com/Altitude-Unknown/RC-Airplane/releases/tag/transmitter-gui-v2026.11.19).
+This manual describes release `transmitter-gui-v2026.11.19.1`.
+[Download the configurator and matching firmware](https://github.com/Altitude-Unknown/RC-Airplane/releases/tag/transmitter-gui-v2026.11.19.1).
 V-tail controls have passed the pilot's bench and flight tests. Elevon mixing
 has automated tests but has not yet been tested on an airplane.
 The [BOREALIS V2](#borealis-v2-arduplane-operation) and
@@ -823,6 +823,13 @@ bootloader drive, as the receiver path already did, and accepts the drive
 remounting at the same path after a manual RESET double-tap. Firmware is
 unchanged from 2026.11.14.
 
+Release `transmitter-gui-v2026.11.19.1` adds one ASCEND FC default,
+`RC6_OPTION 16`: CH6 (the transmitter's D7 button set to Channel 6 toggle)
+selects AUTO, and CH6 low returns to the CH5 mode. Boards that never saved
+`RC6_OPTION` pick it up after the flight controller update; a board where a
+team already set it keeps its own value. Transmitter, receiver and
+configurator are unchanged from 2026.11.19.
+
 ### Assigning Instructor or Student Role
 
 With current V3 firmware, only the ESP32-C3 USB cable is needed:
@@ -1091,6 +1098,7 @@ sensor):
 | Setting | Value |
 | --- | --- |
 | Mode switch | `FLTMODE_CH 5`: low `FLTMODE1 5` (FBWA), high `FLTMODE6 0` (MANUAL) |
+| AUTO switch | `RC6_OPTION 16`: CH6 high = AUTO; CH6 low returns to the CH5 mode (from 2026.11.19.1) |
 | Limits | `ROLL_LIMIT_DEG 55`, `PTCH_LIM_MAX_DEG 30` |
 | Response | `RLL2SRV_TCONST 0.3`, `PTCH2SRV_TCONST 0.45`, `RLL2SRV_RMAX 90`, `PTCH2SRV_RMAX_UP 90`, `PTCH2SRV_RMAX_DN 90`, `AUTOTUNE_LEVEL 7` |
 | Roll rate gains | `RLL_RATE_P 0.0590127`, `RLL_RATE_I 0.0590127`, `RLL_RATE_D 0.0032653`, `RLL_RATE_FF 0.0900232`, `RLL_RATE_FLTT 5.30516`, `RLL_RATE_FLTD 10` |
@@ -1100,7 +1108,12 @@ sensor):
 | No airspeed sensor, no SD card | `ARSPD_TYPE 0`, `LOG_BACKEND_TYPE 0` |
 
 The mode switch pairs with the transmitter model's full surface rates at CH5
-low (`ch5_rate_mode 1`). The gains were tuned on one airframe; a different
+low (`ch5_rate_mode 1`). On the transmitter, set **D10 / Trainer** to **Channel 5 —
+Toggle** and **D7 / Aux** to **Channel 6 — Toggle**: D10 then toggles FBWA and
+MANUAL, and D7 toggles AUTO. Both start low at power-up (FBWA, not AUTO). AUTO
+needs a GPS fix and a loaded mission; without them the FC refuses the switch
+and stays in the CH5 mode. On the instructor's radio, D10 cannot be both the
+CH5 mode button and the trainer hand-off; choose one per model. The gains were tuned on one airframe; a different
 airplane should run AUTOTUNE starting from them.
 
 **What a builder still does:** accelerometer calibration, compass
