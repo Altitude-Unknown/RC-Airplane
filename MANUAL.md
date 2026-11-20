@@ -2,10 +2,10 @@
 
 Living manual for the Altitude Unknown RC transmitter, receiver, and configurator GUI.
 
-Last updated: 2026-11-09
+Last updated: 2026-11-19
 
-This manual describes release `transmitter-gui-v2026.11.09`.
-[Download the configurator and matching firmware](https://github.com/Altitude-Unknown/RC-Airplane/releases/tag/transmitter-gui-v2026.11.09).
+This manual describes release `transmitter-gui-v2026.11.19`.
+[Download the configurator and matching firmware](https://github.com/Altitude-Unknown/RC-Airplane/releases/tag/transmitter-gui-v2026.11.19).
 V-tail controls have passed the pilot's bench and flight tests. Elevon mixing
 has automated tests but has not yet been tested on an airplane.
 The [BOREALIS V2](#borealis-v2-arduplane-operation) and
@@ -665,7 +665,9 @@ installation to perform an update.
 
 For a transmitter M0 update, select its USB port. The configurator requests
 bootloader mode automatically, detects the UF2 drive, and copies the verified
-firmware. For a receiver update, select its USB port. Newer receivers mount an
+firmware. A new board that has only had its bootloader installed (no
+firmware yet) already shows its `RCTXBOOT` drive; from 2026.11.19 the
+configurator flashes that drive directly, so no other sketch is needed first. For a receiver update, select its USB port. Newer receivers mount an
 `RCRXBOOT` UF2 volume and receive the verified receiver UF2 directly. Original
 Receiver V4 boards retain their 2016 SAM-BA bootloader; if UF2 is not detected,
 the configurator automatically falls back to its bundled BOSSA programmer and
@@ -802,6 +804,24 @@ tested yet, so bench-check a Rx V4 before flight.
 Release `transmitter-gui-v2026.11.09` updates the ASCEND FC Rev.2 ArduPlane
 image so the sensor orientation is built in. The configurator, transmitter and
 receiver firmware are unchanged from 2026.11.01.
+
+Release `transmitter-gui-v2026.11.14` adds Bind trim-save (hold the transmitter
+Bind button for 1 second to save trims to the ASCEND flight controller) and
+ships the ASCEND FC Rev.2 image with the flight-tested airplane setup, the
+onboard GPS and a GPS readiness LED. Update the transmitter, receiver and
+flight controller together, then rebind.
+
+Release `transmitter-gui-v2026.11.15` adds flashing a firmware file from this
+computer on the Firmware Update tab. Firmware is unchanged from 2026.11.14.
+
+Release `transmitter-gui-v2026.11.19` fixes transmitter M0 updates on new
+boards that have only the UF2 bootloader. With no application to run, such a
+board stays in the bootloader with `RCTXBOOT` already mounted, and the updater
+waited for a new drive that never appeared; uploading any sketch (for example
+Blink) first was the workaround. The updater now reuses a mounted transmitter
+bootloader drive, as the receiver path already did, and accepts the drive
+remounting at the same path after a manual RESET double-tap. Firmware is
+unchanged from 2026.11.14.
 
 ### Assigning Instructor or Student Role
 
