@@ -115,6 +115,54 @@ class FirmwareUpdaterTests(unittest.TestCase):
         enter.assert_not_called()
         self.assertEqual(result, Path("/Volumes/RCRXBOOT"))
 
+    def _mount_with_info(self, root, name, info):
+        mount = Path(root) / name
+        mount.mkdir()
+        (mount / "INFO_UF2.TXT").write_text(info)
+        return mount
+
+    def test_transmitter_uf2_mounts_matches_tx_bootloader_only(self):
+        with tempfile.TemporaryDirectory() as root:
+            tx = self._mount_with_info(root, "RCTXBOOT",
+                "UF2 Bootloader\r\nModel: RC Airplane TX M0\r\n"
+                "Board-ID: SAMD21G18A-Altitude-RC-TX-M0-v0\r\n")
+            rx = self._mount_with_info(root, "RCRXBOOT",
+                "UF2 Bootloader\r\nModel: RC Airplane RX M0\r\n"
+                "Board-ID: SAMD21G18A-Altitude-RC-RX-M0-v0\r\n")
+            with mock.patch.object(updater, "uf2_mounts", return_value=[tx, rx]):
+                self.assertEqual(updater.transmitter_uf2_mounts(), [tx])
+                self.assertEqual(updater.receiver_uf2_mounts(), [rx])
+
+    def test_enter_transmitter_uf2_reuses_bootloader_on_fresh_board(self):
+        # A freshly bootloaded M0 has no application, so RCTXBOOT is already
+        # mounted and a 1200-baud touch would never produce a new drive.
+        with mock.patch.object(updater, "transmitter_uf2_mounts",
+                               return_value=[Path("/Volumes/RCTXBOOT")]), \
+             mock.patch.object(updater, "enter_samd_uf2") as enter:
+            result = updater.enter_transmitter_uf2("/dev/tx")
+        enter.assert_not_called()
+        self.assertEqual(result, Path("/Volumes/RCTXBOOT"))
+
+    def test_enter_transmitter_uf2_requests_bootloader_when_app_running(self):
+        with mock.patch.object(updater, "transmitter_uf2_mounts", return_value=[]), \
+             mock.patch.object(updater, "enter_samd_uf2",
+                               return_value=Path("/Volumes/RCTXBOOT")) as enter:
+            result = updater.enter_transmitter_uf2("/dev/tx", timeout=9)
+        enter.assert_called_once_with("/dev/tx", timeout=9)
+        self.assertEqual(result, Path("/Volumes/RCTXBOOT"))
+
+    def test_wait_for_transmitter_uf2_accepts_remount_at_same_path(self):
+        drive = Path("/Volumes/RCTXBOOT")
+        with mock.patch.object(updater, "transmitter_uf2_mounts", return_value=[drive]), \
+             mock.patch.object(updater, "uf2_mounts", return_value=[drive]):
+            self.assertEqual(updater.wait_for_transmitter_uf2([drive], timeout=1), drive)
+
+    def test_wait_for_transmitter_uf2_times_out_without_drive(self):
+        with mock.patch.object(updater, "transmitter_uf2_mounts", return_value=[]), \
+             mock.patch.object(updater, "uf2_mounts", return_value=[]):
+            with self.assertRaises(updater.FirmwareUpdateError):
+                updater.wait_for_transmitter_uf2(timeout=0.05, poll_interval=0.01)
+
     def test_enter_receiver_uf2_requests_bootloader_when_not_mounted(self):
         with mock.patch.object(updater, "receiver_uf2_mounts", return_value=[]), \
              mock.patch.object(updater, "enter_samd_uf2",
