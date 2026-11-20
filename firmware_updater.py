@@ -353,17 +353,61 @@ def enter_samd_uf2(port, timeout=20, poll_interval=0.25):
     return wait_for_new_uf2_mount(before, timeout=timeout, poll_interval=poll_interval)
 
 
-def receiver_uf2_mounts():
-    """Return mounted UF2 volumes that identify as an Altitude receiver."""
+def _uf2_mounts_identifying_as(*keywords):
+    """Return mounted UF2 volumes whose INFO_UF2.TXT contains any keyword."""
     matches = []
     for mount in uf2_mounts():
         try:
             info = (Path(mount) / "INFO_UF2.TXT").read_text(errors="replace").lower()
         except OSError:
             continue
-        if "rx m0" in info or "receiver" in info or "altitude-rc-rx" in info:
+        if any(keyword in info for keyword in keywords):
             matches.append(Path(mount))
     return matches
+
+
+def receiver_uf2_mounts():
+    """Return mounted UF2 volumes that identify as an Altitude receiver."""
+    return _uf2_mounts_identifying_as("rx m0", "receiver", "altitude-rc-rx")
+
+
+def transmitter_uf2_mounts():
+    """Return mounted UF2 volumes that identify as an Altitude transmitter M0."""
+    return _uf2_mounts_identifying_as("tx m0", "altitude-rc-tx")
+
+
+def enter_transmitter_uf2(port, timeout=20):
+    """Enter the transmitter M0's UF2 bootloader, or reuse it if already mounted.
+
+    A board that has only just had its bootloader installed has no application
+    to run, so it stays in the bootloader with RCTXBOOT already mounted. A
+    1200-baud touch then produces no new drive, so reuse the one present.
+    """
+    mounted = transmitter_uf2_mounts()
+    if len(mounted) == 1:
+        return mounted[0]
+    return enter_samd_uf2(port, timeout=timeout)
+
+
+def wait_for_transmitter_uf2(previous=(), timeout=90, poll_interval=0.5):
+    """Wait after a manual RESET double-tap for the transmitter's UF2 drive.
+
+    The drive often remounts at the same path, which wait_for_new_uf2_mount
+    would not count as new, so accept a single transmitter drive directly.
+    """
+    previous = {str(Path(item)) for item in previous}
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        mounted = transmitter_uf2_mounts()
+        if len(mounted) == 1:
+            return mounted[0]
+        new_mounts = [mount for mount in uf2_mounts() if str(mount) not in previous]
+        if new_mounts:
+            return new_mounts[0]
+        time.sleep(poll_interval)
+    raise FirmwareUpdateError(
+        "The transmitter's UF2 drive did not appear. Double-tap RESET and try again."
+    )
 
 
 def enter_receiver_uf2(port, timeout=8):

@@ -1425,7 +1425,7 @@ class App(tk.Tk):
                         self.after(0, lambda label=label: self.firmware_progress_var.set(
                             f"Requesting automatic bootloader mode on {label}…"))
                         try:
-                            mount = firmware_updater.enter_samd_uf2(samd_port)
+                            mount = firmware_updater.enter_transmitter_uf2(samd_port)
                         except firmware_updater.FirmwareUpdateError as auto_error:
                             before = firmware_updater.uf2_mounts()
                             proceed = threading.Event()
@@ -1440,7 +1440,7 @@ class App(tk.Tk):
                             proceed.wait()
                             if not answer["yes"]:
                                 raise firmware_updater.FirmwareUpdateError("Firmware update cancelled.")
-                            mount = firmware_updater.wait_for_new_uf2_mount(before)
+                            mount = firmware_updater.wait_for_transmitter_uf2(before)
                         firmware_updater.flash_samd_uf2(image, mount, "ALTITUDE_TX.UF2")
                         time.sleep(2)
                     else:
