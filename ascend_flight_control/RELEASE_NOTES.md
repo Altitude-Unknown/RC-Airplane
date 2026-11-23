@@ -6,6 +6,19 @@ This is a **beta**. It has been tested against the ArduPlane simulator but not
 yet on many real airplanes. Back up your settings (**Aircraft Settings → Save
 Backup…**) before changing anything, and tell us what goes wrong.
 
+## New in this version
+
+- **Aviation map layers.** **Layers ▾** on the map switches to the FAA VFR
+  sectional chart and turns on FAA airspace: TFRs, UAS Facility Map ceilings
+  (the LAANC grid), controlled airspace, special use airspace, and national
+  security UAS restrictions. Right-click the map and choose **What airspace is
+  here?** to check one spot. These layers are for planning only: you still
+  need to check NOTAMs and get LAANC or DroneZone authorization.
+- **The map opens where you are.** On Mac and Windows the map starts at your
+  computer's location (allow it when asked). Or choose **Map ▾ → Set Map Home
+  to This View** to always open at your field.
+- American spelling throughout ("meters", "center").
+
 ## Download
 
 | Computer | File |
