@@ -128,6 +128,18 @@ python3 ascend_flight_control.py --connect tcp:127.0.0.1:5760   # app against SI
 python3 tools/sitl_demo_flight.py                              # fly a demo mission in SITL (port 5762)
 ```
 
+Map layers (United States): **Layers ▾** switches the base map between the
+street map and the FAA VFR sectional chart, and turns on FAA airspace overlays:
+TFRs (live from tfr.faa.gov), UAS Facility Map ceilings (the LAANC grid),
+controlled airspace where Part 107 needs authorization (Class B, C, D and the
+Class E surface areas), special use airspace, and national security UAS
+restrictions. Clicking still adds waypoints inside them; right-click →
+**What airspace is here?** checks one spot against every layer. Data is
+fetched for the area on screen from FAA services (`airspace_layers.py`), only
+for the map you can see, and backs off when the FAA service is busy. These
+layers are for planning only: pilots must still check NOTAMs and get LAANC or
+DroneZone authorization.
+
 Where the map opens: **Map ▾ → Set Map Home to This View** saves the current
 view, and the map opens there from then on. Without a map home it opens at the
 computer's location where the operating system provides one: macOS (Core

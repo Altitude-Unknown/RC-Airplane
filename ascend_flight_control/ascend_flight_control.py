@@ -152,6 +152,10 @@ class FlightControlApp(tk.Tk):
         self.map_home = valid_map_home(load_setting("map_home"))
         for m in (self.mission_map, self.flight_tab.map):
             m.menu_provider = self.map_menu_items
+            m.on_layers_changed = self.layers_changed
+        saved_layers = load_setting("map_layers") or {}
+        if isinstance(saved_layers, dict):
+            self.apply_layers(saved_layers.get("base", "street"), saved_layers.get("overlays", []))
         self.after(300, self.start_map_view)
         self.after(100, self.process_ui_events)
         self.protocol("WM_DELETE_WINDOW", self.on_close)
@@ -375,6 +379,15 @@ class FlightControlApp(tk.Tk):
                     m.go_to(result.lat, result.lon, 15)
 
         location.request_location(self, done)
+
+    def apply_layers(self, base, overlays):
+        for m in self.maps():
+            m.set_layers(base, overlays)
+
+    def layers_changed(self, state):
+        """A map's Layers ▾ menu changed: show the same layers on the other map and remember them."""
+        self.apply_layers(state["base"], state["overlays"])
+        save_setting("map_layers", state)
 
     def map_menu_items(self, map_view):
         have_home = self.map_home is not None

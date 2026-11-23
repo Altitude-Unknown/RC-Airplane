@@ -11,13 +11,18 @@ Mission map for ASCEND Flight Control, drawn inside the app with tkintermapview
 from __future__ import annotations
 
 import math
+import queue
+import sys
+import threading
 import time
 import tkinter as tk
+import webbrowser
 from tkinter import ttk
 from typing import Callable
 
 from PIL import Image, ImageDraw, ImageFont, ImageTk
 
+import airspace_layers as airspace
 from mac_native import install_pinch_zoom
 
 try:
@@ -104,6 +109,20 @@ class MissionMap(tk.Frame):
         self.map_menu = tk.Menu(self.map_menu_button, tearoff=0, postcommand=self._fill_menu)
         self.map_menu_button["menu"] = self.map_menu
         self.map_menu_button.pack(side="right", padx=(0, 6))
+        # Layers ▾: base map (street / VFR sectional) and FAA airspace overlays.
+        self.layers_button = ttk.Menubutton(bar, text="Layers ▾")
+        self.layers_menu = tk.Menu(self.layers_button, tearoff=0, postcommand=self._fill_layers_menu)
+        self.layers_button["menu"] = self.layers_menu
+        self.layers_button.pack(side="right", padx=(0, 6))
+        self.on_layers_changed = None  # callback(state) so the app can save it and sync the other map
+        self.base = "street"
+        self.overlays: set[str] = set()
+        self._shapes: dict[str, list] = {}  # layer id -> drawn polygons
+        self._labels: dict[str, list] = {}  # layer id -> label markers
+        self._layer_data: dict[str, dict] = {}  # layer id -> {"bbox", "zoom", "time", "features", "error"}
+        self._fetching: set[str] = set()
+        self._results: queue.Queue = queue.Queue()
+        self._label_icons: dict = {}
         self.user_moved = False  # set once the person pans or zooms; late location answers then leave the view alone
         self._you_marker = None
         ttk.Button(bar, text="Fit Mission", command=self.fit_mission).pack(side="right", padx=(0, 6))
@@ -132,8 +151,14 @@ class MissionMap(tk.Frame):
         # Runs before the map's own release handler; remembers if the press hit a map control.
         self.map.canvas.bind("<Button-1>", self._on_press, add="+")
         self._install_zoom_controls()
-        tk.Label(holder, text="© OpenStreetMap contributors", bg="#ffffff", fg="#60707d",
-                 font=("TkDefaultFont", 10)).place(relx=1.0, rely=1.0, anchor="se")
+        self.attribution = tk.Label(holder, text=airspace.BASE_MAPS["street"][3], bg="#ffffff", fg="#60707d",
+                                    font=("TkDefaultFont", 10))
+        self.attribution.place(relx=1.0, rely=1.0, anchor="se")
+        self.legend = tk.Frame(holder, bg="#ffffff", highlightbackground="#cbd5e1", highlightthickness=1)
+        self._original_fetch = self.map.request_image_from_server
+        self.map.request_image_from_server = self._fetch_tile
+        self.map.add_right_click_menu_command("What airspace is here?", self._whats_here, pass_coords=True)
+        self.after(700, self._layers_tick)
 
     # -- events --------------------------------------------------------------
 
@@ -183,6 +208,271 @@ class MissionMap(tk.Frame):
                 continue
             label, command, enabled = item
             self.map_menu.add_command(label=label, command=command, state="normal" if enabled else "disabled")
+
+    # -- layers -------------------------------------------------------------------
+
+    def _fill_layers_menu(self):
+        m = self.layers_menu
+        m.delete(0, "end")
+        m.add_command(label="Base map", state="disabled")
+        self._base_var = tk.StringVar(value=self.base)
+        for key, (label, *_rest) in airspace.BASE_MAPS.items():
+            m.add_radiobutton(label="   " + label, value=key, variable=self._base_var,
+                              command=lambda k=key: self._set_and_report(base=k))
+        m.add_separator()
+        m.add_command(label="FAA airspace (United States)", state="disabled")
+        self._overlay_vars = {}
+        for lid, layer in airspace.LAYERS.items():
+            var = tk.BooleanVar(value=lid in self.overlays)
+            self._overlay_vars[lid] = var
+            m.add_checkbutton(label="   " + layer.name, variable=var,
+                              command=lambda l=lid: self._toggle_overlay(l))
+        m.add_separator()
+        m.add_command(label="Turn Off All Airspace Layers", command=lambda: self._set_and_report(overlays=set()),
+                      state="normal" if self.overlays else "disabled")
+        m.add_command(label="About These Layers…", command=self._about_layers)
+
+    def _toggle_overlay(self, lid):
+        overlays = set(self.overlays)
+        overlays.symmetric_difference_update({lid})
+        self._set_and_report(overlays=overlays)
+
+    def _set_and_report(self, base=None, overlays=None):
+        self.set_layers(base or self.base, self.overlays if overlays is None else overlays)
+        if self.on_layers_changed:
+            self.on_layers_changed(self.layer_state())
+
+    def layer_state(self) -> dict:
+        return {"base": self.base, "overlays": sorted(self.overlays)}
+
+    def set_layers(self, base: str, overlays):
+        if self.map is None:
+            return
+        overlays = {o for o in overlays if o in airspace.LAYERS}
+        if base not in airspace.BASE_MAPS:
+            base = "street"
+        if base != self.base:
+            self.base = base
+            _label, url, max_zoom, credit = airspace.BASE_MAPS[base]
+            self.map.set_tile_server(url, max_zoom=max_zoom)
+            if self.map.zoom > max_zoom:
+                self.map.set_zoom(max_zoom)
+            self.attribution.configure(text=credit)
+        for lid in self.overlays - overlays:
+            self._clear_layer(lid)
+        self.overlays = overlays
+        self._layers_tick(schedule=False)
+        self._update_legend()
+
+    def _fetch_tile(self, tile_server, zoom, x, y):
+        if tile_server == airspace.SECTIONAL_TILES:
+            return airspace.sectional_tile(zoom, x, y)
+        return self._original_fetch(tile_server, zoom, x, y)
+
+    def _view_bbox(self):
+        w, h = max(1, self.map.width), max(1, self.map.height)
+        north, west = self.map.convert_canvas_coords_to_decimal_coords(0, 0)
+        south, east = self.map.convert_canvas_coords_to_decimal_coords(w, h)
+        return min(south, north), min(west, east), max(south, north), max(west, east)
+
+    def _layers_tick(self, schedule=True):
+        """Every 0.7 s: fetch overlay data for the area on screen when needed, and draw what arrived."""
+        try:
+            while True:
+                lid, bbox, zoom, features, error = self._results.get_nowait()
+                self._fetching.discard(lid)
+                if lid in self.overlays:
+                    self._layer_data[lid] = {"bbox": bbox, "zoom": zoom, "time": time.monotonic(),
+                                             "features": features, "error": error}
+                    if error is None:
+                        self._draw_layer(lid, features)
+                    self._update_legend()
+        except queue.Empty:
+            pass
+        # Only the map on screen fetches (the other tab's map catches up when shown): fewer FAA requests.
+        if self.map is not None and self.overlays and self.winfo_viewable():
+            zoom = int(round(self.map.zoom))
+            view = self._view_bbox()
+            for lid in self.overlays:
+                layer = airspace.LAYERS[lid]
+                if zoom < layer.min_zoom:
+                    if self._shapes.get(lid):
+                        self._clear_layer(lid)
+                        self._update_legend()
+                    continue
+                data = self._layer_data.get(lid)
+                fresh = (data is not None and data["error"] is None and airspace.bbox_contains(data["bbox"], view)
+                         and abs(data["zoom"] - zoom) < 2 and time.monotonic() - data["time"] < 600)
+                if fresh:
+                    labels_wanted = lid == "uasfm" and zoom >= 14
+                    if labels_wanted != bool(self._labels.get(lid)) or not self._shapes.get(lid) and data["features"]:
+                        self._draw_layer(lid, data["features"])
+                    continue
+                wait = 180 if data is not None and "busy" in (data["error"] or "") else 30
+                retry_wait = data is not None and data["error"] is not None and time.monotonic() - data["time"] < wait
+                if lid not in self._fetching and not retry_wait:
+                    self._start_fetch(lid, airspace.expand_bbox(view), zoom)
+        if schedule:
+            self.after(700, self._layers_tick)
+
+    def _start_fetch(self, lid, bbox, zoom):
+        self._fetching.add(lid)
+        self._update_legend()
+
+        def work():
+            try:
+                features, error = airspace.LAYERS[lid].fetch(bbox, zoom), None
+            except Exception as exc:  # offline or FAA service trouble: shown in the legend
+                features, error = [], airspace.short_error(exc)
+            self._results.put((lid, bbox, zoom, features, error))
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _clear_layer(self, lid):
+        for shape in self._shapes.pop(lid, []):
+            shape.delete()
+        for marker in self._labels.pop(lid, []):
+            self._drop_marker(marker)
+
+    def _drop_marker(self, marker):
+        # tkintermapview's marker.delete() runs the Tk event loop; remove it directly instead.
+        canvas = self.map.canvas
+        for item in (marker.canvas_icon, marker.canvas_text, marker.polygon, marker.big_circle, marker.canvas_image):
+            if item is not None:
+                canvas.delete(item)
+        marker.deleted = True
+        if marker in self.map.canvas_marker_list:
+            self.map.canvas_marker_list.remove(marker)
+
+    def _draw_layer(self, lid, features):
+        self._clear_layer(lid)
+        shapes, labels = [], []
+        show_labels = lid == "uasfm" and int(round(self.map.zoom)) >= 14
+        for f in features:
+            for ring in f.rings:
+                # tkintermapview fills with a stipple pattern so the map shows through; Tk on macOS
+                # has no stipple and would paint the fill solid over the chart, so outline only there.
+                fill = None if sys.platform == "darwin" else f.fill
+                width = (2 if sys.platform == "darwin" else 1) if lid == "uasfm" else 2
+                shape = self.map.set_polygon(ring, outline_color=f.color, fill_color=fill, border_width=width)
+                if f.dash and shape.canvas_polygon is not None:
+                    self.map.canvas.itemconfigure(shape.canvas_polygon, dash=f.dash)
+                shapes.append(shape)
+                if show_labels and f.label:
+                    lat = sum(p[0] for p in ring) / len(ring)
+                    lon = sum(p[1] for p in ring) / len(ring)
+                    icon = self.icon(("label", f.label, f.color), lambda t=f.label, c=f.color: text_icon(t, c))
+                    labels.append(self.map.set_marker(lat, lon, icon=icon))
+        self._shapes[lid] = shapes
+        self._labels[lid] = labels
+        self.map.manage_z_order()  # waypoints, route and the aircraft stay on top
+        self._raise_aircraft()
+
+    def _update_legend(self):
+        for child in self.legend.winfo_children():
+            child.destroy()
+        if not self.overlays:
+            self.legend.place_forget()
+            return
+        zoom = int(round(self.map.zoom)) if self.map is not None else 0
+        tk.Label(self.legend, text="Planning only · not for navigation", bg="#ffffff", fg="#b45309",
+                 font=("TkDefaultFont", 10, "bold")).pack(anchor="w", padx=6, pady=(4, 2))
+        for lid in airspace.LAYERS:
+            if lid not in self.overlays:
+                continue
+            layer = airspace.LAYERS[lid]
+            data = self._layer_data.get(lid)
+            if zoom < layer.min_zoom:
+                status = "zoom in to see"
+            elif lid in self._fetching:
+                status = "loading…"
+            elif data and data["error"]:
+                status = f"not available ({data['error']})"
+            elif data:
+                status = f"{len(data['features'])} in view" if data["features"] else "none here"
+            else:
+                status = ""
+            row = tk.Frame(self.legend, bg="#ffffff")
+            row.pack(anchor="w", padx=6, pady=1)
+            tk.Label(row, text="■", bg="#ffffff", fg=layer.color, font=("TkDefaultFont", 12)).pack(side="left")
+            tk.Label(row, text=f"{layer.legend}: {status}", bg="#ffffff", fg="#17212b",
+                     font=("TkDefaultFont", 10)).pack(side="left", padx=(3, 0))
+        if "uasfm" in self.overlays and zoom >= airspace.LAYERS["uasfm"].min_zoom:
+            row = tk.Frame(self.legend, bg="#ffffff")
+            row.pack(anchor="w", padx=6, pady=(1, 4))
+            for value, color in airspace.UASFM_COLORS.items():
+                tk.Label(row, text=f"{value}", bg=color, fg="#ffffff", font=("TkDefaultFont", 9, "bold"),
+                         padx=3).pack(side="left", padx=1)
+        self.legend.place(relx=0.0, rely=1.0, anchor="sw", x=6, y=-6)
+
+    def _about_layers(self):
+        win = tk.Toplevel(self)
+        win.title("About the map layers")
+        win.transient(self.winfo_toplevel())
+        body = tk.Frame(win, bg="#ffffff", padx=18, pady=14)
+        body.pack(fill="both")
+        tk.Label(body, text="Map layers", bg="#ffffff", fg="#17212b", font=("TkDefaultFont", 15, "bold")).pack(anchor="w")
+        tk.Label(body, text=airspace.DISCLAIMER, bg="#ffffff", fg="#b45309", wraplength=460, justify="left",
+                 font=("TkDefaultFont", 12)).pack(anchor="w", pady=(6, 10))
+        text = ("VFR sectional chart: FAA Aeronautical Information Services. Closer than zoom 12 the chart is enlarged.\n"
+                "TFRs: tfr.faa.gov, refreshed every 10 minutes.\n"
+                "UAS Facility Map: the LAANC grid; the number in each square is the maximum altitude (ft above "
+                "ground) the FAA may authorize there.\n"
+                "Controlled airspace, special use airspace and national security restrictions: FAA ArcGIS data.\n\n"
+                "Right-click the map and choose “What airspace is here?” to check one spot against every layer.")
+        tk.Label(body, text=text, bg="#ffffff", fg="#17212b", wraplength=460, justify="left",
+                 font=("TkDefaultFont", 12)).pack(anchor="w")
+        ttk.Button(body, text="Close", command=win.destroy).pack(anchor="e", pady=(12, 0))
+
+    def _whats_here(self, coords):
+        lat, lon = coords
+        results: queue.Queue = queue.Queue()
+        threading.Thread(target=lambda: results.put(airspace.whats_here(lat, lon)), daemon=True).start()
+        win = tk.Toplevel(self)
+        win.title("What airspace is here?")
+        win.transient(self.winfo_toplevel())
+        body = tk.Frame(win, bg="#ffffff", padx=18, pady=14)
+        body.pack(fill="both", expand=True)
+        tk.Label(body, text=f"{lat:.5f}, {lon:.5f}", bg="#ffffff", fg="#17212b",
+                 font=("TkDefaultFont", 15, "bold")).pack(anchor="w")
+        status = tk.Label(body, text="Checking FAA airspace data…", bg="#ffffff", fg="#60707d",
+                          font=("TkDefaultFont", 12))
+        status.pack(anchor="w", pady=(4, 8))
+
+        def show():
+            try:
+                found, errors = results.get_nowait()
+            except queue.Empty:
+                if win.winfo_exists():
+                    win.after(200, show)
+                return
+            if not win.winfo_exists():
+                return
+            status.configure(text="No FAA airspace layers here." if not found else
+                             f"{len(found)} {'area' if len(found) == 1 else 'areas'} here:")
+            for f in found:
+                row = tk.Frame(body, bg="#ffffff")
+                row.pack(anchor="w", fill="x", pady=4)
+                tk.Label(row, text="■", bg="#ffffff", fg=f.color, font=("TkDefaultFont", 14)).pack(side="left", anchor="n")
+                text = tk.Frame(row, bg="#ffffff")
+                text.pack(side="left", fill="x", padx=(4, 0))
+                tk.Label(text, text=f.title, bg="#ffffff", fg="#17212b", font=("TkDefaultFont", 13, "bold"),
+                         wraplength=440, justify="left").pack(anchor="w")
+                tk.Label(text, text=f.detail, bg="#ffffff", fg="#334155", font=("TkDefaultFont", 12),
+                         wraplength=440, justify="left").pack(anchor="w")
+                if f.link:
+                    link = tk.Label(text, text="Open the TFR on tfr.faa.gov", bg="#ffffff", fg="#0f7f8f",
+                                    cursor="hand2", font=("TkDefaultFont", 12, "underline"))
+                    link.pack(anchor="w")
+                    link.bind("<Button-1>", lambda _e, url=f.link: webbrowser.open(url))
+            for error in errors:
+                tk.Label(body, text=f"Could not check {error}", bg="#ffffff", fg="#b91c1c",
+                         font=("TkDefaultFont", 11), wraplength=460, justify="left").pack(anchor="w")
+            tk.Label(body, text=airspace.DISCLAIMER, bg="#ffffff", fg="#b45309", font=("TkDefaultFont", 11),
+                     wraplength=460, justify="left").pack(anchor="w", pady=(10, 0))
+            ttk.Button(body, text="Close", command=win.destroy).pack(anchor="e", pady=(10, 0))
+
+        win.after(200, show)
 
     def _mark_moved(self, _event=None):
         self.user_moved = True
@@ -451,3 +741,15 @@ def circle_points(lat: float, lon: float, radius_m: float, steps: int = 48) -> l
     dlon = radius_m / (111_320.0 * max(0.01, math.cos(math.radians(lat))))
     return [(lat + dlat * math.sin(2 * math.pi * i / steps), lon + dlon * math.cos(2 * math.pi * i / steps))
             for i in range(steps)]
+
+
+def text_icon(text: str, color: str) -> ImageTk.PhotoImage:
+    """Small rounded label (UAS Facility Map ceiling) drawn at a grid square's center."""
+    font = _font(11 * SS)
+    w = (len(text) * 7 + 10) * SS
+    h = 16 * SS
+    img = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+    draw.rounded_rectangle((0, 0, w - 1, h - 1), radius=5 * SS, fill=color)
+    draw.text((w / 2, h / 2), text, fill="#ffffff", font=font, anchor="mm")
+    return ImageTk.PhotoImage(img.resize((w // SS, h // SS), Image.LANCZOS))
