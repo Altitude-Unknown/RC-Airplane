@@ -3,7 +3,7 @@
 Display units for ASCEND Flight Control.
 
 Everything inside the app (missions, MAVLink, parameters) stays in SI units:
-metres and metres per second. These helpers convert only for display and
+meters and meters per second. These helpers convert only for display and
 input, using the person's saved preference.
 """
 
@@ -20,10 +20,10 @@ SPEED_UNITS = {"m/s": 1.0, "km/h": 3.6, "mph": 2.2369363, "kn": 1.9438445}
 ALT_UNITS = {"m": 1.0, "ft": 3.2808399}
 VSPEED_UNITS = {"m/s": 1.0, "ft/min": 196.850394}
 
-SPEED_NAMES = {"m/s": "Metres per second (m/s)", "km/h": "Kilometres per hour (km/h)",
+SPEED_NAMES = {"m/s": "Meters per second (m/s)", "km/h": "Kilometers per hour (km/h)",
                "mph": "Miles per hour (mph)", "kn": "Knots (kn)"}
-ALT_NAMES = {"m": "Metres (m)", "ft": "Feet (ft)"}
-VSPEED_NAMES = {"m/s": "Metres per second (m/s)", "ft/min": "Feet per minute (ft/min)"}
+ALT_NAMES = {"m": "Meters (m)", "ft": "Feet (ft)"}
+VSPEED_NAMES = {"m/s": "Meters per second (m/s)", "ft/min": "Feet per minute (ft/min)"}
 
 PRESETS = {
     "Metric": ("m/s", "m", "m/s"),

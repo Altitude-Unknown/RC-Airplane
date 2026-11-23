@@ -1439,7 +1439,7 @@ class ConfiguratorFrame(ttk.Frame):
                             self.after(0, prompt_samd)
                             proceed.wait()
                             if not answer["yes"]:
-                                raise firmware_updater.FirmwareUpdateError("Firmware update cancelled.")
+                                raise firmware_updater.FirmwareUpdateError("Firmware update canceled.")
                             mount = firmware_updater.wait_for_transmitter_uf2(before)
                         firmware_updater.flash_samd_uf2(image, mount, "ALTITUDE_TX.UF2")
                         time.sleep(2)

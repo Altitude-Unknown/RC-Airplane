@@ -66,7 +66,7 @@ class Waypoint:
     id: int
     lat: float
     lon: float
-    altitude_m: float = DEFAULT_ALTITUDE_M  # metres above home
+    altitude_m: float = DEFAULT_ALTITUDE_M  # meters above home
     speed_mps: float = DEFAULT_SPEED_MPS
     action: str = "waypoint"
     event: WaypointEvent = field(default_factory=WaypointEvent)

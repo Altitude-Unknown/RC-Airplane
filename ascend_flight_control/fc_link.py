@@ -52,7 +52,7 @@ class VehicleStatus:
     groundspeed: float | None = None
     climb: float | None = None
     throttle: int | None = None
-    alt_rel: float | None = None  # metres above home
+    alt_rel: float | None = None  # meters above home
     alt_msl: float | None = None
     wp_seq: int | None = None
     wp_dist: float | None = None

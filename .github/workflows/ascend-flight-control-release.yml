@@ -60,7 +60,7 @@ jobs:
           fi
       - name: ASCEND Flight Control tests
         working-directory: ascend_flight_control
-        run: python -m unittest test_calibration test_mission_mavlink test_params
+        run: python -m unittest test_airspace test_location test_calibration test_mission_mavlink test_params
       - name: RC Configurator release gates (it is embedded in the app)
         run: python -m unittest test_mode_rates test_gui_model_codec test_gui_aircraft_codec test_button_channels test_bind_trim_save test_tx_buzzer test_firmware_updater
       - name: Self-test from source
@@ -162,8 +162,9 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
         run: |
-          # --deep also signs the bundled pinch helper (native/libascend_pinch.dylib) and bossac.
-          codesign --force --deep --options runtime --timestamp --sign "$APPLE_DETECTED_SIGNING_IDENTITY" "${{ matrix.app_path }}"
+          # --deep also signs the bundled native helper (native/libascend_mac.dylib) and bossac.
+          # The entitlements allow Core Location under the hardened runtime (map starts at your location).
+          codesign --force --deep --options runtime --timestamp --entitlements ascend_flight_control/packaging/entitlements.plist --sign "$APPLE_DETECTED_SIGNING_IDENTITY" "${{ matrix.app_path }}"
           codesign --verify --deep --strict --verbose=2 "${{ matrix.app_path }}"
           ditto -c -k --sequesterRsrc --keepParent "${{ matrix.app_path }}" notary-submit.zip
           xcrun notarytool submit notary-submit.zip --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --wait

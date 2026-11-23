@@ -28,7 +28,7 @@ datas = esptool_datas + [
 ]
 binaries = esptool_binaries + [(str(bossac), "tools")]
 if IS_MAC:
-    binaries.append((str(APP / "native" / "libascend_pinch.dylib"), "native"))
+    binaries.append((str(APP / "native" / "libascend_mac.dylib"), "native"))  # pinch + location
 
 hiddenimports = esptool_hiddenimports + collect_submodules("tkintermapview") + [
     # mavutil imports its message definitions at run time, so PyInstaller cannot see them.
@@ -69,6 +69,9 @@ if IS_MAC:
             "CFBundleShortVersionString": APP_VERSION,
             "CFBundleVersion": APP_VERSION,
             "NSHighResolutionCapable": True,
+            # Shown by macOS when the app first asks for the computer's location (map start).
+            "NSLocationUsageDescription": "ASCEND Flight Control uses your location to open the map where you are.",
+            "NSLocationWhenInUseUsageDescription": "ASCEND Flight Control uses your location to open the map where you are.",
         },
     )
 else:

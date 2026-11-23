@@ -546,7 +546,7 @@ class CalibrationTab(tk.Frame):
     def compass_cancel(self):
         if self.active_kind == "compass":
             self.active.cancel()
-        self.result_lines["compass"] = [("Cancelled. The old compass calibration is still in use.", MUTED)]
+        self.result_lines["compass"] = [("Canceled. The old compass calibration is still in use.", MUTED)]
         self.end()
 
     def finish_compass(self):
@@ -619,7 +619,7 @@ class CalibrationTab(tk.Frame):
                           "Click Start, then move every stick and switch to both ends of its travel.",
                           "Center the sticks with the throttle all the way down and click Finish. Review the "
                           "ranges, then write them to the flight controller."])
-        tk.Label(card, text="Stick centres are not changed here. On ASCEND planes they are saved with the "
+        tk.Label(card, text="Stick centers are not changed here. On ASCEND planes they are saved with the "
                             "transmitter's Bind button in MANUAL, which updates the servo trims at the same time. "
                             "CH7 is that Bind button and is left alone.",
                  bg=PANEL, fg=MUTED, font=(FONT, 12), justify="left", wraplength=640).pack(anchor="w", pady=(10, 0))
@@ -664,7 +664,7 @@ class CalibrationTab(tk.Frame):
         if self.radio is not None:
             self.radio.stop()
         self.radio = None
-        self.result_lines["radio"] = [("Cancelled. Nothing was changed.", MUTED)]
+        self.result_lines["radio"] = [("Canceled. Nothing was changed.", MUTED)]
         self.end()
 
     def radio_finish(self):
