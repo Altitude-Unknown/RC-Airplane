@@ -10,6 +10,7 @@ from fram_gui_models import App
 class ScrollableTabsTests(unittest.TestCase):
     def test_small_windows_scaled_content_wheel_and_focus(self):
         app = App()
+        ui = app.frame  # the configurator's widgets live on its frame
         original_scale = app.tk.call('tk', 'scaling')
         try:
             for scale in (1.0, 2.0):
@@ -20,8 +21,8 @@ class ScrollableTabsTests(unittest.TestCase):
                 for size in ('640x480', '1024x600', '480x320'):
                     app.geometry(size)
                     app.update()
-                    for tab in (app.tab_models, app.tab_roles, app.tab_firmware):
-                        app.nb.select(tab)
+                    for tab in (ui.tab_models, ui.tab_roles, ui.tab_firmware):
+                        ui.nb.select(tab)
                         app.update()
                         with self.subTest(scale=scale, size=size, tab=str(tab)):
                             self.assertTrue(tab.vertical.winfo_ismapped())
@@ -61,13 +62,13 @@ class ScrollableTabsTests(unittest.TestCase):
                                 app.update()
                                 self.assertGreater(tab.canvas.xview()[0], 0)
             # A wheel over a selection scrolls the form, never its stored value.
-            app.nb.select(app.tab_roles)
+            ui.nb.select(ui.tab_roles)
             app.update()
-            app.esp_port_cmb.configure(values=('first', 'second'))
-            app.esp_port_cmb.set('first')
-            app.esp_port_cmb.event_generate('<MouseWheel>', delta=-120)
+            ui.esp_port_cmb.configure(values=('first', 'second'))
+            ui.esp_port_cmb.set('first')
+            ui.esp_port_cmb.event_generate('<MouseWheel>', delta=-120)
             app.update()
-            self.assertEqual(app.esp_port_cmb.get(), 'first')
+            self.assertEqual(ui.esp_port_cmb.get(), 'first')
         finally:
             app.tk.call('tk', 'scaling', original_scale)
             app.on_close()

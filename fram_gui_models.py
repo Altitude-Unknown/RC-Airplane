@@ -679,25 +679,66 @@ class ScrollableTab(ttk.Frame):
                 move(min(start, start + size + 8 - viewport) / total)
 
 
-class App(tk.Tk):
+def install_style(root):
+    """Install the configurator look. ttk styles are shared by the whole Tk
+    program, so a window hosting the configurator calls this once."""
+    # ttk widgets are styled through a shared Style object rather than by
+    # setting colors on every widget individually.
+    style = ttk.Style(root)
+
+    # "clam" is one of the more themeable built-in ttk themes.
+    try:
+        style.theme_use("clam")
+    except tk.TclError:
+        pass
+
+    # General app fonts and colors.
+    style.configure(".", background=COLORS["bg"], foreground=COLORS["text"], font=("Helvetica", 11))
+    style.configure("TFrame", background=COLORS["bg"])
+
+    # Custom named styles. Widgets opt into these with style="Panel.TFrame",
+    # style="Header.TLabel", etc.
+    style.configure("Panel.TFrame", background=COLORS["panel"])
+    style.configure("Header.TFrame", background=COLORS["accent_dark"])
+    style.configure("Header.TLabel", background=COLORS["accent_dark"], foreground="#ffffff", font=("Helvetica", 18, "bold"))
+    style.configure("HeaderSub.TLabel", background=COLORS["accent_dark"], foreground="#d9f3f6", font=("Helvetica", 11))
+    style.configure("Status.TLabel", background=COLORS["accent_dark"], foreground="#d9f3f6", font=("Helvetica", 10, "bold"))
+    style.configure("TLabel", background=COLORS["bg"], foreground=COLORS["text"])
+    style.configure("Panel.TLabel", background=COLORS["panel"], foreground=COLORS["text"])
+    style.configure("Muted.TLabel", background=COLORS["panel"], foreground=COLORS["muted"])
+    style.configure("TLabelframe", background=COLORS["panel"], bordercolor=COLORS["border"], relief="solid")
+    style.configure("TLabelframe.Label", background=COLORS["panel"], foreground=COLORS["accent_dark"], font=("Helvetica", 11, "bold"))
+    style.configure("TButton", padding=(12, 7), background=COLORS["panel_alt"], foreground=COLORS["text"], bordercolor=COLORS["border"])
+    style.map("TButton", background=[("active", "#dce8ef")])
+    style.configure("Accent.TButton", background=COLORS["accent"], foreground="#ffffff", bordercolor=COLORS["accent"])
+    style.map("Accent.TButton", background=[("active", COLORS["accent_dark"])])
+    style.configure("TNotebook", background=COLORS["bg"], borderwidth=0)
+    style.configure("TNotebook.Tab", padding=(16, 8), background=COLORS["panel_alt"], foreground=COLORS["muted"])
+    style.map("TNotebook.Tab", background=[("selected", COLORS["panel"])], foreground=[("selected", COLORS["accent_dark"])])
+    style.configure("Treeview", rowheight=30, fieldbackground=COLORS["panel"], background=COLORS["panel"], foreground=COLORS["text"], bordercolor=COLORS["border"])
+    style.configure("Treeview.Heading", background=COLORS["panel_alt"], foreground=COLORS["accent_dark"], font=("Helvetica", 10, "bold"))
+    style.map("Treeview", background=[("selected", "#cfe9ed")], foreground=[("selected", COLORS["text"])])
+
+
+class ConfiguratorFrame(ttk.Frame):
     """
-    Main Tkinter window.
+    The whole configurator: connection bar plus the Models, Speaker Test,
+    Firmware Update and Instructor / Student tabs. It runs in its own window
+    (App, below) or inside ASCEND Flight Control.
+
+    embedded=True leaves out the title band, because the host window has its
+    own. before_fc_flash(port) is called just before a flight controller is
+    flashed, so a host holding that USB port open can let go of it first.
 
     Tkinter apps are usually structured around callbacks. A callback is a
     function that runs when the user clicks a button, changes a value, or causes
     some other event. Methods named on_* below are mostly button callbacks.
     """
 
-    def __init__(self):
-        super().__init__()
-
-        # Basic window setup.
-        self.title(APP_TITLE)
-        width = min(1120, max(480, self.winfo_screenwidth() - 80))
-        height = min(760, max(320, self.winfo_screenheight() - 120))
-        self.geometry(f"{width}x{height}")
-        self.minsize(480, 320)
-        self.configure(bg=COLORS["bg"])
+    def __init__(self, master, embedded=False, before_fc_flash=None):
+        super().__init__(master)
+        self.embedded = embedded
+        self.before_fc_flash = before_fc_flash
 
         # Create helper objects used by the UI callbacks.
         self.w = SerialWorker()
@@ -713,74 +754,26 @@ class App(tk.Tk):
         self.current_slot = None
 
         # Build the visual pieces of the app.
-        self._install_app_icon()
-        self._install_style()
         self._build_ui()
-        self.protocol("WM_DELETE_WINDOW", self.on_close)
 
         # Populate the serial-port dropdown right away.
         self.refresh_ports()
 
-    def _install_app_icon(self):
-        try:
-            self._app_icon = tk.PhotoImage(file=resource_path("assets/altitude_unknown_icon.png"))
-            self.iconphoto(True, self._app_icon)
-        except Exception:
-            # Icons are nice-to-have. If a platform rejects this icon setup, the
-            # app should still run normally.
-            pass
-
-    def _install_style(self):
-        # ttk widgets are styled through a shared Style object rather than by
-        # setting colors on every widget individually.
-        style = ttk.Style(self)
-
-        # "clam" is one of the more themeable built-in ttk themes.
-        try:
-            style.theme_use("clam")
-        except tk.TclError:
-            pass
-
-        # General app fonts and colors.
-        style.configure(".", background=COLORS["bg"], foreground=COLORS["text"], font=("Helvetica", 11))
-        style.configure("TFrame", background=COLORS["bg"])
-
-        # Custom named styles. Widgets opt into these with style="Panel.TFrame",
-        # style="Header.TLabel", etc.
-        style.configure("Panel.TFrame", background=COLORS["panel"])
-        style.configure("Header.TFrame", background=COLORS["accent_dark"])
-        style.configure("Header.TLabel", background=COLORS["accent_dark"], foreground="#ffffff", font=("Helvetica", 18, "bold"))
-        style.configure("HeaderSub.TLabel", background=COLORS["accent_dark"], foreground="#d9f3f6", font=("Helvetica", 11))
-        style.configure("Status.TLabel", background=COLORS["accent_dark"], foreground="#d9f3f6", font=("Helvetica", 10, "bold"))
-        style.configure("TLabel", background=COLORS["bg"], foreground=COLORS["text"])
-        style.configure("Panel.TLabel", background=COLORS["panel"], foreground=COLORS["text"])
-        style.configure("Muted.TLabel", background=COLORS["panel"], foreground=COLORS["muted"])
-        style.configure("TLabelframe", background=COLORS["panel"], bordercolor=COLORS["border"], relief="solid")
-        style.configure("TLabelframe.Label", background=COLORS["panel"], foreground=COLORS["accent_dark"], font=("Helvetica", 11, "bold"))
-        style.configure("TButton", padding=(12, 7), background=COLORS["panel_alt"], foreground=COLORS["text"], bordercolor=COLORS["border"])
-        style.map("TButton", background=[("active", "#dce8ef")])
-        style.configure("Accent.TButton", background=COLORS["accent"], foreground="#ffffff", bordercolor=COLORS["accent"])
-        style.map("Accent.TButton", background=[("active", COLORS["accent_dark"])])
-        style.configure("TNotebook", background=COLORS["bg"], borderwidth=0)
-        style.configure("TNotebook.Tab", padding=(16, 8), background=COLORS["panel_alt"], foreground=COLORS["muted"])
-        style.map("TNotebook.Tab", background=[("selected", COLORS["panel"])], foreground=[("selected", COLORS["accent_dark"])])
-        style.configure("Treeview", rowheight=30, fieldbackground=COLORS["panel"], background=COLORS["panel"], foreground=COLORS["text"], bordercolor=COLORS["border"])
-        style.configure("Treeview.Heading", background=COLORS["panel_alt"], foreground=COLORS["accent_dark"], font=("Helvetica", 10, "bold"))
-        style.map("Treeview", background=[("selected", "#cfe9ed")], foreground=[("selected", COLORS["text"])])
-
     def _build_ui(self):
-        # Header band across the top of the window.
-        header = ttk.Frame(self, padding=(18, 14), style="Header.TFrame")
-        header.pack(fill='x')
-        try:
-            self._header_logo = tk.PhotoImage(file=resource_path("assets/altitude_unknown_icon.png")).subsample(7, 7)
-            ttk.Label(header, image=self._header_logo, style="Header.TLabel").pack(side='left', padx=(0, 14))
-        except Exception:
-            pass
-        title_area = ttk.Frame(header, style="Header.TFrame")
-        title_area.pack(side='left', fill='x', expand=True)
-        ttk.Label(title_area, text=APP_TITLE, style="Header.TLabel").pack(anchor='w')
-        ttk.Label(title_area, text="Transmitter setup, receiver updates, and flight-system tools", style="HeaderSub.TLabel").pack(anchor='w', pady=(2, 0))
+        # Header band across the top of the window (left out when embedded).
+        header = None
+        if not self.embedded:
+            header = ttk.Frame(self, padding=(18, 14), style="Header.TFrame")
+            header.pack(fill='x')
+            try:
+                self._header_logo = tk.PhotoImage(file=resource_path("assets/altitude_unknown_icon.png")).subsample(7, 7)
+                ttk.Label(header, image=self._header_logo, style="Header.TLabel").pack(side='left', padx=(0, 14))
+            except Exception:
+                pass
+            title_area = ttk.Frame(header, style="Header.TFrame")
+            title_area.pack(side='left', fill='x', expand=True)
+            ttk.Label(title_area, text=APP_TITLE, style="Header.TLabel").pack(anchor='w')
+            ttk.Label(title_area, text="Transmitter setup, receiver updates, and flight-system tools", style="HeaderSub.TLabel").pack(anchor='w', pady=(2, 0))
 
         # Serial connection controls. The user chooses a USB port, then connects
         # to the transmitter while it is in Config Mode.
@@ -796,8 +789,12 @@ class App(tk.Tk):
         ttk.Button(top, text="Refresh", command=self.refresh_ports).pack(side='left')
         self.connect_btn = ttk.Button(top, text="Connect", command=self.on_connect)
         self.connect_btn.pack(side='left', padx=6)
-        self.status_lbl = ttk.Label(header, text="Not connected", style="Status.TLabel")
-        self.status_lbl.pack(side='right', padx=4)
+        if header is not None:
+            self.status_lbl = ttk.Label(header, text="Not connected", style="Status.TLabel")
+            self.status_lbl.pack(side='right', padx=4)
+        else:
+            self.status_lbl = ttk.Label(top, text="Not connected", style="Muted.TLabel")
+            self.status_lbl.pack(side='left', padx=(12, 0))
 
         # Each tab owns a two-axis viewport so controls remain reachable.
         self.nb = ttk.Notebook(self); self.nb.pack(fill='both', expand=True, padx=14, pady=14)
@@ -1279,6 +1276,9 @@ class App(tk.Tk):
                 (self._local_firmware_confirmation() + "\n\nFlash this file?" if local else
                  "\n\nContinue with the latest verified firmware?")):
             return
+        if self.before_fc_flash is not None:
+            # e.g. ASCEND Flight Control closes its MAVLink connection to the FC first.
+            self.before_fc_flash(fc_port)
         self._set_firmware_busy(True, "Checking the local file…" if local else
                                 "Downloading flight controller firmware…")
 
@@ -1535,10 +1535,10 @@ class App(tk.Tk):
         self.student_role_btn.pack(side="left", padx=8)
         ttk.Button(buttons, text="Read Status Again", command=self.on_role_refresh).pack(side="left")
 
-    def on_close(self):
+    def shutdown(self):
+        """Close the transmitter and ESP role serial connections."""
         self.w.close()
         self.role_worker.close()
-        self.destroy()
 
     # ---------- Editable Treeview ----------
     def _install_cell_editor(self, tree: ttk.Treeview):
@@ -2165,6 +2165,39 @@ class App(tk.Tk):
             messagebox.showinfo("Imported", "Model written to transmitter memory")
         except Exception as e:
             messagebox.showerror("Import failed", str(e))
+
+class App(tk.Tk):
+    """The standalone configurator window."""
+
+    def __init__(self):
+        super().__init__()
+
+        # Basic window setup.
+        self.title(APP_TITLE)
+        width = min(1120, max(480, self.winfo_screenwidth() - 80))
+        height = min(760, max(320, self.winfo_screenheight() - 120))
+        self.geometry(f"{width}x{height}")
+        self.minsize(480, 320)
+        self.configure(bg=COLORS["bg"])
+        self._install_app_icon()
+        install_style(self)
+        self.frame = ConfiguratorFrame(self)
+        self.frame.pack(fill="both", expand=True)
+        self.protocol("WM_DELETE_WINDOW", self.on_close)
+
+    def _install_app_icon(self):
+        try:
+            self._app_icon = tk.PhotoImage(file=resource_path("assets/altitude_unknown_icon.png"))
+            self.iconphoto(True, self._app_icon)
+        except Exception:
+            # Icons are nice-to-have. If a platform rejects this icon setup, the
+            # app should still run normally.
+            pass
+
+    def on_close(self):
+        self.frame.shutdown()
+        self.destroy()
+
 
 if __name__ == "__main__":
     # This block runs only when the file is launched directly:

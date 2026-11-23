@@ -28,6 +28,11 @@ ACTION_TYPES = [
     "land",
 ]
 
+LOITER_MODES = ["time", "turns", "forever"]
+LOITER_DEFAULT_SECONDS = 30
+LOITER_DEFAULT_TURNS = 3
+LOITER_MAX_RADIUS_M = 2550  # ArduPlane stores laps radii above 255 m in 10 m steps, up to 2550 m
+
 EVENT_TYPES = [
     "none",
     "servo",
@@ -47,15 +52,26 @@ class WaypointEvent:
 
 
 @dataclass
+class LoiterSettings:
+    """Used when a waypoint's action is "loiter"."""
+    mode: str = "time"  # "time", "turns" (laps) or "forever"
+    seconds: int = LOITER_DEFAULT_SECONDS
+    turns: int = LOITER_DEFAULT_TURNS
+    radius_m: int = 0  # 0 = the flight controller's default (WP_LOITER_RAD)
+    clockwise: bool = True
+
+
+@dataclass
 class Waypoint:
     id: int
     lat: float
     lon: float
-    altitude_m: int = DEFAULT_ALTITUDE_M
-    speed_mps: int = DEFAULT_SPEED_MPS
+    altitude_m: float = DEFAULT_ALTITUDE_M  # metres above home
+    speed_mps: float = DEFAULT_SPEED_MPS
     action: str = "waypoint"
     event: WaypointEvent = field(default_factory=WaypointEvent)
     notes: str = ""
+    loiter: LoiterSettings = field(default_factory=LoiterSettings)
 
 
 @dataclass
@@ -105,8 +121,8 @@ def mission_from_dict(data: dict[str, Any]) -> Mission:
                 id=int(raw.get("id", len(waypoints) + 1)),
                 lat=float(raw.get("lat", 0.0)),
                 lon=float(raw.get("lon", 0.0)),
-                altitude_m=int(raw.get("altitude_m", DEFAULT_ALTITUDE_M)),
-                speed_mps=int(raw.get("speed_mps", DEFAULT_SPEED_MPS)),
+                altitude_m=round(float(raw.get("altitude_m", DEFAULT_ALTITUDE_M)), 2),
+                speed_mps=round(float(raw.get("speed_mps", DEFAULT_SPEED_MPS)), 2),
                 action=str(raw.get("action", "waypoint")),
                 event=WaypointEvent(
                     type=str(event_data.get("type", "none")),
@@ -116,6 +132,7 @@ def mission_from_dict(data: dict[str, Any]) -> Mission:
                     notes=str(event_data.get("notes", "")),
                 ),
                 notes=str(raw.get("notes", "")),
+                loiter=_loiter_from_dict(raw),
             )
         )
 
@@ -134,6 +151,24 @@ def mission_from_dict(data: dict[str, Any]) -> Mission:
             failsafe_action=str(defaults_data.get("failsafe_action", "return_home")),
         ),
         waypoints=waypoints,
+    )
+
+
+def _loiter_from_dict(raw: dict[str, Any]) -> LoiterSettings:
+    data = raw.get("loiter")
+    if not data:
+        # Files from before loiter settings existed: a loiter with a hold time
+        # was a timed loiter, without one it circled forever.
+        hold = int((raw.get("event") or {}).get("hold_seconds", 0) or 0)
+        if hold > 0:
+            return LoiterSettings(mode="time", seconds=hold)
+        return LoiterSettings(mode="forever")
+    return LoiterSettings(
+        mode=str(data.get("mode", "time")),
+        seconds=int(data.get("seconds", LOITER_DEFAULT_SECONDS) or 0),
+        turns=int(data.get("turns", LOITER_DEFAULT_TURNS) or 0),
+        radius_m=int(data.get("radius_m", 0) or 0),
+        clockwise=bool(data.get("clockwise", True)),
     )
 
 
@@ -161,6 +196,8 @@ def validate_mission(mission: Mission) -> list[str]:
             issues.append(f"{label} uses an unknown action: {waypoint.action}.")
         if waypoint.event.type not in EVENT_TYPES:
             issues.append(f"{label} uses an unknown event: {waypoint.event.type}.")
+        if waypoint.action == "loiter":
+            issues.extend(validate_loiter(waypoint.loiter, label))
 
     if mission.home.lat is not None and not -90 <= mission.home.lat <= 90:
         issues.append("Home latitude is outside the valid range.")
@@ -180,3 +217,21 @@ def _optional_float(value: Any) -> float | None:
     if value in ("", None):
         return None
     return float(value)
+
+
+def validate_loiter(loiter: LoiterSettings, label: str) -> list[str]:
+    issues = []
+    if loiter.mode not in LOITER_MODES:
+        issues.append(f"{label} uses an unknown loiter mode: {loiter.mode}.")
+        return issues
+    if loiter.mode == "time" and not 1 <= loiter.seconds <= 65535:
+        issues.append(f"{label} loiter time must be 1 to 65535 seconds.")
+    if loiter.mode == "turns" and not 1 <= loiter.turns <= 255:
+        issues.append(f"{label} loiter laps must be 1 to 255.")
+    if loiter.mode != "time":
+        if not 0 <= loiter.radius_m <= LOITER_MAX_RADIUS_M:
+            issues.append(f"{label} loiter radius must be 0 (default) to {LOITER_MAX_RADIUS_M} m.")
+        if loiter.radius_m == 0 and not loiter.clockwise:
+            issues.append(f"{label} circles counter-clockwise, which needs a loiter radius. "
+                          "Enter a radius instead of the default.")
+    return issues
