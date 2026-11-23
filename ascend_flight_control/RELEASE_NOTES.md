@@ -8,16 +8,24 @@ Backup…**) before changing anything, and tell us what goes wrong.
 
 ## New in this version
 
-- **Aviation map layers.** **Layers ▾** on the map switches to the FAA VFR
-  sectional chart and turns on FAA airspace: TFRs, UAS Facility Map ceilings
-  (the LAANC grid), controlled airspace, special use airspace, and national
-  security UAS restrictions. Right-click the map and choose **What airspace is
-  here?** to check one spot. These layers are for planning only: you still
-  need to check NOTAMs and get LAANC or DroneZone authorization.
-- **The map opens where you are.** On Mac and Windows the map starts at your
-  computer's location (allow it when asked). Or choose **Map ▾ → Set Map Home
-  to This View** to always open at your field.
-- American spelling throughout ("meters", "center").
+- **Drag waypoints.** Click, hold and drag a waypoint on the map to move it.
+  A plain click still selects it.
+- **Survey grids.** **Survey Grid…** on the Mission tab lays out back-and-forth
+  passes over an area. Draw a box or a polygon on the map and drag its corners
+  to adjust. Set the altitude, the side overlap between passes (from your
+  camera's field of view) or a fixed spacing, the direction of the passes, and
+  how far each pass runs past the edge so the plane is flying straight before
+  it is over the area. The window shows the passes on the map, the flight
+  distance and time, and the number of photos.
+- **Photos by distance.** A survey grid can have the flight controller take a
+  photo every so many meters, on each pass and not in the turns. Any waypoint
+  can also start or stop photos (Event `camera_distance`).
+- **Camera settings.** **Aircraft Settings → Camera** sets how the flight
+  controller fires the shutter. Photos are only taken once **Shutter trigger**
+  is set, and **Upload to FC** warns you if it isn't.
+
+Earlier in this beta: FAA map layers (VFR sectional chart, TFRs, UAS Facility
+Map, airspace), and the map opening at your location or a saved map home.
 
 ## Download
 
@@ -38,8 +46,9 @@ user must be in the `dialout` group; the installer tells you if it is not.
 
 ## What it does
 
-- **Mission:** click the map to add waypoints; set altitude, speed and
-  actions; loiter for a set time, a number of laps, or until the mode changes.
+- **Mission:** click the map to add waypoints and drag them to move them; set
+  altitude, speed and actions; loiter for a set time, a number of laps, or
+  until the mode changes. **Survey Grid…** covers an area with passes and photos.
   **Upload to FC** checks the mission by reading it back.
 - **Flight:** attitude indicator, airspeed and altitude tapes, heading,
   ground speed, distance home, the next waypoint, the flight controller's
