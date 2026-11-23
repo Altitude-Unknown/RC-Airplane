@@ -58,6 +58,7 @@ from flight_view import FlightTab
 from map_view import MissionMap
 from mission_mavlink import NAV_COMMANDS
 from units import ALT_NAMES, PRESETS, SPEED_NAMES, VSPEED_NAMES, Units
+from version import APP_VERSION
 from params_view import AllParamsTab, ParamStore, SettingsTab, load_metadata, setup_styles
 from mission_schema import (
     ACTION_TYPES,
@@ -98,7 +99,7 @@ def app_dir() -> Path:
 class FlightControlApp(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title(APP_TITLE)
+        self.title(f"{APP_TITLE} {APP_VERSION}")
         self.geometry("1320x780")
         self.minsize(1080, 660)
 
@@ -1204,7 +1205,42 @@ class FlightControlApp(tk.Tk):
 
 
 
+def self_test() -> int:
+    """Used by the release build: open the app, check every bundled piece loads, close.
+    Catches modules or data files that PyInstaller left out."""
+    problems = []
+    app = FlightControlApp()
+    app.update()
+    try:
+        from pymavlink import mavutil
+        mavutil.mavlink.MAVLink_heartbeat_message  # the MAVLink 2 ardupilotmega dialect
+        if mavutil.mavlink.WIRE_PROTOCOL_VERSION != "2.0":
+            problems.append("MAVLink 2 dialect not loaded")
+    except Exception as exc:
+        problems.append(f"pymavlink: {exc}")
+    if app.mission_map.map is None:
+        problems.append("tkintermapview missing (no map)")
+    if len(app.param_store.meta) < 1000:
+        problems.append("parameter metadata missing")
+    if app.configurator is None:
+        problems.append(f"RC Configurator missing: {RC_CONFIGURATOR_ERROR}")
+    if sys.platform == "darwin" and not app.mission_map.pinch_enabled:
+        problems.append("macOS pinch helper (native/libascend_pinch.dylib) missing")
+    tabs = [app.notebook.tab(t, "text") for t in app.notebook.tabs()]
+    app.on_close()
+    lines = [f"{APP_TITLE} {APP_VERSION} self-test; tabs: {', '.join(tabs)}"]
+    lines += [f"FAIL: {problem}" for problem in problems]
+    lines.append("PASS" if not problems else "FAILED")
+    print("\n".join(lines))
+    log = os.environ.get("ASCEND_SELFTEST_LOG")  # a windowed Windows .exe has no console
+    if log:
+        Path(log).write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return 1 if problems else 0
+
+
 if __name__ == "__main__":
+    if "--self-test" in sys.argv:
+        sys.exit(self_test())
     app = FlightControlApp()
     if "--connect" in sys.argv:  # e.g. --connect tcp:127.0.0.1:5760 for SITL
         app.conn_var.set(sys.argv[sys.argv.index("--connect") + 1])

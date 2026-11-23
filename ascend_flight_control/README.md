@@ -104,6 +104,20 @@ radius the plane will actually fly.
 Altitudes are metres above home. Planes ignore hold time except on loiter
 waypoints; the app warns about this.
 
+## Releases
+
+Push a tag `flight-control-v<version>` matching `version.py` and
+`.github/workflows/ascend-flight-control-release.yml` builds the Mac (signed
+and notarized), Windows and Raspberry Pi apps, checks each with
+`--self-test`, and publishes a GitHub pre-release. Pull requests that touch
+the app run the same builds without publishing. ASCEND Flight Control
+releases are never marked "latest": the RC Configurator finds its firmware
+through the latest release. Build locally with:
+
+```bash
+python3 -m PyInstaller --clean --noconfirm "ASCEND Flight Control.spec"   # from RC-Airplane/
+```
+
 ## Testing
 
 ```bash
