@@ -35,7 +35,7 @@ Changes since 2026.09.14, in order (details under
 - [Aircraft Type And Control Mixing](#aircraft-type-and-control-mixing)
 - [Receiver](#receiver)
 - [Desktop Transmitter Configurator](#desktop-transmitter-configurator)
-- [Mission Planner](#mission-planner)
+- [ASCEND Flight Control](#ascend-flight-control)
 - [Known Good Fallback Points](#known-good-fallback-points)
 - [BOREALIS V2 ArduPlane Operation](#borealis-v2-arduplane-operation)
 - [ASCEND Flight Controller Rev.2](#ascend-flight-controller-rev2)
@@ -851,22 +851,30 @@ Never leave both radios assigned as Master or both assigned as Student.
 
 The config protocol uses text commands such as `PING`, `INFO`, `READ`, `WRITE`, and `RANGE`.
 
-## Mission Planner
+## ASCEND Flight Control
 
-The RC project also contains a standalone mission planner:
+ASCEND Flight Control is the ground station for the ASCEND flight controller
+(ArduPlane). It plans missions on a built-in map, edits flight controller
+settings, connects over MAVLink (USB, telemetry radio or SITL), and uploads
+missions with read-back verification:
 
 ```text
-mission_planner/mission_planner.py
+ascend_flight_control/ascend_flight_control.py
 ```
 
 Run:
 
 ```bash
-cd "mission_planner"
-python3 mission_planner.py
+cd "ascend_flight_control"
+python3 ascend_flight_control.py
 ```
 
-The upload button is currently a placeholder until a flight-controller mission protocol is defined.
+See `ascend_flight_control/README.md` for how editor actions map to ArduPlane
+mission items.
+
+The RC Configurator is also built into ASCEND Flight Control as its
+**RC Configurator** tab. `fram_gui_models.py` still runs on its own and is what
+the release workflow packages.
 
 ## Known Good Fallback Points
 
