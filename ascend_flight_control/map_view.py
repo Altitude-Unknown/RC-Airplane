@@ -3,7 +3,9 @@
 Mission map for ASCEND Flight Control, drawn inside the app with tkintermapview
 (OpenStreetMap tiles on a Tk canvas; no browser needed).
 
-- Click the map to add a waypoint; click a waypoint to select it.
+- Click the map to add a waypoint; click a waypoint to select it; drag a waypoint to move it.
+- Survey area editing: clicks place the area's corners, corners can be dragged,
+  and the planned grid is drawn as a preview (the Survey Grid window drives it).
 - Numbered waypoint markers, the route line and the home point.
 - The aircraft's live position and heading while connected.
 """
@@ -34,6 +36,9 @@ TEAL = "#0f7f8f"
 ORANGE = "#c2410c"
 HOME = "#1f2937"
 AIRCRAFT = "#2563eb"
+AREA = "#d97706"
+GRID = "#7c3aed"
+DRAG_START_PX = 4  # a press has to move this far before it becomes a drag (smaller = a click)
 DEFAULT_CENTER = (39.7392, -104.9903)
 USER_AGENT = "ASCEND-Flight-Control/1.0"
 SS = 3  # supersampling for smooth icon edges
@@ -71,14 +76,25 @@ def aircraft_icon(heading_deg: float, size: int = 34) -> ImageTk.PhotoImage:
 
 class MissionMap(tk.Frame):
     def __init__(self, parent, on_add: Callable[[float, float], None] | None,
-                 on_select: Callable[[int], None] | None, live_view: bool = False):
-        """live_view=True: the Flight tab's map (no editing, follows the aircraft, shows a trail)."""
+                 on_select: Callable[[int], None] | None, live_view: bool = False,
+                 on_move: Callable[[int, float, float], None] | None = None):
+        """live_view=True: the Flight tab's map (no editing, follows the aircraft, shows a trail).
+        on_move(waypoint_id, lat, lon) is called when a waypoint has been dragged to a new place."""
         super().__init__(parent, bg="#f3f6f8")
         self.live_view = live_view
         self._trail = None
         self._trail_points: list[tuple[float, float]] = []
         self.on_add = on_add
         self.on_select = on_select
+        self.on_move = on_move
+        self._press = None  # (target, x, y) when a press landed on something draggable
+        self._dragging = False
+        # Survey area editing (set by the Survey Grid window): an object with
+        # area_click(lat, lon) and corner_moved(index, lat, lon, final).
+        self.area_editor = None
+        self._area_markers: list = []
+        self._area_outline = None
+        self._area_preview = None
         self._icons: dict = {}
         self._markers: list = []
         self._path = None
@@ -96,8 +112,9 @@ class MissionMap(tk.Frame):
 
         bar = tk.Frame(self, bg="#f3f6f8")
         bar.pack(fill="x", pady=(0, 6))
-        hint = ("Live view · drag to move · scroll or +/− to zoom" if live_view else
-                "Click the map to add a waypoint · drag to move · scroll or +/− to zoom")
+        self.default_hint = ("Live view · drag to move · scroll or +/− to zoom" if live_view else
+                             "Click the map to add a waypoint · drag a waypoint to move it · scroll or +/− to zoom")
+        hint = self.default_hint
         self.hint = tk.Label(bar, text=hint,
                              bg="#f3f6f8", fg="#60707d", font=("TkDefaultFont", 12))
         self.hint.pack(side="left")
@@ -146,7 +163,13 @@ class MissionMap(tk.Frame):
         self.map.set_position(*DEFAULT_CENTER)
         self.map.set_zoom(13)
         self.map.add_left_click_map_command(self._map_clicked)
-        for sequence in ("<B1-Motion>", "<MouseWheel>", "<Button-4>", "<Button-5>"):
+        # Our own drag/release handlers wrap the map's: a press on a waypoint (or a survey
+        # corner) drags it; anywhere else the map pans as before.
+        self._map_mouse_move = self.map.mouse_move
+        self._map_mouse_release = self.map.mouse_release
+        self.map.canvas.bind("<B1-Motion>", self._on_motion)
+        self.map.canvas.bind("<ButtonRelease-1>", self._on_release)
+        for sequence in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
             self.map.canvas.bind(sequence, self._mark_moved, add="+")
         # Runs before the map's own release handler; remembers if the press hit a map control.
         self.map.canvas.bind("<Button-1>", self._on_press, add="+")
@@ -518,16 +541,151 @@ class MissionMap(tk.Frame):
 
     def _on_press(self, event):
         hit = set(self.map.canvas.find_overlapping(event.x - 1, event.y - 1, event.x + 1, event.y + 1))
+        self._press, self._dragging = None, False
         if hit & self._control_items():
             self._suppress_click = True
             self.after(400, lambda: setattr(self, "_suppress_click", False))
+            return
+        target = self._drag_target(hit)
+        if target is not None:
+            self._press = (target, event.x, event.y)
+
+    def _drag_target(self, hit: set):
+        """What a press on these canvas items would drag: ("corner", index), ("wp", id) or None.
+        Survey corners win over waypoints; the marker list may have just been redrawn by the
+        click's own selection, so targets are kept by id, never by marker object."""
+        if self.area_editor is not None:
+            for marker in reversed(self._area_markers):
+                if marker.canvas_icon in hit:
+                    return marker.data
+        if self.on_move is not None:
+            for marker in reversed(self._markers):
+                if marker.canvas_icon in hit and marker.data is not None:
+                    return ("wp", marker.data)
+        return None
+
+    def _on_motion(self, event):
+        if self._press is None:
+            self._mark_moved()
+            self._map_mouse_move(event)  # pan the map
+            return
+        target, x0, y0 = self._press
+        if not self._dragging:
+            if abs(event.x - x0) < DRAG_START_PX and abs(event.y - y0) < DRAG_START_PX:
+                return
+            self._dragging = True
+            self.map.canvas.config(cursor="fleur")
+        lat, lon = self._event_coords(event)
+        if target[0] == "corner":
+            self.area_editor.corner_moved(target[1], lat, lon, final=False)
+        else:
+            self._drag_waypoint_to(target[1], lat, lon)
+
+    def _on_release(self, event):
+        press, dragging = self._press, self._dragging
+        self._press, self._dragging = None, False
+        if press is None:
+            self._map_mouse_release(event)  # click (add a waypoint / corner) or end of a pan
+            return
+        self.map.fading_possible = True
+        self.map.move_velocity = (0, 0)  # no leftover "fling" from an earlier pan
+        if not dragging:
+            return  # a plain click on a marker: its own handler selected it
+        self.map.canvas.config(cursor="arrow")
+        self._suppress_click = False
+        target = press[0]
+        lat, lon = self._event_coords(event)
+        if target[0] == "corner":
+            self.area_editor.corner_moved(target[1], lat, lon, final=True)
+        elif self.on_move is not None:
+            self.on_move(target[1], lat, lon)
+
+    def _event_coords(self, event) -> tuple[float, float]:
+        x = min(max(event.x, 0), max(1, self.map.width))
+        y = min(max(event.y, 0), max(1, self.map.height))
+        return self.map.convert_canvas_coords_to_decimal_coords(x, y)
+
+    def _drag_waypoint_to(self, wp_id, lat, lon):
+        """Move the waypoint's marker, the route and its loiter circle while dragging.
+        The mission itself changes once, on release (on_move)."""
+        for marker in self._markers:
+            if marker.data == wp_id:
+                marker.set_position(lat, lon)
+        self._waypoints = [(i, lat, lon, a) if i == wp_id else (i, la, lo, a)
+                           for i, la, lo, a in self._waypoints]
+        if self._path is not None:
+            self._path.set_position_list([(la, lo) for _i, la, lo, _a in self._waypoints])
+        for circle in self._circles:
+            if circle.data == wp_id:
+                circle.position_list = circle_points(lat, lon, circle.name)
+                circle.draw()
+        self._signature = None  # the next render redraws from the mission
+        self._raise_aircraft()
 
     def _map_clicked(self, coords):
         if self._suppress_click:  # the click landed on a marker or a zoom button
             self._suppress_click = False
             return
+        if self.area_editor is not None:
+            self.area_editor.area_click(coords[0], coords[1])
+            return
         if self.on_add is not None:
             self.on_add(coords[0], coords[1])
+
+    # -- survey area (Survey Grid window) ------------------------------------------
+
+    def set_area_editor(self, editor):
+        """Start (editor) or stop (None) survey area editing: map clicks then place corners."""
+        self.area_editor = editor
+        self.hint.configure(text="Survey grid · click to place the area's corners · drag a corner to move it"
+                            if editor is not None else self.default_hint)
+        if editor is None:
+            self.draw_area([], [], closed=False)
+
+    def draw_area(self, corners, preview, closed=True):
+        """The survey area (orange outline + draggable corners) and the planned passes (purple)."""
+        if self.map is None:
+            return
+        ring = list(corners) + ([corners[0]] if closed and len(corners) >= 3 else [])
+        self._area_outline = self._update_path(self._area_outline, ring, AREA, 3)
+        self._area_preview = self._update_path(self._area_preview, list(preview), GRID, 2, dash=(6, 4))
+        if self._press is not None and self._dragging and len(self._area_markers) == len(corners):
+            for marker, (lat, lon) in zip(self._area_markers, corners):
+                marker.set_position(lat, lon)  # mid-drag: move in place, keep the grabbed marker
+        else:
+            for marker in self._area_markers:
+                self._drop_marker(marker)
+            icon = self.icon("corner", lambda: circle_icon("", AREA, 18))
+            self._area_markers = [self.map.set_marker(lat, lon, icon=icon, data=("corner", i))
+                                  for i, (lat, lon) in enumerate(corners)]
+        self.map.manage_z_order()
+        self._raise_aircraft()
+
+    def _update_path(self, path, points, color, width, dash=None):
+        if len(points) < 2:
+            if path is not None:
+                path.delete()
+            return None
+        if path is None:
+            path = self.map.set_path(points, color=color, width=width)
+            if dash and path.canvas_line is not None:
+                self.map.canvas.itemconfigure(path.canvas_line, dash=dash)
+            path.dash = dash
+            return path
+        path.set_position_list(points)
+        if path.dash and path.canvas_line is not None:
+            self.map.canvas.itemconfigure(path.canvas_line, dash=path.dash)
+        return path
+
+    def fit_points(self, points):
+        if self.map is None or len(points) < 2:
+            return
+        lats = [p[0] for p in points]
+        lons = [p[1] for p in points]
+        pad_lat = max(0.0008, (max(lats) - min(lats)) * 0.15)
+        pad_lon = max(0.0008, (max(lons) - min(lons)) * 0.15)
+        self.map.fit_bounding_box((max(lats) + pad_lat, min(lons) - pad_lon),
+                                  (min(lats) - pad_lat, max(lons) + pad_lon))
 
     def _marker_clicked(self, marker):
         self._suppress_click = True
@@ -562,7 +720,7 @@ class MissionMap(tk.Frame):
 
     def _render(self, mission, selected_id, default_loiter_radius):
         waypoints = [(wp.id, wp.lat, wp.lon, wp.action) for wp in mission.waypoints]
-        circles = [(wp.lat, wp.lon, loiter_radius(wp, default_loiter_radius))
+        circles = [(wp.id, wp.lat, wp.lon, loiter_radius(wp, default_loiter_radius))
                    for wp in mission.waypoints if wp.action == "loiter"]
         home = (mission.home.lat, mission.home.lon)
         signature = (tuple(waypoints), tuple(circles), home, selected_id)
@@ -580,9 +738,10 @@ class MissionMap(tk.Frame):
         for marker in old:
             marker.delete()
 
-        for lat, lon, radius in circles:
+        for wp_id, lat, lon, radius in circles:
+            # data = waypoint id and name = radius, so a dragged waypoint can move its circle.
             circle = self.map.set_polygon(circle_points(lat, lon, radius), outline_color=TEAL,
-                                          fill_color=None, border_width=2)
+                                          fill_color=None, border_width=2, data=wp_id, name=radius)
             if circle.canvas_polygon is not None:
                 self.map.canvas.itemconfigure(circle.canvas_polygon, dash=(6, 4))
             self._circles.append(circle)
@@ -619,12 +778,7 @@ class MissionMap(tk.Frame):
             self.map.set_position(*points[0])
             self.map.set_zoom(16)
             return
-        lats = [p[0] for p in points]
-        lons = [p[1] for p in points]
-        pad_lat = max(0.0008, (max(lats) - min(lats)) * 0.15)
-        pad_lon = max(0.0008, (max(lons) - min(lons)) * 0.15)
-        self.map.fit_bounding_box((max(lats) + pad_lat, min(lons) - pad_lon),
-                                  (min(lats) - pad_lat, max(lons) + pad_lon))
+        self.fit_points(points)
 
     def reset_fit(self):
         """Fit to the next mission that is drawn (after Open / Download)."""

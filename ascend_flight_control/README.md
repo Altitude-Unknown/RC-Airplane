@@ -15,7 +15,23 @@ python3 ascend_flight_control.py
 
 - Plan missions on the map inside the Mission tab: click to add waypoints,
   click a waypoint to select it, then edit altitude, speed, action and events.
-  Save and load missions as JSON.
+  Click, hold and drag a waypoint to move it. Save and load missions as JSON.
+- **Survey Grid…** (Mission toolbar) lays out back-and-forth passes over an
+  area. Draw a box (two opposite corners, or **Box Around Map View**) or a
+  polygon (click each corner) on the map and drag corners to adjust. Pass
+  spacing comes from the camera's field of view and the side overlap, or a
+  fixed distance. You can also set the pass heading (or follow the longest edge),
+  how far each pass runs past the edge so the plane is flying straight before
+  it is over the area, and which corner to start from. The window
+  shows the passes on the map, the flight distance and time, and how often to
+  take photos for the front overlap. The grid's waypoints are added after the
+  current ones or replace them. On a concave area some passes cross the notch.
+  With **Take photos by distance** on, the flight controller fires the camera
+  every N meters (worked out from the front overlap, or typed in). By default
+  photos are on along each pass and off in the turns.
+- Any waypoint can start or stop distance photos: Event `camera_distance`,
+  **Photo every** N (0 stops). The camera only fires if **Aircraft Settings →
+  Camera → Shutter trigger** (`CAM1_TYPE`) is set; the upload warns if it isn't.
 - See the aircraft's live position and heading on the map while connected
   (Go to Aircraft, Follow aircraft).
 - Connect to the flight controller and show live status (armed, mode, GPS,
@@ -94,6 +110,7 @@ asks for confirmation before changing it.
 | Speed change | `DO_CHANGE_SPEED` (airspeed) before the waypoint |
 | Event `servo` / `payload` | `DO_SET_SERVO` after the waypoint |
 | Event `camera` | `DO_DIGICAM_CONTROL` after the waypoint |
+| Event `camera_distance` | `DO_SET_CAM_TRIGG_DIST` after the waypoint (param1 = meters, 0 stops; param3 = 1 takes the first photo right away) |
 | Event `relay` | `DO_SET_RELAY`: Servo Ch is the relay number (1 = RELAY1), Servo PWM 0 = off |
 
 Loiter radius 0 means the flight controller's default (`WP_LOITER_RAD`).

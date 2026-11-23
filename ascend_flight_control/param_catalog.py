@@ -23,6 +23,8 @@ class Setting:
     unit: str | None = None  # overrides the metadata unit
     caution: str = ""  # shown when the chosen value is one of caution_values
     caution_values: tuple = ()
+    # Shown instead of "Not on this firmware" for settings ArduPilot only lists once another is set.
+    absent_note: str = ""
 
 
 @dataclass
@@ -49,6 +51,8 @@ PLANE_MODES = {
 }
 
 ON_OFF = {0: "Off", 1: "On"}
+CAMERA_ABSENT = ("Appears once a shutter trigger is chosen. Write that change, then Load Settings again "
+                 "(restart the flight controller if it still doesn't show).")
 
 CATALOG: list[Group] = [
     Group(
@@ -148,6 +152,32 @@ CATALOG: list[Group] = [
                     options={0: "Off", 1: "On", 3: "Only in Auto"},
                     caution="The plane reacts whenever telemetry drops out, even with a good radio link.",
                     caution_values=(1, 3)),
+        ],
+    ),
+    Group(
+        "Camera",
+        "How the flight controller fires a camera's shutter, for photos at waypoints and survey grids "
+        "(photos every so many meters). With a servo trigger, also set the output the camera is wired to "
+        "(SERVOn_FUNCTION) to 10, CameraTrigger, in All Parameters.",
+        [
+            Setting("CAM1_TYPE", "Shutter trigger",
+                    "How the camera is fired. None means mission photo commands do nothing.",
+                    options={0: "None (no camera)", 1: "Servo output", 2: "Relay", 5: "MAVLink camera", 8: "RunCam"},
+                    caution="With no trigger set, the mission's photo commands are ignored.", caution_values=(0,)),
+            Setting("CAM1_SERVO_ON", "Servo position to fire", "Servo output (PWM) that presses the shutter.",
+                    absent_note=CAMERA_ABSENT),
+            Setting("CAM1_SERVO_OFF", "Servo position at rest", "Servo output (PWM) between photos.",
+                    absent_note=CAMERA_ABSENT),
+            Setting("CAM1_DURATION", "Shutter hold time", "How long the shutter is held for each photo.",
+                    absent_note=CAMERA_ABSENT),
+            Setting("CAM1_INTRVAL_MIN", "Shortest time between photos",
+                    "Photos asked for sooner than this wait. Keep it below the photo time the Survey Grid window shows.",
+                    absent_note=CAMERA_ABSENT),
+            Setting("CAM_MAX_ROLL", "Skip photos when banked past",
+                    "Photos wait while the plane banks more than this, so turns don't give tilted pictures. 0 = always shoot."),
+            Setting("CAM_AUTO_ONLY", "Photos by distance",
+                    "Whether photo-every-N-meters runs only in Auto, or in any flight mode.",
+                    options={0: "In any flight mode", 1: "Only in Auto"}),
         ],
     ),
     Group(

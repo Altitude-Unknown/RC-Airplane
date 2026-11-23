@@ -21,7 +21,7 @@ import sys
 from pathlib import Path
 
 from fc_link import FcLink
-from param_catalog import curated_names
+from param_catalog import CATALOG, curated_names
 from param_protocol import download_all, format_value, write_changes
 from mission_mavlink import compare_items, download_mission, mission_to_items, upload_mission
 from mission_schema import mission_from_dict
@@ -77,7 +77,10 @@ def check_params(device: str) -> int:
             return 1
         params = download_all(link, progress=lambda m: None)
         print(f"Downloaded {len(params)} parameters")
-        missing = [n for n in curated_names() if n not in params]
+        optional = {s.name for g in CATALOG for s in g.settings if s.absent_note}  # listed only once enabled
+        missing = [n for n in curated_names() if n not in params and n not in optional]
+        for name in sorted(optional - set(params)):
+            print(f"  {name:18s} (not listed until it is enabled; fine)")
         for name in curated_names():
             if name in params:
                 p = params[name]

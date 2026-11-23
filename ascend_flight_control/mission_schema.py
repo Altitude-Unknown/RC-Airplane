@@ -39,7 +39,9 @@ EVENT_TYPES = [
     "camera",
     "payload",
     "relay",
+    "camera_distance",  # take a photo every camera_distance_m meters from here on (0 stops)
 ]
+CAMERA_DISTANCE_MAX_M = 1000  # CAM1_TRIGG_DIST range in ArduPilot
 
 
 @dataclass
@@ -49,6 +51,7 @@ class WaypointEvent:
     servo_pwm: int | None = None
     hold_seconds: int = 0
     notes: str = ""
+    camera_distance_m: float = 0.0  # "camera_distance" events: meters between photos, 0 = stop taking photos
 
 
 @dataclass
@@ -130,6 +133,7 @@ def mission_from_dict(data: dict[str, Any]) -> Mission:
                     servo_pwm=_optional_int(event_data.get("servo_pwm")),
                     hold_seconds=int(event_data.get("hold_seconds", 0) or 0),
                     notes=str(event_data.get("notes", "")),
+                    camera_distance_m=round(float(event_data.get("camera_distance_m", 0) or 0), 2),
                 ),
                 notes=str(raw.get("notes", "")),
                 loiter=_loiter_from_dict(raw),
@@ -198,6 +202,8 @@ def validate_mission(mission: Mission) -> list[str]:
             issues.append(f"{label} uses an unknown event: {waypoint.event.type}.")
         if waypoint.action == "loiter":
             issues.extend(validate_loiter(waypoint.loiter, label))
+        if waypoint.event.type == "camera_distance" and not 0 <= waypoint.event.camera_distance_m <= CAMERA_DISTANCE_MAX_M:
+            issues.append(f"{label} photo distance must be 0 (stop) to {CAMERA_DISTANCE_MAX_M} m.")
 
     if mission.home.lat is not None and not -90 <= mission.home.lat <= 90:
         issues.append("Home latitude is outside the valid range.")

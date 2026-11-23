@@ -60,7 +60,7 @@ jobs:
           fi
       - name: ASCEND Flight Control tests
         working-directory: ascend_flight_control
-        run: python -m unittest test_airspace test_location test_calibration test_mission_mavlink test_params
+        run: python -m unittest test_airspace test_location test_calibration test_mission_mavlink test_params test_grid_survey
       - name: RC Configurator release gates (it is embedded in the app)
         run: python -m unittest test_mode_rates test_gui_model_codec test_gui_aircraft_codec test_button_channels test_bind_trim_save test_tx_buzzer test_firmware_updater
       - name: Self-test from source
