@@ -56,6 +56,9 @@ from param_protocol import (
 from calibration_view import CalibrationTab
 from flight_view import FlightTab
 from map_view import MissionMap
+import location
+import mac_native
+from app_settings import load_setting, save_setting
 from mission_mavlink import NAV_COMMANDS
 from units import ALT_NAMES, PRESETS, SPEED_NAMES, VSPEED_NAMES, Units
 from version import APP_VERSION
@@ -146,6 +149,10 @@ class FlightControlApp(tk.Tk):
         self.build_ui()
         self.units.subscribe(self.apply_units)
         self.refresh_map()
+        self.map_home = valid_map_home(load_setting("map_home"))
+        for m in (self.mission_map, self.flight_tab.map):
+            m.menu_provider = self.map_menu_items
+        self.after(300, self.start_map_view)
         self.after(100, self.process_ui_events)
         self.protocol("WM_DELETE_WINDOW", self.on_close)
 
@@ -340,6 +347,81 @@ class FlightControlApp(tk.Tk):
         ttk.Label(summary, textvariable=self.summary_var, style="Panel.TLabel", justify="left", wraplength=330).pack(anchor="nw", fill="x")
         self.refresh_summary()
 
+    # -- map start position: saved map home, else the computer's location -----------
+
+    def maps(self):
+        return (self.mission_map, self.flight_tab.map)
+
+    def start_map_view(self):
+        """Open the maps at the saved map home; without one, at the computer's location if
+        the operating system provides it; otherwise the maps stay at their default."""
+        if self.map_home:
+            for m in self.maps():
+                if not m.has_content:
+                    m.go_to(self.map_home["lat"], self.map_home["lon"], self.map_home["zoom"])
+            return
+        if not location.supported():
+            self.status_var.set("Tip: choose Map ▾ → Set Map Home to This View to open the map at your field.")
+            return
+
+        def done(result):
+            if not result.ok:
+                self.status_var.set("Your location is not available. Use Map ▾ → Set Map Home to This View "
+                                    "to choose where the map opens.")
+                return
+            for m in self.maps():
+                m.show_you(result.lat, result.lon)
+                if not m.user_moved and not m.has_content:
+                    m.go_to(result.lat, result.lon, 15)
+
+        location.request_location(self, done)
+
+    def map_menu_items(self, map_view):
+        have_home = self.map_home is not None
+        return [
+            ("Go to My Location", lambda: self.go_to_my_location(map_view), location.supported()),
+            ("Go to Map Home", lambda: map_view.go_to(self.map_home["lat"], self.map_home["lon"],
+                                                      self.map_home["zoom"]), have_home),
+            None,
+            ("Set Map Home to This View", lambda: self.set_map_home(map_view), map_view.map is not None),
+            ("Clear Map Home", self.clear_map_home, have_home),
+        ]
+
+    def go_to_my_location(self, map_view):
+        self.status_var.set("Finding your location…")
+
+        def done(result):
+            if not result.ok:
+                self.status_var.set("Your location is not available.")
+                messagebox.showinfo(APP_TITLE, result.message + "\n\nYou can choose where the map opens with "
+                                    "Map ▾ → Set Map Home to This View.")
+                return
+            accuracy = f" (within about {self.units.fmt_distance(result.accuracy_m)})" if result.accuracy_m else ""
+            self.status_var.set(f"Your location{accuracy}")
+            for m in self.maps():
+                m.show_you(result.lat, result.lon)
+            map_view.go_to(result.lat, result.lon, 16)
+
+        if not location.request_location(self, done):
+            messagebox.showinfo(APP_TITLE, "This computer does not provide its location to apps. "
+                                           "Use Map ▾ → Set Map Home to This View instead.")
+
+    def set_map_home(self, map_view):
+        view = map_view.view()
+        if view is None:
+            return
+        lat, lon, zoom = view
+        self.map_home = {"lat": round(lat, 7), "lon": round(lon, 7), "zoom": zoom}
+        saved = save_setting("map_home", self.map_home)
+        self.status_var.set(f"Map home set to {lat:.5f}, {lon:.5f}. The map opens here from now on."
+                            if saved else "Map home set for this session (could not save it).")
+
+    def clear_map_home(self):
+        self.map_home = None
+        save_setting("map_home", None)
+        self.status_var.set("Map home cleared." + (" The map opens at your location next time."
+                                                   if location.supported() else ""))
+
     # -- units -------------------------------------------------------------------
 
     def unit_row(self, row, template: str):
@@ -351,8 +433,8 @@ class FlightControlApp(tk.Tk):
     def unit_text(self, template: str) -> str:
         return template.format(alt=self.units.alt_label, speed=self.units.speed_label)
 
-    def fmt_alt_input(self, metres: float) -> str:
-        return f"{self.units.alt(metres):.0f}"
+    def fmt_alt_input(self, meters: float) -> str:
+        return f"{self.units.alt(meters):.0f}"
 
     def fmt_speed_input(self, mps: float) -> str:
         value = self.units.speed(mps)
@@ -1208,10 +1290,21 @@ class FlightControlApp(tk.Tk):
 
 
 
+def valid_map_home(value):
+    """A saved map home, checked: {"lat", "lon", "zoom"} or None."""
+    try:
+        lat, lon, zoom = float(value["lat"]), float(value["lon"]), int(value.get("zoom", 15))
+    except (TypeError, KeyError, ValueError):
+        return None
+    if -90 <= lat <= 90 and -180 <= lon <= 180:
+        return {"lat": lat, "lon": lon, "zoom": max(3, min(19, zoom))}
+    return None
+
+
 def self_test() -> int:
     """Used by the release build: open the app, check every bundled piece loads, close.
     Catches modules or data files that PyInstaller left out."""
-    problems = []
+    problems, notes = [], []
     app = FlightControlApp()
     app.update()
     try:
@@ -1228,10 +1321,18 @@ def self_test() -> int:
     if app.configurator is None:
         problems.append(f"RC Configurator missing: {RC_CONFIGURATOR_ERROR}")
     if sys.platform == "darwin" and not app.mission_map.pinch_enabled:
-        problems.append("macOS pinch helper (native/libascend_pinch.dylib) missing")
+        problems.append("macOS native helper (native/libascend_mac.dylib) missing")
+    if sys.platform == "darwin":
+        lib = mac_native.load()
+        if lib is None or not hasattr(lib, "ascend_location_request"):
+            problems.append("macOS location helper missing")
+    if sys.platform == "win32":
+        # Exercise the real Windows lookup; any answer is fine, a crash or garbage is not.
+        answer = location.windows_lookup()
+        notes.append(f"Windows location service: {answer.split()[0] if answer else 'no answer'}")
     tabs = [app.notebook.tab(t, "text") for t in app.notebook.tabs()]
     app.on_close()
-    lines = [f"{APP_TITLE} {APP_VERSION} self-test; tabs: {', '.join(tabs)}"]
+    lines = [f"{APP_TITLE} {APP_VERSION} self-test; tabs: {', '.join(tabs)}"] + notes
     lines += [f"FAIL: {problem}" for problem in problems]
     lines.append("PASS" if not problems else "FAILED")
     print("\n".join(lines))

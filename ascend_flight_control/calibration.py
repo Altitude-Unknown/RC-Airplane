@@ -255,7 +255,7 @@ class RadioCal:
     def plan(self, params: dict, roles: dict[int, str], throttle_ch: int) -> RadioPlan:
         """Work out RCn_MIN/MAX (and the throttle low point) from what was recorded.
 
-        Stick centres (RCn_TRIM for roll, pitch and yaw) are not changed: on the ASCEND
+        Stick centers (RCn_TRIM for roll, pitch and yaw) are not changed: on the ASCEND
         setup they are set by the Bind-button trim-save in MANUAL, which updates the
         servo trims at the same time. Changing them here alone would move the surfaces.
         """
@@ -283,7 +283,7 @@ class RadioCal:
             else:
                 trim = params.get(f"RC{ch}_TRIM")
                 if trim is not None and not rng.lo <= trim <= rng.hi:
-                    plan.warnings.append(f"CH{ch} ({role}): its centre ({trim:.0f}) is outside the new range. "
+                    plan.warnings.append(f"CH{ch} ({role}): its center ({trim:.0f}) is outside the new range. "
                                          "Save trims with the Bind button in MANUAL after writing.")
             plan.rows.append((ch, role, old, new))
         # Only keep values that actually change.

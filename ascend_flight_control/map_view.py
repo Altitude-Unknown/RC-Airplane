@@ -18,7 +18,7 @@ from typing import Callable
 
 from PIL import Image, ImageDraw, ImageFont, ImageTk
 
-from mac_gestures import install_pinch_zoom
+from mac_native import install_pinch_zoom
 
 try:
     import tkintermapview
@@ -98,6 +98,14 @@ class MissionMap(tk.Frame):
         self.hint.pack(side="left")
         self.aircraft_button = ttk.Button(bar, text="Go to Aircraft", command=self.go_to_aircraft, state="disabled")
         self.aircraft_button.pack(side="right")
+        # Map ▾ menu (my location, map home). The app supplies the items: menu_provider(map) -> [(label, cmd, enabled)]
+        self.menu_provider = None
+        self.map_menu_button = ttk.Menubutton(bar, text="Map ▾")
+        self.map_menu = tk.Menu(self.map_menu_button, tearoff=0, postcommand=self._fill_menu)
+        self.map_menu_button["menu"] = self.map_menu
+        self.map_menu_button.pack(side="right", padx=(0, 6))
+        self.user_moved = False  # set once the person pans or zooms; late location answers then leave the view alone
+        self._you_marker = None
         ttk.Button(bar, text="Fit Mission", command=self.fit_mission).pack(side="right", padx=(0, 6))
         self.follow_var = tk.BooleanVar(value=live_view)
         ttk.Checkbutton(bar, text="Follow aircraft", variable=self.follow_var).pack(side="right", padx=(0, 12))
@@ -119,6 +127,8 @@ class MissionMap(tk.Frame):
         self.map.set_position(*DEFAULT_CENTER)
         self.map.set_zoom(13)
         self.map.add_left_click_map_command(self._map_clicked)
+        for sequence in ("<B1-Motion>", "<MouseWheel>", "<Button-4>", "<Button-5>"):
+            self.map.canvas.bind(sequence, self._mark_moved, add="+")
         # Runs before the map's own release handler; remembers if the press hit a map control.
         self.map.canvas.bind("<Button-1>", self._on_press, add="+")
         self._install_zoom_controls()
@@ -161,6 +171,49 @@ class MissionMap(tk.Frame):
         w, h = self.map.width, self.map.height
         lat, lon = self.map.convert_canvas_coords_to_decimal_coords(w / 2 + dx * w / 4, h / 2 + dy * h / 4)
         self.map.set_position(lat, lon)
+
+    # -- map menu, views and "you are here" ---------------------------------------
+
+    def _fill_menu(self):
+        self.map_menu.delete(0, "end")
+        items = self.menu_provider(self) if self.menu_provider else []
+        for item in items:
+            if item is None:
+                self.map_menu.add_separator()
+                continue
+            label, command, enabled = item
+            self.map_menu.add_command(label=label, command=command, state="normal" if enabled else "disabled")
+
+    def _mark_moved(self, _event=None):
+        self.user_moved = True
+
+    def view(self) -> tuple[float, float, int] | None:
+        if self.map is None:
+            return None
+        lat, lon = self.map.get_position()
+        return lat, lon, int(round(self.map.zoom))
+
+    def go_to(self, lat: float, lon: float, zoom: int | None = None):
+        if self.map is None:
+            return
+        if zoom is not None:
+            self.map.set_zoom(zoom)
+        self.map.set_position(lat, lon)
+
+    def show_you(self, lat: float, lon: float):
+        """Blue dot where the computer says it is."""
+        if self.map is None:
+            return
+        if self._you_marker is not None:
+            self._you_marker.delete()
+        icon = self.icon("you", lambda: circle_icon("", "#2563eb", 16))
+        self._you_marker = self.map.set_marker(lat, lon, icon=icon)
+        self._raise_aircraft()
+
+    @property
+    def has_content(self) -> bool:
+        """A mission or the aircraft is on the map (so don't move the view on its own)."""
+        return bool(self._waypoints) or self._aircraft_pos is not None
 
     def _control_items(self) -> set:
         """Canvas item ids of the +/- zoom buttons (looked up each time; redraws make new ids)."""

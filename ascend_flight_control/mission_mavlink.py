@@ -5,7 +5,7 @@ move them to/from the flight controller.
 
 ArduPilot mission conventions used here:
 - Item 0 is always the home position (ArduPilot replaces it with its own home).
-- Waypoint altitudes are metres above home (MAV_FRAME_GLOBAL_RELATIVE_ALT_INT).
+- Waypoint altitudes are meters above home (MAV_FRAME_GLOBAL_RELATIVE_ALT_INT).
 - Speed changes become MAV_CMD_DO_CHANGE_SPEED items placed before the
   waypoint that needs the new speed.
 - Waypoint events become DO_* items placed after the waypoint, so they fire
@@ -363,7 +363,7 @@ def upload_mission(link, items: list[MissionItem], progress: Progress = lambda _
             reason = mavlink.enums["MAV_MISSION_RESULT"].get(msg.type)
             text = reason.name if reason else str(msg.type)
             if msg.type == mavlink.MAV_MISSION_NO_SPACE:
-                text += " (if the flight controller just powered up, wait for it to finish initialising and try again)"
+                text += " (if the flight controller just powered up, wait for it to finish initializing and try again)"
             raise MissionTransferError(f"Flight controller rejected the mission: {text}")
 
 

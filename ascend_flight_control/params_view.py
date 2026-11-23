@@ -65,7 +65,7 @@ def setup_styles(root: tk.Misc) -> None:
 # --------------------------------------------------------------------------
 
 def unit_conversion(units, meta_unit: str) -> tuple[float, str] | None:
-    """(factor, label) to show a metre or m/s parameter in the person's units, else None."""
+    """(factor, label) to show a meter or m/s parameter in the person's units, else None."""
     if units is None:
         return None
     if meta_unit == "m" and units.alt_label != "m":

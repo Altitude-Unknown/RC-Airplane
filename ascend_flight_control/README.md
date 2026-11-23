@@ -38,7 +38,7 @@ python3 ascend_flight_control.py
     the result is saved by the flight controller (and `COMPASS_ORIENT` corrected
     if needed). Restart afterwards.
   - *Radio*: live bars for CH1-CH6; writes `RCn_MIN`/`RCn_MAX` and the throttle
-    low point, verified. Stick centres are left to the Bind-button trim-save
+    low point, verified. Stick centers are left to the Bind-button trim-save
     (it updates servo trims too) and CH7 is not touched.
 - **RC Configurator** tab: the full RC Configurator (transmitter Models,
   Instructor / Student, Firmware Update, Speaker Test), the same code as the
@@ -101,7 +101,7 @@ Direction is sent as the sign of the radius, so counter-clockwise laps or
 endless loiters need a radius entered. The map draws each loiter circle at the
 radius the plane will actually fly.
 
-Altitudes are metres above home. Planes ignore hold time except on loiter
+Altitudes are meters above home. Planes ignore hold time except on loiter
 waypoints; the app warns about this.
 
 ## Releases
@@ -128,9 +128,16 @@ python3 ascend_flight_control.py --connect tcp:127.0.0.1:5760   # app against SI
 python3 tools/sitl_demo_flight.py                              # fly a demo mission in SITL (port 5762)
 ```
 
+Where the map opens: **Map ▾ → Set Map Home to This View** saves the current
+view, and the map opens there from then on. Without a map home it opens at the
+computer's location where the operating system provides one: macOS (Core
+Location; macOS asks for permission the first time, and only the packaged app
+can ask) and Windows (Location must be on in Settings). Raspberry Pi and Linux
+use the map home. **Map ▾ → Go to My Location** recenters on demand.
+
 Map zoom: scroll wheel or two-finger scroll, the +/− buttons, or the + and −
 keys (arrow keys pan) on every platform. Trackpad pinch works on macOS (through
-`pyobjc`) and on Windows precision touchpads (they send pinch as Ctrl+scroll).
+`native/libascend_mac.dylib`; rebuild with `tools/build_mac_native.sh`) and on Windows precision touchpads (they send pinch as Ctrl+scroll).
 Raspberry Pi and Linux do not pass pinch gestures to Tk apps, so use the wheel,
 buttons or keys there.
 

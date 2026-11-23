@@ -124,7 +124,7 @@ class RadioTests(unittest.TestCase):
         self.assertEqual(plan.changes["RC1_MAX"], 2012)
         self.assertEqual(plan.changes["RC3_TRIM"], 985)  # throttle low point
         for ch in (1, 2, 4, 5, 6):
-            self.assertNotIn(f"RC{ch}_TRIM", plan.changes, "stick centres belong to Bind trim-save")
+            self.assertNotIn(f"RC{ch}_TRIM", plan.changes, "stick centers belong to Bind trim-save")
         self.assertFalse(any(k.startswith("RC7_") for k in plan.changes), "CH7 is never calibrated")
         self.assertEqual(plan.warnings, [])
 
@@ -138,12 +138,12 @@ class RadioTests(unittest.TestCase):
         self.assertTrue(any("CH2" in w and "moved only" in w for w in plan.warnings))
         self.assertTrue(any("CH6" in w and "no signal" in w for w in plan.warnings))
 
-    def test_warns_when_centre_outside_new_range(self):
+    def test_warns_when_center_outside_new_range(self):
         cal = RadioCal(FakeLink())
         params = dict(self.PARAMS, RC1_TRIM=1950.0)
         self.sweep(cal, [1000] * 6, [1900] * 6, [1450] * 6)
         plan = cal.plan(params, self.ROLES, throttle_ch=3)
-        self.assertTrue(any("CH1" in w and "centre" in w for w in plan.warnings))
+        self.assertTrue(any("CH1" in w and "center" in w for w in plan.warnings))
 
     def test_unchanged_values_are_not_rewritten(self):
         cal = RadioCal(FakeLink())
