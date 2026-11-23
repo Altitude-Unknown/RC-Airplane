@@ -35,6 +35,8 @@ hiddenimports = esptool_hiddenimports + collect_submodules("tkintermapview") + [
     # The default dialect is "all" (it includes ardupilotmega); MAVLINK20=1 selects v20.
     "pymavlink.dialects.v20.all",
     "pymavlink.dialects.v10.all",
+    # On Linux, PIL.ImageTk loads this helper by name to find Tk (map tiles and icons).
+    "PIL._tkinter_finder",
 ]
 
 a = Analysis(
