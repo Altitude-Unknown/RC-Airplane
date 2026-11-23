@@ -11,6 +11,7 @@ Mission map for ASCEND Flight Control, drawn inside the app with tkintermapview
 from __future__ import annotations
 
 import math
+import time
 import tkinter as tk
 from tkinter import ttk
 from typing import Callable
@@ -363,6 +364,20 @@ class MissionMap(tk.Frame):
     def go_to_aircraft(self):
         if self.map is not None and self._aircraft_pos:
             self.map.set_position(*self._aircraft_pos)
+
+    def shutdown(self, wait_s: float = 2.0):
+        """Stop the map's tile-loading threads and wait briefly for them.
+
+        tkintermapview's threads create Tk images; if one is still running while
+        the program exits, the process can crash (seen on Raspberry Pi)."""
+        if self.map is None:
+            return
+        self.map.running = False
+        threads = [getattr(self.map, "pre_cache_thread", None)] + list(getattr(self.map, "image_load_thread_pool", []))
+        deadline = time.monotonic() + wait_s
+        for thread in threads:
+            if thread is not None and thread.is_alive():
+                thread.join(max(0.0, deadline - time.monotonic()))
 
     def destroy(self):
         if self.map is not None:

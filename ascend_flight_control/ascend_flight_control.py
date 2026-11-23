@@ -159,6 +159,9 @@ class FlightControlApp(tk.Tk):
             self.fc_link.close()
         if self.configurator is not None:
             self.configurator.shutdown()
+        # Stop the map tile threads before Tk goes away (they create Tk images).
+        self.mission_map.shutdown()
+        self.flight_tab.map.shutdown()
         self.destroy()
 
     def build_ui(self):
