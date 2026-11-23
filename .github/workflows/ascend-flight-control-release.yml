@@ -1,0 +1,232 @@
+name: ASCEND Flight Control Release
+
+# Pull requests that touch the app: build all three platforms and run the
+# built app's --self-test (no signing, nothing published).
+# A flight-control-v<version> tag: the same, plus macOS signing and
+# notarization, then a GitHub release.
+#
+# The RC Configurator finds its firmware through this repository's "latest"
+# release, so ASCEND Flight Control releases are never marked latest; the
+# release job checks that afterwards.
+
+on:
+  push:
+    tags:
+      - "flight-control-v*"
+  pull_request:
+    paths:
+      - "ascend_flight_control/**"
+      - "ASCEND Flight Control.spec"
+      - ".github/workflows/ascend-flight-control-release.yml"
+      - "fram_gui_models.py"
+      - "firmware_updater.py"
+      - "requirements.txt"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to build and publish (flight-control-v...)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+env:
+  RELEASE_TAG: ${{ github.event.inputs.tag || (startsWith(github.ref, 'refs/tags/') && github.ref_name) || '' }}
+
+jobs:
+  validate:
+    name: Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-tk xvfb
+          python -m pip install -r requirements.txt
+      - name: Check the tag matches the app version
+        if: env.RELEASE_TAG != ''
+        run: |
+          VERSION="$(python -c "import sys; sys.path.insert(0, 'ascend_flight_control'); from version import APP_VERSION; print(APP_VERSION)")"
+          if [ "$RELEASE_TAG" != "flight-control-v$VERSION" ]; then
+            echo "::error::Tag $RELEASE_TAG does not match ascend_flight_control/version.py ($VERSION)."
+            exit 1
+          fi
+      - name: ASCEND Flight Control tests
+        working-directory: ascend_flight_control
+        run: python -m unittest test_calibration test_mission_mavlink test_params
+      - name: RC Configurator release gates (it is embedded in the app)
+        run: python -m unittest test_mode_rates test_gui_model_codec test_gui_aircraft_codec test_button_channels test_bind_trim_save test_tx_buzzer test_firmware_updater
+      - name: Self-test from source
+        run: xvfb-run -a python ascend_flight_control/ascend_flight_control.py --self-test
+
+  build:
+    needs: validate
+    name: Build ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS
+            os: macos-latest
+            asset_name: ASCEND-Flight-Control-macOS-ARM64.zip
+            app_path: dist/ASCEND Flight Control.app
+          - name: Windows
+            os: windows-latest
+            asset_name: ASCEND-Flight-Control-Windows-x64.zip
+          - name: Raspberry Pi ARM64
+            # 22.04 (glibc 2.35) so the binary also runs on Raspberry Pi OS Bookworm (glibc 2.36).
+            os: ubuntu-22.04-arm
+            asset_name: ASCEND-Flight-Control-Raspberry-Pi-ARM64.zip
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install Linux GUI libraries
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-tk tk-dev zip xvfb
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt pyinstaller
+
+      - name: Set up Arduino CLI for the receiver flashing tool
+        uses: arduino/setup-arduino-cli@v2
+      - name: Stage native BOSSA receiver flashing tool
+        shell: bash
+        run: |
+          arduino-cli core update-index --additional-urls https://adafruit.github.io/arduino-board-index/package_adafruit_index.json
+          arduino-cli core install adafruit:samd@1.7.10 --additional-urls https://adafruit.github.io/arduino-board-index/package_adafruit_index.json
+          BOSSAC_PATH="$(find "$HOME" -type f \( -name bossac -o -name bossac.exe \) -path '*/packages/adafruit/tools/bossac/*' | head -n 1)"
+          test -n "$BOSSAC_PATH" -a -f "$BOSSAC_PATH"
+          mkdir -p tools
+          if [[ "$BOSSAC_PATH" == *.exe ]]; then cp "$BOSSAC_PATH" tools/bossac.exe; else cp "$BOSSAC_PATH" tools/bossac; fi
+
+      - name: Build app
+        run: python -m PyInstaller --clean --noconfirm "ASCEND Flight Control.spec"
+
+      - name: Self-test the built app (macOS)
+        if: runner.os == 'macOS'
+        run: '"dist/ASCEND Flight Control.app/Contents/MacOS/ASCEND Flight Control" --self-test'
+      - name: Self-test the built app (Raspberry Pi)
+        if: runner.os == 'Linux'
+        run: xvfb-run -a "dist/ASCEND Flight Control" --self-test
+      - name: Self-test the built app (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $env:ASCEND_SELFTEST_LOG = "$env:RUNNER_TEMP\selftest.log"
+          $p = Start-Process -FilePath "dist\ASCEND-Flight-Control.exe" -ArgumentList "--self-test" -Wait -PassThru
+          if (Test-Path $env:ASCEND_SELFTEST_LOG) { Get-Content $env:ASCEND_SELFTEST_LOG }
+          if ($p.ExitCode -ne 0) { Write-Error "Self-test failed (exit $($p.ExitCode))"; exit 1 }
+
+      - name: Import Apple Developer ID certificate
+        if: runner.os == 'macOS' && env.RELEASE_TAG != ''
+        env:
+          MACOS_CERTIFICATE_BASE64: ${{ secrets.MACOS_CERTIFICATE_BASE64 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          MACOS_KEYCHAIN_PASSWORD: ${{ secrets.MACOS_KEYCHAIN_PASSWORD }}
+        run: |
+          for name in MACOS_CERTIFICATE_BASE64 MACOS_CERTIFICATE_PASSWORD MACOS_KEYCHAIN_PASSWORD; do
+            if [ -z "${!name}" ]; then echo "::error::$name is required to sign the macOS release."; exit 1; fi
+          done
+          KEYCHAIN_PATH="$RUNNER_TEMP/app-signing.keychain-db"
+          CERTIFICATE_PATH="$RUNNER_TEMP/developer-id.p12"
+          echo "$MACOS_CERTIFICATE_BASE64" | base64 --decode > "$CERTIFICATE_PATH"
+          security create-keychain -p "$MACOS_KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$MACOS_KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERTIFICATE_PATH" -P "$MACOS_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security list-keychain -d user -s "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$MACOS_KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          IDENTITY="$(security find-identity -v -p codesigning "$KEYCHAIN_PATH" | sed -n 's/.*"\(Developer ID Application:.*\)"/\1/p' | head -n 1)"
+          if [ -z "$IDENTITY" ]; then echo "::error::No Developer ID Application identity in the certificate."; exit 1; fi
+          echo "APPLE_DETECTED_SIGNING_IDENTITY=$IDENTITY" >> "$GITHUB_ENV"
+
+      - name: Sign and notarize macOS app
+        if: runner.os == 'macOS' && env.RELEASE_TAG != ''
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+        run: |
+          # --deep also signs the bundled pinch helper (native/libascend_pinch.dylib) and bossac.
+          codesign --force --deep --options runtime --timestamp --sign "$APPLE_DETECTED_SIGNING_IDENTITY" "${{ matrix.app_path }}"
+          codesign --verify --deep --strict --verbose=2 "${{ matrix.app_path }}"
+          ditto -c -k --sequesterRsrc --keepParent "${{ matrix.app_path }}" notary-submit.zip
+          xcrun notarytool submit notary-submit.zip --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --wait
+          xcrun stapler staple "${{ matrix.app_path }}"
+          xcrun stapler validate "${{ matrix.app_path }}"
+          # The signed app must still pass its self-test (hardened runtime + the ctypes pinch helper).
+          "${{ matrix.app_path }}/Contents/MacOS/ASCEND Flight Control" --self-test
+
+      - name: Package (macOS)
+        if: runner.os == 'macOS'
+        run: ditto -c -k --sequesterRsrc --keepParent "${{ matrix.app_path }}" "${{ matrix.asset_name }}"
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: Compress-Archive -Path "dist\ASCEND-Flight-Control.exe" -DestinationPath "${{ matrix.asset_name }}" -Force
+      - name: Package (Raspberry Pi)
+        if: runner.os == 'Linux'
+        run: |
+          chmod +x "dist/ASCEND Flight Control"
+          cp ascend_flight_control/packaging/install.sh dist/
+          cp assets/altitude_unknown_icon.png dist/ascend-flight-control.png
+          (cd dist && zip "../${{ matrix.asset_name }}" "ASCEND Flight Control" install.sh ascend-flight-control.png)
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset_name }}
+          path: ${{ matrix.asset_name }}
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub release
+    needs: build
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+      - uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+      - name: Publish release (pre-release, never "latest")
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TITLE="ASCEND Flight Control ${RELEASE_TAG#flight-control-v} (beta)"
+          NOTES=ascend_flight_control/RELEASE_NOTES.md
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --title "$TITLE" --notes-file "$NOTES" \
+              --prerelease --latest=false
+          else
+            gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --title "$TITLE" --notes-file "$NOTES" \
+              --prerelease --latest=false
+          fi
+          gh release upload "$RELEASE_TAG" release-assets/* --repo "$GITHUB_REPOSITORY" --clobber
+      - name: Check the RC Configurator release is still "latest"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          LATEST="$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name)"
+          echo "Latest release: $LATEST"
+          case "$LATEST" in
+            transmitter-gui-v*) ;;
+            *) echo "::error::releases/latest is $LATEST; the RC Configurator's firmware updater needs a transmitter-gui-v release there."; exit 1 ;;
+          esac
