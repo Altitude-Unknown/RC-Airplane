@@ -234,6 +234,57 @@ class LoiterTests(unittest.TestCase):
         self.assertEqual(mission_from_dict(old).waypoints[1].loiter.mode, "forever")
 
 
+def photo_mission(start_m=23.7, stop=True) -> Mission:
+    m = Mission(home=HomePoint(45.64, -111.19, 1490))
+    m.waypoints = [Waypoint(1, 45.641, -111.189, altitude_m=60, action="takeoff"),
+                   Waypoint(2, 45.645, -111.185, event=WaypointEvent(type="camera_distance", camera_distance_m=start_m)),
+                   Waypoint(3, 45.646, -111.180,
+                            event=WaypointEvent(type="camera_distance", camera_distance_m=0) if stop else WaypointEvent())]
+    return m
+
+
+class CameraDistanceTests(unittest.TestCase):
+    def test_start_and_stop_items(self):
+        result = mission_to_items(photo_mission())
+        self.assertEqual(result.errors, [])
+        self.assertEqual([i.describe() for i in result.items[1:]],
+                         ["NAV_TAKEOFF", "NAV_WAYPOINT", "DO_SET_CAM_TRIGG_DIST", "NAV_WAYPOINT", "DO_SET_CAM_TRIGG_DIST"])
+        start, stop = result.items[3], result.items[5]
+        self.assertEqual(start.params, (23.7, 0, 1.0, 0))  # first photo right away
+        self.assertEqual(stop.params, (0.0, 0, 0.0, 0))
+        self.assertFalse(any("keeps firing" in w for w in result.warnings))
+
+    def test_warns_when_never_stopped(self):
+        self.assertTrue(any("keeps firing" in w for w in mission_to_items(photo_mission(stop=False)).warnings))
+
+    def test_out_of_range_is_error(self):
+        self.assertTrue(any("photo distance" in e for e in mission_to_items(photo_mission(start_m=1500)).errors))
+        from mission_schema import validate_mission
+        self.assertTrue(any("photo distance" in e for e in validate_mission(photo_mission(start_m=-1))))
+
+    def test_round_trip_and_json(self):
+        original = photo_mission()
+        items = mission_to_items(original).items
+        rebuilt, notes = items_to_mission(items)
+        self.assertEqual(notes, [])
+        self.assertEqual([(w.event.type, w.event.camera_distance_m) for w in rebuilt.waypoints[1:]],
+                         [("camera_distance", 23.7), ("camera_distance", 0.0)])
+        self.assertEqual(compare_items(items, mission_to_items(rebuilt).items), [])
+        self.assertEqual(mission_from_dict(mission_to_dict(original)).waypoints[1].event.camera_distance_m, 23.7)
+
+    def test_float32_readback_matches(self):
+        """The FC stores the distance as a 32-bit float; the read-back check must accept that."""
+        import struct
+        items = mission_to_items(photo_mission(start_m=23.7)).items
+        upload_mission(FakeFc(), items)  # protocol path accepts the item
+        stored = list(items)
+        a = stored[3]
+        f32 = struct.unpack("<f", struct.pack("<f", a.params[0]))[0]
+        b = type(a)(a.command, a.frame, (f32, a.params[1], a.params[2], a.params[3]), source_wp=a.source_wp)
+        stored[3] = b
+        self.assertEqual(compare_items(items, stored), [])
+
+
 class TransferTests(unittest.TestCase):
     def test_upload_then_download_verifies(self):
         fc = FakeFc()

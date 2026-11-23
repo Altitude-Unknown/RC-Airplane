@@ -10,6 +10,8 @@ ArduPilot mission conventions used here:
   waypoint that needs the new speed.
 - Waypoint events become DO_* items placed after the waypoint, so they fire
   once the aircraft reaches it.
+- "Photos every N m" events become DO_SET_CAM_TRIGG_DIST (N = 0 stops). The
+  camera only fires if CAM1_TYPE is set up on the flight controller.
 """
 
 from __future__ import annotations
@@ -22,7 +24,8 @@ import os
 os.environ.setdefault("MAVLINK20", "1")  # mission_type and other v2 fields
 from pymavlink import mavutil  # noqa: E402
 
-from mission_schema import HomePoint, LoiterSettings, Mission, Waypoint, WaypointEvent, validate_loiter
+from mission_schema import (CAMERA_DISTANCE_MAX_M, HomePoint, LoiterSettings, Mission, Waypoint, WaypointEvent,
+                            validate_loiter)
 
 mavlink = mavutil.mavlink
 
@@ -137,7 +140,20 @@ def mission_to_items(mission: Mission) -> ConversionResult:
                 f"{label}: hold time is ignored by planes except on loiter waypoints."
             )
 
+    distance_events = [(i, wp) for i, wp in enumerate(mission.waypoints, start=1)
+                       if wp.event.type == "camera_distance"]
+    if distance_events and distance_events[-1][1].event.camera_distance_m > 0:
+        result.warnings.append(
+            f"Waypoint {distance_events[-1][0]} starts taking photos by distance and no later waypoint stops it, "
+            "so the camera keeps firing for the rest of the flight (even after the mission ends)."
+        )
     return result
+
+
+def uses_camera(mission: Mission) -> bool:
+    """True if any waypoint takes photos (so the camera has to be set up on the flight controller)."""
+    return any(wp.action == "camera_trigger" or wp.event.type in ("camera", "camera_distance")
+               for wp in mission.waypoints)
 
 
 def _nav_item(wp, label, result: ConversionResult) -> MissionItem | None:
@@ -223,6 +239,14 @@ def _append_event(wp, label, result: ConversionResult):
     elif event.type == "camera":
         if wp.action != "camera_trigger":
             result.items.append(_camera_item(wp))
+    elif event.type == "camera_distance":
+        meters = round(float(event.camera_distance_m), 2)
+        if not 0 <= meters <= CAMERA_DISTANCE_MAX_M:
+            result.errors.append(f"{label}: photo distance must be 0 (stop) to {CAMERA_DISTANCE_MAX_M} m.")
+            return
+        # param1 = meters between photos (0 stops), param3 = 1 takes the first photo right away
+        result.items.append(MissionItem(mavlink.MAV_CMD_DO_SET_CAM_TRIGG_DIST, FRAME_MISSION,
+                                        (meters, 0, 1.0 if meters > 0 else 0.0, 0), source_wp=wp.id))
     elif event.type == "relay":
         if event.servo_channel is None:
             result.errors.append(f"{label}: relay events use the Servo Ch field as the relay number (1 = RELAY1).")
@@ -300,6 +324,9 @@ def items_to_mission(items: list[MissionItem], name: str = "Downloaded Mission")
                 last.action = "camera_trigger"
             elif last.event.type == "none":
                 last.event.type = "camera"
+        elif c == cmd.MAV_CMD_DO_SET_CAM_TRIGG_DIST and last.event.type == "none":
+            last.event = WaypointEvent(type="camera_distance", camera_distance_m=round(float(item.params[0]), 2),
+                                       hold_seconds=last.event.hold_seconds)
         elif c == cmd.MAV_CMD_DO_SET_RELAY and last.event.type == "none":
             last.event = WaypointEvent(type="relay", servo_channel=int(item.params[0]) + 1,
                                        servo_pwm=0 if item.params[1] == 0 else 1,

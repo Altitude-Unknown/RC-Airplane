@@ -43,6 +43,7 @@ from mission_mavlink import (
     items_to_mission,
     mission_to_items,
     upload_mission,
+    uses_camera,
 )
 from param_catalog import CATALOG, PROTECTED
 from param_protocol import (
@@ -56,6 +57,7 @@ from param_protocol import (
 from calibration_view import CalibrationTab
 from flight_view import FlightTab
 from map_view import MissionMap
+from grid_view import SurveyGridWindow
 import location
 import mac_native
 from app_settings import load_setting, save_setting
@@ -137,6 +139,7 @@ class FlightControlApp(tk.Tk):
         self.event_type_var = tk.StringVar(value="none")
         self.servo_channel_var = tk.StringVar(value="")
         self.servo_pwm_var = tk.StringVar(value="")
+        self.photo_dist_var = tk.StringVar(value="")
         self.loiter_mode_var = tk.StringVar(value=LOITER_MODE_LABELS["time"])
         self.loiter_seconds_var = tk.IntVar(value=30)
         self.loiter_turns_var = tk.IntVar(value=3)
@@ -251,7 +254,8 @@ class FlightControlApp(tk.Tk):
         ttk.Button(toolbar, text="Open", command=self.open_mission).pack(side="left", padx=(6, 0))
         ttk.Button(toolbar, text="Save", command=self.save_mission).pack(side="left", padx=(6, 0))
         ttk.Button(toolbar, text="Save As", command=self.save_mission_as).pack(side="left", padx=(6, 0))
-        ttk.Button(toolbar, text="Set Home From First WP", command=self.set_home_from_first_waypoint).pack(side="left", padx=(18, 0))
+        ttk.Button(toolbar, text="Survey Grid…", command=self.open_survey_grid).pack(side="left", padx=(18, 0))
+        ttk.Button(toolbar, text="Set Home From First WP", command=self.set_home_from_first_waypoint).pack(side="left", padx=(6, 0))
         ttk.Button(toolbar, text="Validate", command=self.show_validation).pack(side="left", padx=(18, 0))
         ttk.Button(toolbar, text="Upload to FC", command=self.upload_to_fc).pack(side="left", padx=(6, 0))
         ttk.Button(toolbar, text="Download from FC", command=self.download_from_fc).pack(side="left", padx=(6, 0))
@@ -264,7 +268,8 @@ class FlightControlApp(tk.Tk):
         panes.add(left, weight=3)
         panes.add(right, weight=1)
 
-        self.mission_map = MissionMap(left, on_add=self.add_waypoint, on_select=self.select_waypoint)
+        self.mission_map = MissionMap(left, on_add=self.add_waypoint, on_select=self.select_waypoint,
+                                      on_move=self.move_waypoint)
         table_area = ttk.Frame(left)
         left.add(self.mission_map, weight=3)
         left.add(table_area, weight=1)
@@ -341,6 +346,7 @@ class FlightControlApp(tk.Tk):
         self.form_combo(waypoint_box, "Event", self.event_type_var, EVENT_TYPES)
         self.form_entry(waypoint_box, "Servo Ch", self.servo_channel_var)
         self.form_entry(waypoint_box, "Servo PWM", self.servo_pwm_var)
+        self.unit_row(self.form_entry(waypoint_box, "Photo every ({alt})", self.photo_dist_var), "Photo every ({alt})")
         self.form_entry(waypoint_box, "Notes", self.notes_var)
         self.form_entry(waypoint_box, "Event Notes", self.event_notes_var)
         ttk.Button(waypoint_box, text="Apply Waypoint Changes", command=self.apply_waypoint_editor).pack(fill="x", pady=(10, 0))
@@ -664,6 +670,44 @@ class FlightControlApp(tk.Tk):
         self.selected_waypoint_id = waypoint.id
         self.refresh_all(f"Added waypoint {waypoint.id}")
 
+    def move_waypoint(self, waypoint_id: int, lat: float, lon: float):
+        """A waypoint was dragged on the map."""
+        waypoint = self.get_waypoint(waypoint_id)
+        if waypoint is None:
+            return
+        waypoint.lat, waypoint.lon = round(lat, 7), round(lon, 7)
+        self.selected_waypoint_id = waypoint.id
+        number = self.mission.waypoints.index(waypoint) + 1
+        self.refresh_all(f"Moved waypoint {number}")
+
+    def open_survey_grid(self):
+        if self.mission_map.map is None:
+            messagebox.showinfo(APP_TITLE, "The survey grid needs the in-app map (the tkintermapview package).")
+            return
+        window = getattr(self, "survey_window", None)
+        if window is not None and window.winfo_exists():
+            window.lift()
+            return
+        self.notebook.select(0)  # the Mission tab, where the area is drawn
+        self.survey_window = SurveyGridWindow(self, self.mission_map, self.add_grid_waypoints)
+
+    def add_grid_waypoints(self, points, altitude_m: float, speed_mps: float, replace: bool, photos=None):
+        """photos: per point, meters between photos (0.0 stops them) or None for no event."""
+        if replace:
+            self.mission.waypoints = []
+        first = None
+        photos = photos or [None] * len(points)
+        for (lat, lon), photo_m in zip(points, photos):
+            event = WaypointEvent() if photo_m is None else WaypointEvent(type="camera_distance",
+                                                                          camera_distance_m=photo_m)
+            waypoint = Waypoint(id=self.mission.next_waypoint_id(), lat=round(lat, 7), lon=round(lon, 7),
+                                altitude_m=round(altitude_m, 2), speed_mps=round(speed_mps, 2), event=event)
+            self.mission.waypoints.append(waypoint)
+            first = first or waypoint
+        self.selected_waypoint_id = first.id if first else None
+        self.refresh_all(f"Added a survey grid: {len(points)} waypoints"
+                         + (" (replaced the old waypoints)" if replace else ""))
+
     def on_table_select(self, _event=None):
         if self._loading_editor:
             return
@@ -702,6 +746,8 @@ class FlightControlApp(tk.Tk):
             self.event_type_var.set(waypoint.event.type)
             self.servo_channel_var.set("" if waypoint.event.servo_channel is None else str(waypoint.event.servo_channel))
             self.servo_pwm_var.set("" if waypoint.event.servo_pwm is None else str(waypoint.event.servo_pwm))
+            self.photo_dist_var.set(self.fmt_dist_input(waypoint.event.camera_distance_m)
+                                    if waypoint.event.type == "camera_distance" else "")
             lo = waypoint.loiter
             self.loiter_mode_var.set(LOITER_MODE_LABELS.get(lo.mode, LOITER_MODE_LABELS["time"]))
             self.loiter_seconds_var.set(lo.seconds)
@@ -733,6 +779,7 @@ class FlightControlApp(tk.Tk):
                 servo_pwm=self.optional_int(self.servo_pwm_var.get()),
                 hold_seconds=waypoint.event.hold_seconds,  # kept from older files; not edited here
                 notes=self.event_notes_var.get().strip(),
+                camera_distance_m=self.photo_distance_from_editor(waypoint),
             )
             waypoint.notes = self.notes_var.get().strip()
             if waypoint.action == "loiter":
@@ -750,6 +797,19 @@ class FlightControlApp(tk.Tk):
             messagebox.showerror(APP_TITLE, f"Could not apply waypoint changes:\n{exc}")
             return
         self.refresh_all(f"Updated waypoint {waypoint.id}")
+
+    def fmt_dist_input(self, meters: float) -> str:
+        value = self.units.alt(meters)
+        return f"{value:.1f}".rstrip("0").rstrip(".")
+
+    def photo_distance_from_editor(self, waypoint) -> float:
+        """Meters between photos for a "camera_distance" event (blank or 0 = stop taking photos)."""
+        if self.event_type_var.get() != "camera_distance":
+            return 0.0
+        text = self.photo_dist_var.get().strip()
+        if waypoint.event.type == "camera_distance" and text == self.fmt_dist_input(waypoint.event.camera_distance_m):
+            return waypoint.event.camera_distance_m  # unchanged; don't round-trip through display units
+        return round(self.units.alt_si(float(text)), 2) if text else 0.0
 
     def apply_home(self, show_errors=True):
         try:
@@ -897,8 +957,12 @@ class FlightControlApp(tk.Tk):
             return
         lines = [f"Upload {len(self.mission.waypoints)} waypoints ({len(conversion.items) - 1} mission items) to the flight controller?",
                  "This replaces the mission currently on the flight controller."]
-        if conversion.warnings:
-            lines.append("\nWarnings:\n" + "\n".join(f"- {w}" for w in conversion.warnings))
+        warnings = list(conversion.warnings)
+        camera_note = self.camera_setup_warning()
+        if camera_note:
+            warnings.append(camera_note)
+        if warnings:
+            lines.append("\nWarnings:\n" + "\n".join(f"- {w}" for w in warnings))
         if self.fc_link.status.armed:
             lines.append("\nTHE AIRCRAFT IS ARMED. The new mission takes effect immediately if it is flying in AUTO.")
         if not messagebox.askyesno(APP_TITLE, "\n".join(lines), icon="warning" if self.fc_link.status.armed else "question"):
@@ -923,6 +987,18 @@ class FlightControlApp(tk.Tk):
                 self.ui_events.put(("fc_done", ("info", f"Mission uploaded and verified: {len(items) - 1} items on the flight controller.")))
 
         self.start_fc_job(work, "Uploading mission")
+
+    def camera_setup_warning(self) -> str | None:
+        """The mission takes photos but the flight controller has no camera trigger set up."""
+        if not uses_camera(self.mission):
+            return None
+        if not self.param_store.loaded or "CAM1_TYPE" not in self.param_store.params:
+            return ("This mission takes photos. Load the settings (Aircraft Settings tab) to check that "
+                    "the camera trigger is set up.")
+        if int(self.param_store.value("CAM1_TYPE")) == 0:
+            return ("This mission takes photos, but the camera shutter trigger (CAM1_TYPE) is None, so no photos "
+                    "will be taken. Set it in Aircraft Settings → Camera.")
+        return None
 
     def download_from_fc(self):
         if not self.require_link():
@@ -1201,6 +1277,14 @@ class FlightControlApp(tk.Tk):
         detail = {"time": f"{lo.seconds} s", "turns": f"{lo.turns} laps", "forever": "forever"}.get(lo.mode, lo.mode)
         return f"loiter {detail}"
 
+    def event_text(self, waypoint) -> str:
+        event = waypoint.event
+        if event.type != "camera_distance":
+            return event.type
+        if event.camera_distance_m <= 0:
+            return "photos off"
+        return f"photos every {self.fmt_dist_input(event.camera_distance_m)} {self.units.alt_label}"
+
     def refresh_table(self):
         selected_id = self.selected_waypoint_id
         self._loading_editor = True
@@ -1220,7 +1304,7 @@ class FlightControlApp(tk.Tk):
                         self.fmt_alt_input(waypoint.altitude_m),
                         self.fmt_speed_input(waypoint.speed_mps),
                         self.action_text(waypoint),
-                        waypoint.event.type,
+                        self.event_text(waypoint),
                     ),
                 )
             if selected_id and self.get_waypoint(selected_id):

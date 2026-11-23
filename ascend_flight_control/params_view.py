@@ -371,7 +371,8 @@ class SettingsTab(tk.Frame):
         control.grid(row=0, column=1, sticky="ne", padx=(16, 0))
 
         if not available:
-            tk.Label(control, text="Not on this firmware", bg=bg, fg=MUTED, font=("TkDefaultFont", 12)).pack()
+            tk.Label(control, text=s.absent_note or "Not on this firmware", bg=bg, fg=MUTED, font=("TkDefaultFont", 12),
+                     wraplength=260, justify="right").pack()
             return
 
         raw = self.store.value(name)
