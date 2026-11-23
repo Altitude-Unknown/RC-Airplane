@@ -143,6 +143,19 @@ def set_param(link, param: Param, new_value: float, timeout: float = 1.0, retrie
     raise ParamError(f"No reply from the flight controller when setting {param.name}.")
 
 
+def read_param(link, name: str, timeout: float = 1.0, retries: int = 3) -> float | None:
+    """Read one parameter's current value from the FC (None if it never answers)."""
+    for _attempt in range(retries + 1):
+        link.send(lambda mav: mav.param_request_read_send(
+            link.target_system, link.target_component, name.encode("ascii"), -1))
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            msg = link.wait_param_message(max(0.0, deadline - time.monotonic()))
+            if msg is not None and _name(msg) == name:
+                return msg.param_value
+    return None
+
+
 @dataclass
 class WriteResult:
     name: str

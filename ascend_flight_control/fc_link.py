@@ -96,6 +96,7 @@ class FcLink:
         self._send_lock = threading.Lock()
         self._mission_queue: queue.Queue = queue.Queue()
         self._param_queue: queue.Queue = queue.Queue()
+        self._listeners: list[Callable] = []  # called from the reader thread with every message
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
 
@@ -189,6 +190,25 @@ class FcLink:
         except queue.Empty:
             return None
 
+    def add_listener(self, fn: Callable) -> None:
+        """fn(msg) runs on the reader thread for every message from the vehicle; keep it quick
+        (e.g. put the message on a queue)."""
+        self._listeners.append(fn)
+
+    def remove_listener(self, fn: Callable) -> None:
+        if fn in self._listeners:
+            self._listeners.remove(fn)
+
+    def command(self, cmd: int, *params: float) -> None:
+        """Send COMMAND_LONG with up to 7 params."""
+        p = [float(v) for v in params] + [0.0] * (7 - len(params))
+        self.send(lambda mav: mav.command_long_send(self.target_system, self.target_component, cmd, 0, *p))
+
+    def set_message_rate(self, msg_id: int, hz: float) -> None:
+        """hz > 0 sets a rate; hz == 0 restores the default; hz < 0 stops the message."""
+        interval = 1e6 / hz if hz > 0 else (0 if hz == 0 else -1)
+        self.command(mavlink.MAV_CMD_SET_MESSAGE_INTERVAL, msg_id, interval)
+
     def reboot(self) -> None:
         """Reboot the autopilot. Caller must make sure the vehicle is disarmed."""
         self.send(lambda mav: mav.command_long_send(
@@ -224,6 +244,11 @@ class FcLink:
             return
         if msg.get_srcSystem() != self.target_system:
             return
+        for listener in list(self._listeners):
+            try:
+                listener(msg)
+            except Exception:
+                pass
         if kind == "PARAM_VALUE":
             self._param_queue.put(msg)
             return

@@ -29,6 +29,17 @@ python3 ascend_flight_control.py
   home, target waypoint, flight time, GPS), the flight controller's messages,
   and a live map with the aircraft's trail. Airspeed is marked as an estimate
   when no airspeed sensor is configured (`ARSPD_TYPE` 0).
+- **Calibration** tab, in the recommended order:
+  - *Accelerometer*: six positions, with a picture of each; the flight
+    controller asks for each pose and the app confirms it. Gyroscopes calibrate
+    at every start-up, and can be redone from the same page.
+  - *Level*: the normal level-flight attitude (`AHRS_TRIM_X/Y`).
+  - *Compass*: ArduPilot's onboard calibration with a progress bar per compass;
+    the result is saved by the flight controller (and `COMPASS_ORIENT` corrected
+    if needed). Restart afterwards.
+  - *Radio*: live bars for CH1-CH6; writes `RCn_MIN`/`RCn_MAX` and the throttle
+    low point, verified. Stick centres are left to the Bind-button trim-save
+    (it updates servo trims too) and CH7 is not touched.
 - **RC Configurator** tab: the full RC Configurator (transmitter Models,
   Instructor / Student, Firmware Update, Speaker Test), the same code as the
   standalone `fram_gui_models.py`, which still runs on its own. Before the

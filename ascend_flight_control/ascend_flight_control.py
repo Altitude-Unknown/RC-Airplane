@@ -53,6 +53,7 @@ from param_protocol import (
     save_param_file,
     write_changes,
 )
+from calibration_view import CalibrationTab
 from flight_view import FlightTab
 from map_view import MissionMap
 from mission_mavlink import NAV_COMMANDS
@@ -213,6 +214,8 @@ class FlightControlApp(tk.Tk):
         }
         self.settings_tab = SettingsTab(self.notebook, self.param_store, param_actions, self.units)
         self.notebook.add(self.settings_tab, text="Aircraft Settings")
+        self.calibration_tab = CalibrationTab(self.notebook, self)
+        self.notebook.add(self.calibration_tab, text="Calibration")
         self.all_params_tab = AllParamsTab(self.notebook, self.param_store, param_actions)
         self.notebook.add(self.all_params_tab, text="All Parameters")
         self.configurator = None
