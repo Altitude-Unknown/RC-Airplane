@@ -1640,7 +1640,7 @@ class ConfiguratorFrame(ttk.Frame):
         # device names in the dropdown. Prefer the SAMD21 by its assigned USB
         # identity so the V3 ESP32 diagnostic port is not selected by mistake.
         detected = list(list_ports.comports())
-        detected.sort(key=lambda p: 0 if (p.vid == 0x03EB and p.pid == 0x2402) else 1)
+        detected.sort(key=lambda p: 0 if firmware_updater.samd_port_kind(p) == "transmitter" else 1)
         self.port_devices = {}
         labels = []
         for p in detected:
@@ -1678,20 +1678,14 @@ class ConfiguratorFrame(ttk.Frame):
         if hasattr(self, "firmware_samd_port_cmb"):
             # The user may deliberately flash either the transmitter M0 or the
             # receiver, so retain all detected ports and show their USB names.
-            def samd_priority(port):
-                text = " ".join(filter(None, (port.product, port.description, port.manufacturer))).lower()
-                return 0 if (port.vid in (0x03EB, 0x239A) or "samd" in text or
-                             "feather" in text or "altitude rc tx" in text) else 1
-            samd_ports = sorted(detected, key=samd_priority)
+            samd_ports = sorted(detected, key=lambda port: 0 if firmware_updater.is_samd_port(port) else 1)
             self.firmware_samd_port_devices = {}
             self.firmware_samd_port_kinds = {}
             samd_labels = []
             for port in samd_ports:
                 name = port.product or port.description or "Serial device"
                 label = f"{name} — {port.device}"
-                text = " ".join(filter(None, (port.product, port.description, port.manufacturer))).lower()
-                kind = ("transmitter" if "altitude rc tx" in text else
-                        "receiver" if ("receiver" in text or "feather m0" in text) else "unknown")
+                kind = firmware_updater.samd_port_kind(port)
                 self.firmware_samd_port_devices[label] = port.device
                 self.firmware_samd_port_kinds[label] = kind
                 samd_labels.append(label)

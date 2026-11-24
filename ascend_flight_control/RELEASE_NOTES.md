@@ -8,32 +8,15 @@ Backup…**) before changing anything, and tell us what goes wrong.
 
 ## New in this version
 
-- **Survey Grid window fits your screen.** **Add Grid to Mission** and the
-  grid's stats now stay at the bottom of the window, and the settings above
-  them scroll, so nothing falls off a laptop screen. The window opens on the
-  right, so it doesn't cover the map you're drawing on.
-- **No more lost grids.** Closing the Survey Grid window or clicking **Cancel**
-  with a grid drawn asks whether to add it to the mission first.
-- The Waypoint Editor is blank when no waypoint is selected (it used to show
-  numbers in the wrong units).
-- **Drag waypoints.** Click, hold and drag a waypoint on the map to move it.
-  A plain click still selects it.
-- **Survey grids.** **Survey Grid…** on the Mission tab lays out back-and-forth
-  passes over an area. Draw a box or a polygon on the map and drag its corners
-  to adjust. Set the altitude, the side overlap between passes (from your
-  camera's field of view) or a fixed spacing, the direction of the passes, and
-  how far each pass runs past the edge so the plane is flying straight before
-  it is over the area. The window shows the passes on the map, the flight
-  distance and time, and the number of photos.
-- **Photos by distance.** A survey grid can have the flight controller take a
-  photo every so many meters, on each pass and not in the turns. Any waypoint
-  can also start or stop photos (Event `camera_distance`).
-- **Camera settings.** **Aircraft Settings → Camera** sets how the flight
-  controller fires the shutter. Photos are only taken once **Shutter trigger**
-  is set, and **Upload to FC** warns you if it isn't.
+- **Transmitter and receiver USB IDs.** The RC Configurator tab finds the
+  transmitter and receiver by their new USB IDs (`1209:A5C0` and `1209:A5C1`,
+  from pid.codes), as well as boards flashed with older firmware. **Firmware
+  Update** installs firmware that uses the new IDs.
 
-Earlier in this beta: FAA map layers (VFR sectional chart, TFRs, UAS Facility
-Map, airspace), and the map opening at your location or a saved map home.
+Earlier in this beta: dragging waypoints on the map, survey grids that take
+photos by distance (with Camera settings), FAA map layers (VFR sectional chart,
+TFRs, UAS Facility Map, airspace), and the map opening at your location or a
+saved map home.
 
 ## Download
 

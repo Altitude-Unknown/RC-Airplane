@@ -508,6 +508,38 @@ def flash_receiver_samba(image, port):
     raise FirmwareUpdateError(f"Receiver serial flashing failed: {detail}")
 
 
+# USB IDs of the Altitude Unknown transmitter and receiver (pid.codes, VID
+# 0x1209), shared by each board's bootloader and firmware. The older IDs stay
+# listed so boards flashed before the change are still recognized.
+TRANSMITTER_USB_IDS = {(0x1209, 0xA5C0), (0x03EB, 0x2402)}
+RECEIVER_USB_IDS = {(0x1209, 0xA5C1), (0x239A, 0x800B)}
+
+
+def _port_text(port_info):
+    return " ".join(filter(None, (getattr(port_info, "product", None), getattr(port_info, "description", None),
+                                  getattr(port_info, "manufacturer", None)))).lower()
+
+
+def samd_port_kind(port_info):
+    """'transmitter', 'receiver' or 'unknown' for a serial port, by USB ID, then by USB name."""
+    ids = (getattr(port_info, "vid", None), getattr(port_info, "pid", None))
+    text = _port_text(port_info)
+    if ids in TRANSMITTER_USB_IDS or "altitude rc tx" in text or "rc airplane tx" in text:
+        return "transmitter"
+    if (ids in RECEIVER_USB_IDS or "altitude rc rx" in text or "rc airplane rx" in text
+            or "receiver" in text or "feather m0" in text):
+        return "receiver"
+    return "unknown"
+
+
+def is_samd_port(port_info):
+    """A port that is probably an Altitude SAMD21 board (listed first when choosing one to flash)."""
+    text = _port_text(port_info)
+    return (samd_port_kind(port_info) != "unknown" or getattr(port_info, "vid", None) in (0x1209, 0x03EB, 0x239A)
+            and (getattr(port_info, "vid", None), getattr(port_info, "pid", None)) not in ARDUPILOT_USB_IDS
+            or "samd" in text or "feather" in text)
+
+
 # ArduPilot's pid.codes USB IDs: 0x5741 for single-USB boards, 0x5740 for
 # dual-USB boards. The application and its bootloader both use them.
 ARDUPILOT_USB_IDS = {(0x1209, 0x5740), (0x1209, 0x5741)}
