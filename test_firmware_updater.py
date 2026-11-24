@@ -415,5 +415,32 @@ class LocalFirmwareTests(unittest.TestCase):
             updater.validate_local_firmware(self.root / "missing.uf2", "samd21")
 
 
+class SamdPortKindTests(unittest.TestCase):
+    """The configurator finds the transmitter and receiver by USB ID first, then by USB name."""
+
+    @staticmethod
+    def port(vid, pid, product=None, description=None, manufacturer=None):
+        return mock.Mock(vid=vid, pid=pid, product=product, description=description, manufacturer=manufacturer)
+
+    def test_new_pidcodes_ids(self):
+        self.assertEqual(updater.samd_port_kind(self.port(0x1209, 0xA5C0, "Altitude RC TX M0")), "transmitter")
+        self.assertEqual(updater.samd_port_kind(self.port(0x1209, 0xA5C1, "Altitude RC RX M0")), "receiver")
+        # The bootloaders share the IDs and call themselves "RC Airplane TX/RX M0".
+        self.assertEqual(updater.samd_port_kind(self.port(0x1209, 0xA5C0, "RC Airplane TX M0")), "transmitter")
+        self.assertEqual(updater.samd_port_kind(self.port(None, None, "RC Airplane RX M0")), "receiver")
+
+    def test_boards_flashed_before_the_change(self):
+        self.assertEqual(updater.samd_port_kind(self.port(0x03EB, 0x2402, "Altitude RC TX M0")), "transmitter")
+        self.assertEqual(updater.samd_port_kind(self.port(0x239A, 0x800B, "Feather M0")), "receiver")
+
+    def test_other_devices_are_not_boards(self):
+        fc = self.port(0x1209, 0x5741, "ArduPilot")
+        self.assertEqual(updater.samd_port_kind(fc), "unknown")
+        self.assertFalse(updater.is_samd_port(fc))
+        self.assertFalse(updater.is_samd_port(self.port(0x303A, 0x1001, "USB JTAG/serial debug unit")))
+        self.assertEqual(updater.samd_port_kind(self.port(0x1209, 0xA5C2, "YELLOWSTONE M0")), "unknown")
+        self.assertTrue(updater.is_samd_port(self.port(0x1209, 0xA5C0, "Altitude RC TX M0")))
+
+
 if __name__ == "__main__":
     unittest.main()
