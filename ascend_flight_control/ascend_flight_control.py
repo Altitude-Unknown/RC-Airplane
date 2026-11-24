@@ -68,8 +68,6 @@ from params_view import AllParamsTab, ParamStore, SettingsTab, load_metadata, se
 from mission_schema import (
     ACTION_TYPES,
     EVENT_TYPES,
-    DEFAULT_ALTITUDE_M,
-    DEFAULT_SPEED_MPS,
     LOITER_MAX_RADIUS_M,
     LoiterSettings,
     Mission,
@@ -133,8 +131,8 @@ class FlightControlApp(tk.Tk):
         self.home_lat_var = tk.StringVar(value="")
         self.home_lon_var = tk.StringVar(value="")
         self.home_alt_var = tk.StringVar(value="0")
-        self.altitude_var = tk.StringVar(value=str(DEFAULT_ALTITUDE_M))
-        self.speed_var = tk.StringVar(value=str(DEFAULT_SPEED_MPS))
+        self.altitude_var = tk.StringVar(value="")  # blank until a waypoint is selected
+        self.speed_var = tk.StringVar(value="")
         self.action_var = tk.StringVar(value="waypoint")
         self.event_type_var = tk.StringVar(value="none")
         self.servo_channel_var = tk.StringVar(value="")
@@ -738,6 +736,9 @@ class FlightControlApp(tk.Tk):
         try:
             if waypoint is None:
                 self.selected_var.set("No waypoint selected")
+                for var in (self.altitude_var, self.speed_var, self.servo_channel_var, self.servo_pwm_var,
+                            self.photo_dist_var, self.notes_var, self.event_notes_var):
+                    var.set("")  # not stale values (or SI numbers under a ft / kn label)
                 return
             self.selected_var.set(f"Waypoint {waypoint.id} at {waypoint.lat:.6f}, {waypoint.lon:.6f}")
             self.altitude_var.set(self.fmt_alt_input(waypoint.altitude_m))

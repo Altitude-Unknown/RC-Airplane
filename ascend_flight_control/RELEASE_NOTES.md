@@ -8,6 +8,14 @@ Backup…**) before changing anything, and tell us what goes wrong.
 
 ## New in this version
 
+- **Survey Grid window fits your screen.** **Add Grid to Mission** and the
+  grid's stats now stay at the bottom of the window, and the settings above
+  them scroll, so nothing falls off a laptop screen. The window opens on the
+  right, so it doesn't cover the map you're drawing on.
+- **No more lost grids.** Closing the Survey Grid window or clicking **Cancel**
+  with a grid drawn asks whether to add it to the mission first.
+- The Waypoint Editor is blank when no waypoint is selected (it used to show
+  numbers in the wrong units).
 - **Drag waypoints.** Click, hold and drag a waypoint on the map to move it.
   A plain click still selects it.
 - **Survey grids.** **Survey Grid…** on the Mission tab lays out back-and-forth
