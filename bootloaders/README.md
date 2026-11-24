@@ -1,36 +1,16 @@
 # RC Airplane SAMD21 Bootloaders
 
-Custom UF2 bootloaders for the RC Airplane transmitter and receiver PCBs.
+The USB bootloaders for the RC Airplane transmitter and receiver PCBs: the
+[Altitude SAMD21 Bootloader](https://github.com/Altitude-Unknown/Altitude-SAMD21-Bootloader)
+1.0.0 (MIT), written for these boards. It supports Arduino uploads over USB and
+a UF2 drag-and-drop drive.
 
-Hardware assumptions:
+| Board | File | USB ID | UF2 drive |
+| --- | --- | --- | --- |
+| Transmitter | `tx/bootloader-rc_tx-v1.0.0.bin` | 1209:A5C0 | `RCTXBOOT` |
+| Receiver | `rx/bootloader-rc_rx-v1.0.0.bin` | 1209:A5C1 | `RCRXBOOT` |
 
-- MCU: ATSAMD21G18A-AU
-- Clock: external 32.768 kHz crystal
-- USB: native USB D+ / D-
-- Boot/status LED: Arduino D13 / `PIN_PA17`
-
-## Files
-
-### Transmitter
-
-- `tx/bootloader-altitude_rc_tx_m0-v4.0.0.bin`
-  - Use this for first-time bootloader flashing with Atmel-ICE/SWD.
-- `tx/update-bootloader-altitude_rc_tx_m0-v4.0.0.uf2`
-  - Use this only after a UF2 bootloader is already installed.
-
-### Receiver
-
-- `rx/bootloader-altitude_rc_rx_m0-v4.0.0.bin`
-  - Use this for first-time bootloader flashing with Atmel-ICE/SWD.
-- `rx/update-bootloader-altitude_rc_rx_m0-v4.0.0.uf2`
-  - Use this only after a UF2 bootloader is already installed.
-
-## Expected UF2 Drive Names
-
-- Transmitter: `RCTXBOOT`
-- Receiver: `RCRXBOOT`
-
-## Note
-
-These bootloaders currently use internal lab USB VID/PID placeholders. Before
-sharing broadly, assign official project USB IDs.
+Install them with an Atmel-ICE and the
+[Altitude SAMD21 Bootloader Flasher](https://github.com/Altitude-Unknown/SAMD21-Bootloader-Flasher),
+which also protects the 8 KB bootloader area. Double-tap RESET to enter the
+bootloader afterwards.
