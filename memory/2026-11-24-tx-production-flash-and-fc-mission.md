@@ -29,7 +29,7 @@
 - Symptom: the M0 flashes OK but doesn't run afterward. It drops off USB and
   comes back only in the bootloader, after a double-tap reset. On the board we
   examined:
-  - The ESP32-C3 answered normally (role `UNCONFIGURED`, MAC 9A:64:9B:1B:0B:C1).
+  - The ESP32-C3 answered normally (role `UNCONFIGURED`).
   - The ESP reported `mode=UNKNOWN` and `samd_lines=1`, so it wasn't hearing
     the M0.
   - Because of that, the configurator could not set the role to Master. The
@@ -64,12 +64,8 @@
   can hold it.
 - The stored mission has 5 items: home plus 4 WAYPOINTs at 100 m relative.
 
-  | # | Lat, Lon | Leg to next waypoint |
-  |---|---|---|
-  | 1 | 45.66386, −111.07842 | 225 m south |
-  | 2 | 45.66185, −111.07846 | 357 m west |
-  | 3 | 45.66176, −111.08306 | 252 m north |
-  | 4 | 45.66401, −111.08349 | — |
+  The waypoints form a box: WP1 to WP2 is 225 m south, WP2 to WP3 357 m west,
+  and WP3 to WP4 252 m north.
 
   There is no TAKEOFF, LAND or DO_JUMP, so:
   - Launch in MANUAL or FBWA, then switch to AUTO in the air.
