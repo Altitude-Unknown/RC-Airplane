@@ -14,10 +14,11 @@ from __future__ import annotations
 
 import math
 import tkinter as tk
-from tkinter import ttk
+from tkinter import messagebox, ttk
 
 import grid_survey as gs
 from app_settings import load_setting, save_setting
+from params_view import ScrollFrame
 
 SETTINGS_KEY = "survey_grid"
 PANEL = "#ffffff"
@@ -40,7 +41,7 @@ class SurveyGridWindow(tk.Toplevel):
         self.transient(app)
         self.configure(bg=PANEL)
         self.resizable(False, True)
-        self.protocol("WM_DELETE_WINDOW", self.close)
+        self.protocol("WM_DELETE_WINDOW", self.cancel)
 
         self.corners: list[tuple[float, float]] = []
         self.box_anchor: tuple[float, float] | None = None  # first click of a box
@@ -76,12 +77,20 @@ class SurveyGridWindow(tk.Toplevel):
         self.map.set_area_editor(self)
         self.update_controls()
         self.schedule_update()
+        self.place_beside_map()
 
     # -- layout ----------------------------------------------------------------------
 
     def _build(self):
-        body = tk.Frame(self, bg=PANEL, padx=16, pady=12)
+        # Stats and buttons are pinned to the bottom so they never fall off a small screen;
+        # the settings above them scroll.
+        footer = tk.Frame(self, bg=PANEL, padx=16, pady=10, highlightbackground="#dde3e8", highlightthickness=1)
+        footer.pack(side="bottom", fill="x")
+        self.scroller = ScrollFrame(self, bg=PANEL)
+        self.scroller.pack(side="top", fill="both", expand=True)
+        body = tk.Frame(self.scroller.body, bg=PANEL, padx=16, pady=12)
         body.pack(fill="both", expand=True)
+        self._body = body
         tk.Label(body, text="Survey Grid", bg=PANEL, fg=TEXT, font=("TkDefaultFont", 15, "bold")).pack(anchor="w")
         tk.Label(body, text="Back-and-forth passes that cover an area, for mapping photos or sensor surveys.",
                  bg=PANEL, fg=MUTED, wraplength=360, justify="left").pack(anchor="w", pady=(2, 10))
@@ -164,18 +173,33 @@ class SurveyGridWindow(tk.Toplevel):
         ttk.Radiobutton(add, text="Replace all waypoints", value=True,
                         variable=self.replace_var).pack(anchor="w")
 
-        self.stats = tk.Label(body, bg=PANEL, fg=TEXT, justify="left", wraplength=360, anchor="w")
-        self.stats.pack(fill="x", pady=(12, 0))
-        self.message = tk.Label(body, bg=PANEL, fg=ERROR, justify="left", wraplength=360, anchor="w")
+        self.stats = tk.Label(footer, bg=PANEL, fg=TEXT, justify="left", wraplength=380, anchor="w")
+        self.stats.pack(fill="x")
+        self.message = tk.Label(footer, bg=PANEL, fg=ERROR, justify="left", wraplength=380, anchor="w")
         self.message.pack(fill="x", pady=(4, 0))
 
-        buttons = ttk.Frame(body)
-        buttons.pack(fill="x", pady=(12, 0))
+        buttons = tk.Frame(footer, bg=PANEL)
+        buttons.pack(fill="x", pady=(8, 0))
         self.add_button = ttk.Button(buttons, text="Add Grid to Mission", style="Accent.TButton", command=self.finish)
         self.add_button.pack(side="right")
-        ttk.Button(buttons, text="Cancel", command=self.close).pack(side="right", padx=(0, 6))
+        ttk.Button(buttons, text="Cancel", command=self.cancel).pack(side="right", padx=(0, 6))
         ttk.Button(buttons, text="Show Area", command=self.fit_area).pack(side="left")
 
+    def place_beside_map(self):
+        """Fit the window on screen and put it over the right side of the app (the Waypoint
+        Editor), leaving the map free to draw on."""
+        self.update_idletasks()
+        self.scroller.canvas.configure(width=self._body.winfo_reqwidth(), height=self._body.winfo_reqheight())
+        self.update_idletasks()
+        app = self.app
+        screen_h = self.winfo_screenheight()
+        width = self.winfo_reqwidth()
+        height = min(self.winfo_reqheight(), screen_h - 140)  # room for the menu bar, title bar and dock
+        x = app.winfo_rootx() + app.winfo_width() - width - 16
+        x = max(0, min(x, self.winfo_screenwidth() - width))
+        y = max(30, min(app.winfo_rooty() + 40, screen_h - height - 90))
+        self.geometry(f"{width}x{height}+{x}+{y}")
+        self.minsize(width, 320)
     def _field(self, parent, label, variable, tip=None):
         row = ttk.Frame(parent)
         row.pack(fill="x", pady=3)
@@ -448,6 +472,20 @@ class SurveyGridWindow(tk.Toplevel):
             "photo_m": photo_m if photo_m and s.spacing_mode == "fixed" else
             (load_setting(SETTINGS_KEY) or {}).get("photo_m", 25),
         })
+
+    def cancel(self):
+        """Cancel or the window's close button: don't silently throw away a planned grid."""
+        self.update_now()
+        if self.result is not None and not self.result.error and self.result.points:
+            answer = messagebox.askyesnocancel(
+                "Survey Grid", f"Add this grid ({len(self.result.points)} waypoints) to the mission?\n\n"
+                "Yes adds it. No discards it. Cancel goes back to editing.", parent=self)
+            if answer is None:
+                return
+            if answer:
+                self.finish()
+                return
+        self.close()
 
     def close(self):
         if self._pending is not None:
