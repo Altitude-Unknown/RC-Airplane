@@ -128,3 +128,9 @@ Key files
 - [MANUAL.md](MANUAL.md)
 
 If you want, I can run a macOS build here (will install PyInstaller) or prepare a Windows build recipe/CI file. Which would you like next?
+
+## License
+
+Software and firmware: MIT ([LICENSE](LICENSE)). Hardware designs: CERN-OHL-P-2.0
+([LICENSE-HARDWARE](LICENSE-HARDWARE)). The ArduPilot flight controller files and
+the PX4-based uploader keep their own licenses; see [LICENSING.md](LICENSING.md).
