@@ -126,7 +126,7 @@ class MissionMap(tk.Frame):
         self.map_menu = tk.Menu(self.map_menu_button, tearoff=0, postcommand=self._fill_menu)
         self.map_menu_button["menu"] = self.map_menu
         self.map_menu_button.pack(side="right", padx=(0, 6))
-        # Layers ▾: base map (street / VFR sectional) and FAA airspace overlays.
+        # Layers ▾: base map (street / VFR sectional / satellite) and FAA airspace overlays.
         self.layers_button = ttk.Menubutton(bar, text="Layers ▾")
         self.layers_menu = tk.Menu(self.layers_button, tearoff=0, postcommand=self._fill_layers_menu)
         self.layers_button["menu"] = self.layers_menu
@@ -288,8 +288,8 @@ class MissionMap(tk.Frame):
         self._update_legend()
 
     def _fetch_tile(self, tile_server, zoom, x, y):
-        if tile_server == airspace.SECTIONAL_TILES:
-            return airspace.sectional_tile(zoom, x, y)
+        if tile_server in airspace.OVERZOOM:
+            return airspace.overzoom_tile(tile_server, zoom, x, y)
         return self._original_fetch(tile_server, zoom, x, y)
 
     def _view_bbox(self):
@@ -438,6 +438,8 @@ class MissionMap(tk.Frame):
         tk.Label(body, text=airspace.DISCLAIMER, bg="#ffffff", fg="#b45309", wraplength=460, justify="left",
                  font=("TkDefaultFont", 12)).pack(anchor="w", pady=(6, 10))
         text = ("VFR sectional chart: FAA Aeronautical Information Services. Closer than zoom 12 the chart is enlarged.\n"
+                "Satellite imagery: USDA and USGS aerial photos from The National Map (United States only). "
+                "Closer than zoom 16 the photo is enlarged.\n"
                 "TFRs: tfr.faa.gov, refreshed every 10 minutes.\n"
                 "UAS Facility Map: the LAANC grid; the number in each square is the maximum altitude (ft above "
                 "ground) the FAA may authorize there.\n"

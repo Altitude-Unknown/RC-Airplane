@@ -146,7 +146,9 @@ python3 tools/sitl_demo_flight.py                              # fly a demo miss
 ```
 
 Map layers (United States): **Layers ▾** switches the base map between the
-street map and the FAA VFR sectional chart, and turns on FAA airspace overlays:
+street map, the FAA VFR sectional chart and satellite imagery (USDA/USGS aerial
+photos from The National Map; sharp to zoom 16, enlarged to zoom 18), and turns
+on FAA airspace overlays:
 TFRs (live from tfr.faa.gov), UAS Facility Map ceilings (the LAANC grid),
 controlled airspace where Part 107 needs authorization (Class B, C, D and the
 Class E surface areas), special use airspace, and national security UAS
