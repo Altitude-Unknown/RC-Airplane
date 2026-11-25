@@ -8,15 +8,17 @@ Backup…**) before changing anything, and tell us what goes wrong.
 
 ## New in this version
 
-- **Transmitter and receiver USB IDs.** The RC Configurator tab finds the
-  transmitter and receiver by their new USB IDs (`1209:A5C0` and `1209:A5C1`,
-  from pid.codes), as well as boards flashed with older firmware. **Firmware
-  Update** installs firmware that uses the new IDs.
+- **Satellite imagery map.** **Layers ▾ → Satellite imagery (US only)** shows
+  aerial photos under your mission, so you can place waypoints on the real
+  field. The imagery is USDA and USGS orthoimagery from The National Map: it
+  covers the United States only, is sharp to zoom 16, and is enlarged (softer)
+  at zooms 17 and 18. The FAA airspace layers still draw on top of it.
 
-Earlier in this beta: dragging waypoints on the map, survey grids that take
-photos by distance (with Camera settings), FAA map layers (VFR sectional chart,
-TFRs, UAS Facility Map, airspace), and the map opening at your location or a
-saved map home.
+Earlier in this beta: transmitter and receiver USB IDs from pid.codes in the RC
+Configurator, dragging waypoints on the map, survey grids that take photos by
+distance (with Camera settings), FAA map layers (VFR sectional chart, TFRs, UAS
+Facility Map, airspace), and the map opening at your location or a saved map
+home.
 
 ## Download
 
