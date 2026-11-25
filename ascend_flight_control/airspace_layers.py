@@ -40,6 +40,11 @@ OSM_TILES = "https://a.tile.openstreetmap.org/{z}/{x}/{y}.png"
 SECTIONAL_TILES = "https://tiles.arcgis.com/tiles/ssFJjBXIUyZDrSYZ/arcgis/rest/services/VFR_Sectional/MapServer/tile/{z}/{y}/{x}"
 SECTIONAL_MAX_NATIVE_ZOOM = 12
 SECTIONAL_MAX_ZOOM = 17
+# USGS The National Map orthoimagery: public domain, United States only. The
+# cache stops at zoom 16 (1:9,028); closer than that the zoom-16 tile is enlarged.
+SATELLITE_TILES = "https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryOnly/MapServer/tile/{z}/{y}/{x}"
+SATELLITE_MAX_NATIVE_ZOOM = 16
+SATELLITE_MAX_ZOOM = 18  # zoom 19 is too blurry to help
 TFR_URL = ("https://tfr.faa.gov/geoserver/TFR/ows?service=WFS&version=1.1.0&request=GetFeature"
            "&typeName=TFR:V_TFR_LOC&maxFeatures=2000&outputFormat=application/json&srsname=EPSG:4326")
 TFR_CACHE_S = 600
@@ -48,7 +53,12 @@ BASE_MAPS = {
     "street": ("Street map", OSM_TILES, 19, "© OpenStreetMap contributors"),
     "sectional": ("VFR sectional chart", SECTIONAL_TILES, SECTIONAL_MAX_ZOOM,
                   "Chart: FAA Aeronautical Information Services · not for navigation"),
+    "satellite": ("Satellite imagery (US only)", SATELLITE_TILES, SATELLITE_MAX_ZOOM,
+                  "Imagery: USDA, USGS The National Map"),
 }
+
+# Tile servers whose deepest zooms are enlarged from a shallower tile: template -> max native zoom.
+OVERZOOM = {SECTIONAL_TILES: SECTIONAL_MAX_NATIVE_ZOOM, SATELLITE_TILES: SATELLITE_MAX_NATIVE_ZOOM}
 
 DISCLAIMER = ("For planning only, not for navigation. These layers come from the FAA and can be out of date "
               "or incomplete. Before every flight, check NOTAMs and TFRs, and get LAANC or DroneZone "
@@ -329,26 +339,33 @@ def short_error(exc: Exception) -> str:
 
 
 # --------------------------------------------------------------------------
-# Sectional tiles closer than zoom 12: enlarge the zoom-12 tile
+# Tiles past a server's deepest zoom: enlarge the deepest tile
+# (sectional chart past zoom 12, satellite imagery past zoom 16)
 # --------------------------------------------------------------------------
 
 _parent_tiles: dict = {}
 _parent_lock = threading.Lock()
 
 
-def sectional_tile(zoom: int, x: int, y: int):
-    """A file-like PNG for sectional tile (zoom, x, y); above zoom 12 it is cut from the zoom-12 tile."""
-    if zoom <= SECTIONAL_MAX_NATIVE_ZOOM:
-        url = SECTIONAL_TILES.replace("{z}", str(zoom)).replace("{x}", str(x)).replace("{y}", str(y))
-        return io.BytesIO(requests.get(url, headers=HEADERS, timeout=TIMEOUT_S).content)
-    shift = zoom - SECTIONAL_MAX_NATIVE_ZOOM
+def _tile_url(template: str, zoom: int, x: int, y: int) -> str:
+    return template.replace("{z}", str(zoom)).replace("{x}", str(x)).replace("{y}", str(y))
+
+
+def overzoom_tile(template: str, zoom: int, x: int, y: int):
+    """A file-like image for tile (zoom, x, y) of `template`; past its OVERZOOM limit the tile is cut
+    from the deepest real tile and enlarged."""
+    native = OVERZOOM[template]
+    if zoom <= native:
+        return io.BytesIO(requests.get(_tile_url(template, zoom, x, y), headers=HEADERS, timeout=TIMEOUT_S).content)
+    shift = zoom - native
     px, py = x >> shift, y >> shift
-    key = (px, py)
+    key = (template, px, py)
     with _parent_lock:
         parent = _parent_tiles.get(key)
     if parent is None:
-        url = SECTIONAL_TILES.replace("{z}", str(SECTIONAL_MAX_NATIVE_ZOOM)).replace("{x}", str(px)).replace("{y}", str(py))
-        parent = Image.open(io.BytesIO(requests.get(url, headers=HEADERS, timeout=TIMEOUT_S).content)).convert("RGB")
+        r = requests.get(_tile_url(template, native, px, py), headers=HEADERS, timeout=TIMEOUT_S)
+        r.raise_for_status()
+        parent = Image.open(io.BytesIO(r.content)).convert("RGB")
         with _parent_lock:
             if len(_parent_tiles) > 64:
                 _parent_tiles.pop(next(iter(_parent_tiles)))
@@ -360,3 +377,8 @@ def sectional_tile(zoom: int, x: int, y: int):
     tile.save(out, "PNG")
     out.seek(0)
     return out
+
+
+def sectional_tile(zoom: int, x: int, y: int):
+    """A file-like PNG for sectional tile (zoom, x, y); above zoom 12 it is cut from the zoom-12 tile."""
+    return overzoom_tile(SECTIONAL_TILES, zoom, x, y)
