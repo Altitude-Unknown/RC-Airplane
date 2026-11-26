@@ -1118,9 +1118,14 @@ sensor):
 The mode switch pairs with the transmitter model's full surface rates at CH5
 low (`ch5_rate_mode 1`). On the transmitter, set **D10 / Trainer** to **Channel 5 —
 Toggle** and **D7 / Aux** to **Channel 6 — Toggle**: D10 then toggles FBWA and
-MANUAL, and D7 toggles AUTO. Both start low at power-up (FBWA, not AUTO). AUTO
-needs a GPS fix and a loaded mission; without them the FC refuses the switch
-and stays in the CH5 mode. On the instructor's radio, D10 cannot be both the
+MANUAL, and D7 toggles AUTO. Both start low at power-up (FBWA, not AUTO).
+Leave AUTO with D7, which returns to the CH5 mode. Pressing D10 in AUTO also
+leaves AUTO, but toggles CH5 to the other mode; CH6 stays high, so the next D7
+press does nothing and a second press enters AUTO. ArduPlane does not check for
+a GPS fix or a mission when the mode changes, so AUTO can be selected on the
+bench without a fix. The arming checks are the guard: the airplane won't arm
+without a 3D GPS fix. With no mission loaded, AUTO ends at once and switches
+to RTL. On the instructor's radio, D10 cannot be both the
 CH5 mode button and the trainer hand-off; choose one per model. The gains were tuned on one airframe; a different
 airplane should run AUTOTUNE starting from them.
 
